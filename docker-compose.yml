@@ -1,0 +1,15 @@
+# -----------------------------------------------------------------------------
+# IRIS Command Center — docker-compose placeholder
+#
+# Phase 0 (project foundation): this file intentionally defines no services.
+# The application is NOT runnable yet.
+#
+# Service definitions (backend API, and any minimal supporting services) will
+# be added in a later implementation phase. This project will not bundle an
+# IRIS instance itself — it connects to an existing IRIS server via the
+# SysAdmin REST APIs.
+# -----------------------------------------------------------------------------
+
+version: "3.9"
+
+services: {}
