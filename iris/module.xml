@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Placeholder — populated in Phase 10 (ZPM package). Will define the IPM module for
+     HealthAnalyzer, Vector Search classes, and aggregated REST endpoints. -->
+<Export generator="IRIS" version="26">
+  <Document name="iris-command-center.ZPM">
+    <Module>
+      <Name>iris-command-center</Name>
+      <Version>0.0.1</Version>
+      <Description>IRIS Command Center — IRIS-side classes (HealthAnalyzer, Vector Search, AI context)</Description>
+    </Module>
+  </Document>
+</Export>

@@ -1,0 +1,34 @@
+# One-command setup: `docker compose up --build`, then open http://localhost:8080.
+# Two containers: `iris` (built from docker/Dockerfile — IRIS plus the Embedded
+# Python bonus modules, pip dependencies, docs corpus, and ISOE classes, all
+# wired up automatically on first boot by docker/install.sh) and `app` (this
+# project's own dependency-free dev-server.mjs, serving the static frontend and
+# proxying /api/* to `iris` — exactly the same server used for local development,
+# not a separate production-only path). See docs/docker.md.
+#
+# Default login once IRIS finishes booting: _SYSTEM / SYS (password unexpired
+# automatically by docker/install.sh). Ask IRIS needs an OpenAI API key added
+# afterward via the Wallets page — see docs/ask-iris.md — since a real external
+# credential is never baked into an image.
+
+services:
+  iris:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "52773:52773"
+    # Port 1972 (the SuperServer/ObjectScript client port) is intentionally not
+    # published: this app talks to IRIS entirely over REST/HTTP (port 52773),
+    # never a direct TCP client connection.
+
+  app:
+    image: node:20-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: ["node", "dev-server.mjs", "--port", "8080", "--target", "http://iris:52773"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      - iris

@@ -1,0 +1,9 @@
+{
+  "name": "iris-command-center",
+  "private": true,
+  "type": "module",
+  "description": "No dependencies, no build step. This file exists only so Node's module resolver treats js/*.js as ES modules when running the test suite (node --test js/tests) — the browser never reads it; index.html loads every script as a module directly via <script type=\"module\">.",
+  "scripts": {
+    "test": "node --experimental-test-module-mocks --test js/tests/*.test.js"
+  }
+}

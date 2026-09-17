@@ -1,0 +1,10 @@
+# Python bytecode caches (from running iris/python/tests/ locally)
+__pycache__/
+*.pyc
+
+# Editor/OS cruft
+.DS_Store
+Thumbs.db
+
+# Working reference material, not part of the app
+videoT.txt
