@@ -60,10 +60,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="web-apps" disabled>
+            <button class="nav-item" type="button" data-view="web-apps">
               <span class="nav-item__icon" aria-hidden="true">&#8981;</span>
               <span>Web Apps</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
           <li>
@@ -337,6 +336,58 @@
                 </tr>
               </thead>
               <tbody id="databases-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-web-apps" data-view="web-apps" aria-labelledby="web-apps-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="web-apps-title">Web Apps</h2>
+              <p class="view__subtitle">Configured web applications on the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="web-apps-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="web-apps-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="web-apps-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="web-apps-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading web applications&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="web-apps-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="web-apps-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="web-apps-connection-detail"></p>
+            <p class="info-panel__meta" id="web-apps-count"></p>
+          </div>
+
+          <p class="empty-state" id="web-apps-empty" hidden>No web applications reported.</p>
+
+          <div class="table-wrapper" id="web-apps-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Namespace</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Enabled</th>
+                  <th scope="col">Auth Methods</th>
+                  <th scope="col">Resource</th>
+                  <th scope="col">System App</th>
+                  <th scope="col">Dispatch Class</th>
+                </tr>
+              </thead>
+              <tbody id="web-apps-table-body"></tbody>
             </table>
           </div>
         </section>

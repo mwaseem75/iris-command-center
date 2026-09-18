@@ -7,7 +7,8 @@ FastAPI app to compare routes — see backend/.venv)
 Checks, per Phase 3 Step 1's minimum bar ("verify the frontend can be
 served and that its API paths match the existing backend routes"),
 extended in Phase 3 Step 2 for the System view, Phase 3 Step 3 for the
-Processes view, and Phase 3 Step 4 for the Databases view:
+Processes view, Phase 3 Step 4 for the Databases view, and Phase 3 Step 5
+for the Web Apps view:
 
 1. The expected frontend files exist and are non-empty.
 2. A plain static file server can actually serve frontend/index.html.
@@ -25,10 +26,14 @@ Processes view, and Phase 3 Step 4 for the Databases view:
    nav item is enabled (not `disabled`).
 9. (Step 4) databases.js calls GET /api/iris/databases and no other
    endpoint, and renders into the databases table body.
-10. (general regression guard) No mutating HTTP method string
+10. (Step 5) The Web Apps nav item and view exist in the markup and the
+    nav item is enabled (not `disabled`).
+11. (Step 5) web-apps.js calls GET /api/iris/web-apps and no other
+    endpoint, and renders into the web apps table body.
+12. (general regression guard) No mutating HTTP method string
     ("PUT"/"POST"/"DELETE"/"PATCH") appears anywhere in frontend/js/*.js —
     this is intentionally broad so it keeps guarding every future view,
-    not just System/Processes/Databases.
+    not just System/Processes/Databases/Web Apps.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -66,6 +71,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "nav.js",
         FRONTEND_DIR / "js" / "processes.js",
         FRONTEND_DIR / "js" / "databases.js",
+        FRONTEND_DIR / "js" / "web-apps.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -222,6 +228,45 @@ def test_databases_view_uses_only_get_databases() -> None:
     )
 
 
+def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the Web Apps nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="web-apps"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"web-apps\" exists")
+    check("disabled" not in nav_match.group(0), "the Web Apps nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-web-apps"[^>]*data-view="web-apps"[^>]*>', html
+    )
+    check(view_match is not None, 'a <section id="view-web-apps" data-view="web-apps"> exists')
+
+    check('id="web-apps-table-body"' in html, "the web apps table body element exists")
+
+
+def test_web_apps_view_uses_only_get_web_apps() -> None:
+    print("Checking web-apps.js calls GET /api/iris/web-apps and nothing else...")
+    web_apps_js = (FRONTEND_DIR / "js" / "web-apps.js").read_text(encoding="utf-8")
+
+    check("IrisApi.getWebApps" in web_apps_js, "web-apps.js calls IrisApi.getWebApps()")
+    other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getTasks"]
+    for method in other_methods:
+        check(method not in web_apps_js, f"web-apps.js does NOT call IrisApi.{method}()")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', web_apps_js))
+    check(
+        referenced_paths in ({"/api/iris/web-apps"}, set()),
+        f"web-apps.js references only /api/iris/web-apps as a literal path "
+        f"(found: {referenced_paths or 'none, uses IrisApi.getWebApps()'})",
+    )
+    check(
+        "web-apps-table-body" in web_apps_js,
+        "web-apps.js renders into the web apps table body element",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
     js_dir = FRONTEND_DIR / "js"
@@ -249,6 +294,8 @@ def main() -> None:
         test_processes_view_uses_only_get_processes,
         test_databases_nav_and_view_exist_and_are_enabled,
         test_databases_view_uses_only_get_databases,
+        test_web_apps_nav_and_view_exist_and_are_enabled,
+        test_web_apps_view_uses_only_get_web_apps,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:
