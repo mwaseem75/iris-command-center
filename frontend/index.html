@@ -48,10 +48,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="processes" disabled>
+            <button class="nav-item" type="button" data-view="processes">
               <span class="nav-item__icon" aria-hidden="true">&#9646;&#9646;</span>
               <span>Processes</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
           <li>
@@ -236,6 +235,59 @@
               <ul class="privilege-list" id="system-privileges-list"></ul>
               <p class="info-card__empty" id="system-privileges-empty" hidden>No privilege information available.</p>
             </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-processes" data-view="processes" aria-labelledby="processes-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="processes-title">Processes</h2>
+              <p class="view__subtitle">Running processes and jobs on the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="processes-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="processes-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="processes-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="processes-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading processes&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="processes-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="processes-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="processes-connection-detail"></p>
+            <p class="info-panel__meta" id="processes-count"></p>
+          </div>
+
+          <p class="empty-state" id="processes-empty" hidden>No processes reported.</p>
+
+          <div class="table-wrapper" id="processes-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">PID</th>
+                  <th scope="col">Job</th>
+                  <th scope="col">Namespace</th>
+                  <th scope="col">Username</th>
+                  <th scope="col">Routine</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Device</th>
+                  <th scope="col">Elapsed Time</th>
+                  <th scope="col">CPU Time</th>
+                </tr>
+              </thead>
+              <tbody id="processes-table-body"></tbody>
+            </table>
           </div>
         </section>
 
