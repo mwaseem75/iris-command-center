@@ -5,3 +5,4 @@ pydantic
 pydantic-settings
 python-dotenv
 pytest
+pytest-asyncio

@@ -118,6 +118,21 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.HIGH,
         confirmation_required=True,
     ),
+    "demo.safe-operation": OperationDefinition(
+        name="demo.safe-operation",
+        description=(
+            "Phase 2 Step 5 demonstration/test operation for the OperationExecutor "
+            "framework. Its handler (app/execution/demo_handler.py) NEVER calls IRIS, "
+            "in dry-run or otherwise — it only returns a deterministic, synthetic "
+            "simulation result. It exists purely to exercise the execution framework "
+            "end-to-end (authorization, confirmation, dry-run, handler dispatch) "
+            "without any real IRIS mutation existing anywhere in this project yet."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privilege=IRISPrivilege.MANAGE,
+        risk_level=RiskLevel.LOW,
+        confirmation_required=True,
+    ),
 }
 
 
