@@ -33,7 +33,7 @@ class RiskLevel(str, Enum):
 
 
 class OperationDefinition(BaseModel):
-    """Immutable description of one operation. Two invariants are enforced
+    """Immutable description of one operation. Three invariants are enforced
     at construction time, not left to callers to remember:
 
     - A read-only operation can never require confirmation (there is
@@ -45,6 +45,16 @@ class OperationDefinition(BaseModel):
       must require explicit, unambiguous confirmation before executing any
       mutating operation" with no stated exception. There is no flag
       anywhere to construct a mutating operation that skips confirmation.
+    - `required_privileges` must be non-empty.
+
+    `required_privileges` is a set of ALTERNATIVES — the caller needs to
+    hold ANY ONE of them, matching how mainspec_v2.json documents most
+    operations (e.g. "%Admin_Manage:U or %Admin_Journal:U"). A single-member
+    set behaves exactly like the earlier single-privilege model it replaces
+    (Phase 2 Step 7 — see docs/authorization-model.md's "Known
+    Simplifications" section for the earlier limitation this resolves).
+    Nothing here invents a new privilege: every member must already be an
+    `IRISPrivilege` enum value.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -52,7 +62,7 @@ class OperationDefinition(BaseModel):
     name: str
     description: str
     kind: OperationKind
-    required_privilege: IRISPrivilege
+    required_privileges: frozenset[IRISPrivilege]
     risk_level: RiskLevel
     confirmation_required: bool
 
@@ -70,29 +80,25 @@ class OperationDefinition(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _required_privileges_not_empty(self) -> "OperationDefinition":
+        if not self.required_privileges:
+            raise ValueError(f"Operation {self.name!r} must require at least one privilege.")
+        return self
+
 
 # --- The registry ---
 #
 # Read-only entries below correspond to the already-implemented, already
 # real-container-verified routes in app/routes/iris.py — see
 # docs/api-capability-matrix.md for their verification record.
-#
-# Exactly one illustrative MUTATING entry is included, to give the
-# authorization layer (and its tests) something real to exercise the
-# confirmation-gating path against. It corresponds to a real operation
-# documented in spec/mainspec_v2.json (`DELETE /v2/task`, which the spec
-# lists as requiring "%Admin_Operate:U or %Admin_Task:U" — simplified here
-# to a single required privilege, Task, since this step's operation model
-# supports one privilege per operation; see docs/authorization-model.md for
-# why). It is registry metadata only: THIS STEP DOES NOT IMPLEMENT, WIRE UP,
-# OR CALL this or any other mutating IRIS endpoint. No route exists for it.
 
 OPERATION_REGISTRY: dict[str, OperationDefinition] = {
     "list_tasks": OperationDefinition(
         name="list_tasks",
         description="View a list of scheduled system tasks (GET /api/iris/tasks).",
         kind=OperationKind.READ_ONLY,
-        required_privilege=IRISPrivilege.TASK,
+        required_privileges=frozenset({IRISPrivilege.TASK}),
         risk_level=RiskLevel.NONE,
         confirmation_required=False,
     ),
@@ -100,7 +106,7 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         name="list_namespaces",
         description="View a list of namespaces (GET /api/iris/namespaces).",
         kind=OperationKind.READ_ONLY,
-        required_privilege=IRISPrivilege.MANAGE,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
         risk_level=RiskLevel.NONE,
         confirmation_required=False,
     ),
@@ -109,12 +115,14 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         description=(
             "Illustrative/example only — NOT implemented or callable anywhere in this "
             "project yet. Corresponds to the spec-documented `DELETE /v2/task` "
-            "operation. Exists solely so the authorization layer's confirmation-gating "
-            "behavior for mutating operations has a real, grounded example to be "
-            "tested against."
+            "operation, which mainspec_v2.json lists as requiring "
+            "\"%Admin_Operate:U or %Admin_Task:U\" — now represented exactly as that "
+            "OR, since Phase 2 Step 7 added multi-privilege support. Exists solely so "
+            "the authorization layer's confirmation-gating behavior for mutating "
+            "operations has a real, grounded example to be tested against."
         ),
         kind=OperationKind.MUTATING,
-        required_privilege=IRISPrivilege.TASK,
+        required_privileges=frozenset({IRISPrivilege.OPERATE, IRISPrivilege.TASK}),
         risk_level=RiskLevel.HIGH,
         confirmation_required=True,
     ),
@@ -129,7 +137,25 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
             "without any real IRIS mutation existing anywhere in this project yet."
         ),
         kind=OperationKind.MUTATING,
-        required_privilege=IRISPrivilege.MANAGE,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.LOW,
+        confirmation_required=True,
+    ),
+    "journal.update_purge_archived": OperationDefinition(
+        name="journal.update_purge_archived",
+        description=(
+            "Update the IRIS journal 'Purge Archived Files' setting "
+            "(PUT /api/admin/v2/journal/settings, PurgeArchived field only). "
+            "Selected as the project's first real mutating operation per "
+            "docs/first-mutation-selection.md. As of Phase 2 Step 7, this is "
+            "implemented (handler + route) but has NOT been executed against any "
+            "real IRIS instance — see docs/first-mutation-implementation.md. "
+            "Chosen because archiving is not configured on icc-iris-dev "
+            "(ArchiveName was empty in every Phase 1 observation), so this specific "
+            "field has no practical effect on that instance today."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.MANAGE, IRISPrivilege.JOURNAL}),
         risk_level=RiskLevel.LOW,
         confirmation_required=True,
     ),

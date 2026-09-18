@@ -224,6 +224,30 @@ async def test_handler_raising_an_exception_becomes_structured_execution_failure
     assert "password" not in result.detail.lower()
 
 
+@pytest.mark.asyncio
+async def test_handler_dry_run_raising_an_exception_becomes_structured_failure_not_a_crash() -> None:
+    """A dry-run's own read(s) can genuinely fail once a handler performs
+    real IO (see JournalUpdatePurgeArchivedHandler.dry_run, Phase 2 Step 7)
+    — this must be caught exactly like an execute() failure, never left to
+    propagate as an unhandled exception out of the executor."""
+
+    class RaisingOnDryRunHandler(OperationHandler):
+        async def dry_run(self, request, context):  # noqa: D102
+            raise RuntimeError("simulated read failure during dry run — never a real PUT")
+
+        async def execute(self, request, context):  # noqa: D102
+            raise AssertionError("not used in this test")
+
+    executor = OperationExecutor({"demo.safe-operation": RaisingOnDryRunHandler()})
+    context = _context(confirmed=True, dry_run=True)
+
+    result = await executor.execute(_request(), context)
+
+    assert result.status is OperationResultStatus.EXECUTION_FAILED
+    assert "credential" not in result.detail.lower()
+    assert "password" not in result.detail.lower()
+
+
 # --- 9. Post-action verification failure is represented separately ---
 
 

@@ -47,9 +47,10 @@ def authorize(
         )
 
     confirmed_privileges = parse_available_privileges(available_privileges)
-    has_privilege = operation.required_privilege in confirmed_privileges
+    has_privilege = bool(operation.required_privileges & confirmed_privileges)
 
     if not has_privilege:
+        required_names = sorted(p.value for p in operation.required_privileges)
         return AuthorizationResult(
             operation_name=operation_name,
             authorized=False,
@@ -58,9 +59,9 @@ def authorize(
             can_proceed=False,
             denial_reason=AuthorizationDenialReason.MISSING_PRIVILEGE,
             detail=(
-                f"Operation {operation_name!r} requires the "
-                f"{operation.required_privilege.value!r} privilege, which was not "
-                "found among the caller's confirmed available privileges."
+                f"Operation {operation_name!r} requires one of {required_names} "
+                "privileges, none of which were found among the caller's confirmed "
+                "available privileges."
             ),
         )
 

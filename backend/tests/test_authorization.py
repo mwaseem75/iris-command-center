@@ -108,10 +108,10 @@ def test_config_store_claim_is_silently_dropped_not_granted() -> None:
 
 def test_operation_cannot_require_config_store() -> None:
     """No operation in the registry requires ConfigStore, and none could:
-    OperationDefinition.required_privilege is typed as IRISPrivilege, which
-    has no ConfigStore member at all."""
+    OperationDefinition.required_privileges is typed as frozenset[IRISPrivilege],
+    which has no ConfigStore member at all."""
     for operation in OPERATION_REGISTRY.values():
-        assert operation.required_privilege.value != "ConfigStore"
+        assert all(p.value != "ConfigStore" for p in operation.required_privileges)
 
     with pytest.raises(ValueError):
         IRISPrivilege("ConfigStore")
@@ -160,7 +160,7 @@ def test_read_only_operation_cannot_require_confirmation() -> None:
             name="bad",
             description="invalid",
             kind=OperationKind.READ_ONLY,
-            required_privilege=IRISPrivilege.MANAGE,
+            required_privileges=frozenset({IRISPrivilege.MANAGE}),
             risk_level=RiskLevel.NONE,
             confirmation_required=True,
         )
@@ -172,8 +172,20 @@ def test_mutating_operation_cannot_skip_confirmation() -> None:
             name="bad",
             description="invalid",
             kind=OperationKind.MUTATING,
-            required_privilege=IRISPrivilege.MANAGE,
+            required_privileges=frozenset({IRISPrivilege.MANAGE}),
             risk_level=RiskLevel.HIGH,
+            confirmation_required=False,
+        )
+
+
+def test_operation_cannot_require_zero_privileges() -> None:
+    with pytest.raises(ValidationError):
+        OperationDefinition(
+            name="bad",
+            description="invalid",
+            kind=OperationKind.READ_ONLY,
+            required_privileges=frozenset(),
+            risk_level=RiskLevel.NONE,
             confirmation_required=False,
         )
 
@@ -185,7 +197,34 @@ def test_operation_registry_has_no_bypass_or_force_fields() -> None:
         "name",
         "description",
         "kind",
-        "required_privilege",
+        "required_privileges",
         "risk_level",
         "confirmation_required",
     }
+
+
+def test_authorize_grants_with_either_privilege_in_an_or_set() -> None:
+    """journal.update_purge_archived requires Manage OR Journal — either
+    alone must be sufficient, proving the OR semantics actually work."""
+    manage_result = authorize(
+        "journal.update_purge_archived", available_privileges=["Manage"], confirmation_received=True
+    )
+    journal_result = authorize(
+        "journal.update_purge_archived", available_privileges=["Journal"], confirmation_received=True
+    )
+
+    assert manage_result.authorized is True
+    assert manage_result.can_proceed is True
+    assert journal_result.authorized is True
+    assert journal_result.can_proceed is True
+
+
+def test_authorize_denies_when_neither_privilege_in_an_or_set_is_held() -> None:
+    result = authorize(
+        "journal.update_purge_archived",
+        available_privileges=["Operate", "Secure"],
+        confirmation_received=True,
+    )
+
+    assert result.authorized is False
+    assert result.denial_reason is AuthorizationDenialReason.MISSING_PRIVILEGE

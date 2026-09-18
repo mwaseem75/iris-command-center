@@ -86,7 +86,21 @@ class OperationExecutor:
             )
 
         if context.dry_run:
-            handler_result = await handler.dry_run(request, context)
+            # A dry-run's own GET(s) can genuinely fail once a handler
+            # performs real IO (Phase 2 Step 7's journal handler is the
+            # first to) — caught the same way a real execute() failure is,
+            # so a dry-run NEVER crashes out as an unhandled exception. No
+            # mutation risk either way: handler.execute() is not reachable
+            # from this branch regardless of what happens here.
+            try:
+                handler_result = await handler.dry_run(request, context)
+            except Exception as exc:  # noqa: BLE001 - a handler bug must not crash the executor
+                return OperationResult(
+                    operation_name=request.operation_name,
+                    status=OperationResultStatus.EXECUTION_FAILED,
+                    authorization=auth_result,
+                    detail=f"Dry run could not complete: {exc.__class__.__name__}",
+                )
             return OperationResult(
                 operation_name=request.operation_name,
                 status=OperationResultStatus.DRY_RUN,
