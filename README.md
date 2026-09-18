@@ -62,13 +62,13 @@ These principles govern the design of every future phase of this project:
 
 ## Current Development Status
 
-**Phase 0 — Project Foundation.** This phase establishes documentation, repository structure, and planning artifacts only. Explicitly out of scope for this phase: backend functionality, frontend screens, authentication, AI functionality, and any runnable application code.
+**Phase 3, Step 1 (in progress).** Phase 0 (foundation/docs) and Phase 2 (FastAPI backend: 13 verified read-only IRIS endpoints, a privilege-aware authorization layer, and one real mutating operation implemented but never yet executed against a live instance — see `docs/`) are complete. Phase 3 has just begun: a first frontend dashboard shell (`frontend/`) exists, showing read-only IRIS data via the backend's API. Most planned screens, authentication, and AI functionality remain unimplemented.
 
 This project is being developed for the **InterSystems Developer Community programming contest**.
 
 ## Screenshots
 
-_Not yet available. This project has no frontend implementation yet. Screenshots will be added once Phase 0 restrictions are lifted and UI work begins._
+A first dashboard screen exists (Phase 3, Step 1) — see `docs/frontend.md` for what it shows and how to run it locally. No image is embedded in this README yet.
 
 ## Demo Video
 
@@ -76,11 +76,15 @@ _Not yet available._
 
 ## Installation
 
-_Not yet available. Implementation has not started — there is no application to install or run yet._
+**Backend:** see `backend/.env.example` for required configuration, then run the FastAPI app from `backend/` (`uvicorn app.main:app --reload --port 8000`) inside its virtual environment.
+
+**Frontend:** see [`docs/frontend.md`](docs/frontend.md) — a plain static file server (e.g. `python -m http.server`) serving `frontend/index.html` is all that's required; no build step.
+
+Only a subset of the product is implemented so far — see "Current Development Status" above and `docs/product-requirements.md` for what remains.
 
 ## Configuration
 
-_Not yet available. See [`.env.example`](./.env.example) for the placeholder configuration keys planned for future phases (IRIS connection details, AI provider settings, application host/port). None of these are consumed by any code yet._
+See [`.env.example`](./.env.example) (project-level) and [`backend/.env.example`](backend/.env.example) (backend-specific) for configuration keys. IRIS connection details and application host/port are consumed by the backend today; AI provider configuration remains a placeholder, not yet consumed by any code.
 
 ---
 
@@ -89,6 +93,7 @@ _Not yet available. See [`.env.example`](./.env.example) for the placeholder con
 - [Product Requirements](docs/product-requirements.md)
 - [Architecture (planned)](docs/architecture.md)
 - [API Capability Matrix](docs/api-capability-matrix.md)
+- [Frontend](docs/frontend.md)
 
 ## Implementation Status Notice
 
