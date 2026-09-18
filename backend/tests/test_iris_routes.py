@@ -13,17 +13,14 @@ entries, not fabricated ones.
 from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_iris_client
 from app.iris_client.exceptions import (
     IRISAuthError,
     IRISConnectionError,
     IRISResponseError,
     IRISTimeoutError,
 )
-from app.main import app
 
 INFO_BODY: dict[str, Any] = {
     "status": {"errors": [], "summary": ""},
@@ -149,19 +146,8 @@ PROCESSES_BODY: dict[str, Any] = {
 }
 
 
-@pytest.fixture
-def mock_iris_client() -> AsyncMock:
-    return AsyncMock()
-
-
-@pytest.fixture
-def client(mock_iris_client: AsyncMock) -> TestClient:
-    app.dependency_overrides[get_iris_client] = lambda: mock_iris_client
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.clear()
-
+# mock_iris_client/client fixtures now live in conftest.py, shared across
+# all IRIS route test files.
 
 # --- Successful responses + client-interaction (proves routes delegate to
 #     the shared client rather than duplicating auth/request logic) ---

@@ -5,6 +5,15 @@ IRIS 2026.2 instance (see docs/api-capability-matrix.md), not as guessed from
 mainspec_v2.json alone. Where the spec and the observed response disagree,
 the model follows the observed response, and the discrepancy is noted below.
 
+Several of the Step 3 endpoints (fs-access-purposes, the OAuth2 client/server
+list endpoints, wallet collections) were only ever observed returning an
+EMPTY result on this instance — no populated entry was ever seen, so no
+entry shape is modeled for them; `result` is typed permissively
+(`list[Any]`) rather than inventing fields. Likewise, GET
+/v2/security/oauth2/server was only ever observed returning its documented
+404 "not configured" case, never a real success body, so its `result` is
+typed as a permissive `dict[str, Any]` rather than a guessed schema.
+
 Known, deliberate divergence from mainspec_v2.json's schemas:
   - The spec's `LoginResponse`/`Info` schemas describe some fields as flat
     (no wrapper) or unwrapped; the actually observed response for every
@@ -118,3 +127,73 @@ class ProcessEntry(BaseModel):
     CPUTime: int
     ParentPid: int
     ElapsedTime: str
+
+
+# --- GET /v2/web-apps ---
+
+
+class WebAppEntry(BaseModel):
+    Name: str
+    Namespace: str
+    NamespaceDefault: bool
+    Enabled: bool
+    Type: str
+    Resource: str
+    AuthenticationMethods: list[str]
+    IsSystemApp: bool
+    DispatchClass: str
+
+
+# --- GET /v2/ext-lang-servers ---
+
+
+class ExternalLanguageServerEntry(BaseModel):
+    Name: str
+    Port: int
+    Type: str
+
+
+# --- GET /v2/tasks ---
+
+
+class TaskEntry(BaseModel):
+    Name: str
+    Type: str
+    Namespace: str
+    Description: str
+    Id: int
+    Suspended: bool
+    LastFinished: str
+    NextScheduled: str
+
+
+# --- GET /v2/journal/settings ---
+
+
+class JournalSettings(BaseModel):
+    AlternateDirectory: str
+    ArchiveName: str
+    BackupsBeforePurge: int
+    CurrentDirectory: str
+    DaysBeforePurge: int
+    FileSizeLimit: int
+    FreezeOnError: bool
+    JournalFilePrefix: str
+    JournalcspSession: bool
+    PurgeArchived: bool
+    CompressFiles: bool
+    wijdir: str
+    targwijsz: int
+
+
+# --- Endpoints whose result entry shape has never been observed populated:
+#     GET /v2/fs-access-purposes, GET /v2/security/oauth2/client/server-definitions,
+#     GET /v2/security/oauth2/server/clients, GET /v2/wallet/collections.
+#     `result` is `list[Any]` for these — see module docstring. No dedicated
+#     entry model is defined, since defining one would mean inventing fields
+#     that have never actually been observed. ---
+
+# --- GET /v2/security/oauth2/server: only ever observed returning its
+#     documented 404 "not configured" case — no success body has ever been
+#     observed, so `result` is `dict[str, Any]` rather than a guessed schema.
+#     See module docstring. ---

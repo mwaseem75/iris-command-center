@@ -7,6 +7,8 @@ Only GET requests are made against IRIS. No mutating call exists anywhere
 in this module.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import get_iris_client
@@ -17,7 +19,17 @@ from app.iris_client.exceptions import (
     IRISResponseError,
     IRISTimeoutError,
 )
-from app.models.iris import DatabaseEntry, InfoResult, IRISEnvelope, NamespaceEntry, ProcessEntry
+from app.models.iris import (
+    DatabaseEntry,
+    ExternalLanguageServerEntry,
+    InfoResult,
+    IRISEnvelope,
+    JournalSettings,
+    NamespaceEntry,
+    ProcessEntry,
+    TaskEntry,
+    WebAppEntry,
+)
 
 router = APIRouter(prefix="/api/iris", tags=["iris"])
 
@@ -88,3 +100,122 @@ async def get_processes(
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[list[ProcessEntry]].model_validate(raw)
+
+
+@router.get("/web-apps", response_model=IRISEnvelope[list[WebAppEntry]])
+async def get_web_apps(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[WebAppEntry]]:
+    try:
+        raw = await client.get("/v2/web-apps")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[WebAppEntry]].model_validate(raw)
+
+
+@router.get("/ext-lang-servers", response_model=IRISEnvelope[list[ExternalLanguageServerEntry]])
+async def get_ext_lang_servers(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[ExternalLanguageServerEntry]]:
+    try:
+        raw = await client.get("/v2/ext-lang-servers")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[ExternalLanguageServerEntry]].model_validate(raw)
+
+
+@router.get("/tasks", response_model=IRISEnvelope[list[TaskEntry]])
+async def get_tasks(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[list[TaskEntry]]:
+    try:
+        raw = await client.get("/v2/tasks")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[TaskEntry]].model_validate(raw)
+
+
+@router.get("/fs-access-purposes", response_model=IRISEnvelope[list[Any]])
+async def get_fs_access_purposes(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[Any]]:
+    # No entry shape has ever been observed populated on this instance
+    # (result was always []); see app/models/iris.py's module docstring.
+    try:
+        raw = await client.get("/v2/fs-access-purposes")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[Any]].model_validate(raw)
+
+
+@router.get("/journal/settings", response_model=IRISEnvelope[JournalSettings])
+async def get_journal_settings(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[JournalSettings]:
+    try:
+        raw = await client.get("/v2/journal/settings")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[JournalSettings].model_validate(raw)
+
+
+@router.get("/security/oauth2/server", response_model=IRISEnvelope[dict[str, Any]])
+async def get_oauth2_server(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[dict[str, Any]]:
+    """View this instance's OAuth2 Authorization Server configuration.
+
+    IRIS returns a documented, valid `404` when it isn't configured to act
+    as an OAuth2 Authorization Server (see api-capability-matrix.md) — that
+    is an application-level fact, not a communication failure. This route
+    treats it as a normal, successful read: it returns HTTP 200 with the
+    real status/console/result body IRIS sent, rather than propagating it
+    as an upstream error. A real "configured" success body has never been
+    observed on this instance, so `result` is typed permissively.
+    """
+    try:
+        raw = await client.get("/v2/security/oauth2/server")
+    except IRISResponseError as exc:
+        if exc.status_code == 404 and exc.body is not None:
+            return IRISEnvelope[dict[str, Any]].model_validate(exc.body)
+        raise _as_http_exception(exc) from exc
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[dict[str, Any]].model_validate(raw)
+
+
+@router.get(
+    "/security/oauth2/client/server-definitions",
+    response_model=IRISEnvelope[list[Any]],
+)
+async def get_oauth2_client_server_definitions(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[Any]]:
+    # No entry shape has ever been observed populated (result was always []).
+    try:
+        raw = await client.get("/v2/security/oauth2/client/server-definitions")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[Any]].model_validate(raw)
+
+
+@router.get("/security/oauth2/server/clients", response_model=IRISEnvelope[list[Any]])
+async def get_oauth2_server_clients(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[Any]]:
+    # No entry shape has ever been observed populated (result was always []).
+    try:
+        raw = await client.get("/v2/security/oauth2/server/clients")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[Any]].model_validate(raw)
+
+
+@router.get("/wallet/collections", response_model=IRISEnvelope[list[Any]])
+async def get_wallet_collections(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[Any]]:
+    # No entry shape has ever been observed populated (result was always []).
+    try:
+        raw = await client.get("/v2/wallet/collections")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[Any]].model_validate(raw)

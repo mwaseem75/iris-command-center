@@ -71,7 +71,11 @@ class IRISClient:
             # OAuth2 simply isn't configured — see api-capability-matrix.md).
             # This generic client always raises on 4xx/5xx; callers that need
             # to treat a specific documented status as non-error should catch
-            # IRISResponseError and inspect .status_code themselves.
-            raise IRISResponseError(response.status_code)
+            # IRISResponseError and inspect .status_code / .body themselves.
+            try:
+                error_body = response.json()
+            except ValueError:
+                error_body = None
+            raise IRISResponseError(response.status_code, body=error_body)
 
         return response.json()
