@@ -42,10 +42,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="system" disabled>
+            <button class="nav-item" type="button" data-view="system">
               <span class="nav-item__icon" aria-hidden="true">&#9881;</span>
               <span>System</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
           <li>
@@ -108,7 +107,7 @@
       </nav>
 
       <main class="content" id="content">
-        <section class="view" id="view-dashboard" aria-labelledby="dashboard-title">
+        <section class="view" id="view-dashboard" data-view="dashboard" aria-labelledby="dashboard-title">
           <div class="view__header">
             <div>
               <h2 class="view__title" id="dashboard-title">Dashboard</h2>
@@ -164,6 +163,80 @@
           </div>
 
           <p class="last-updated" id="last-updated"></p>
+        </section>
+
+        <section class="view" id="view-system" data-view="system" aria-labelledby="system-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="system-title">System</h2>
+              <p class="view__subtitle">Connection, version, and session detail for the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="system-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="system-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="system-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="system-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading system information&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="system-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="system-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="system-connection-detail"></p>
+          </div>
+
+          <div class="info-grid">
+            <section class="info-card" aria-labelledby="system-info-title">
+              <h3 class="info-card__title" id="system-info-title">IRIS Information</h3>
+              <dl class="info-list">
+                <div class="info-list__row">
+                  <dt>Product</dt>
+                  <dd class="info-list__value" id="system-product">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>Server Version</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-server-version">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>API Version</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-api-version">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>System Mode</dt>
+                  <dd class="info-list__value" id="system-mode">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>Authenticated As</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-username">&mdash;</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section class="info-card" aria-labelledby="system-namespaces-title">
+              <h3 class="info-card__title" id="system-namespaces-title">Namespaces</h3>
+              <ul class="tag-list" id="system-namespaces-list"></ul>
+              <p class="info-card__empty" id="system-namespaces-empty" hidden>No namespaces reported.</p>
+            </section>
+
+            <section class="info-card info-card--wide" aria-labelledby="system-privileges-title">
+              <h3 class="info-card__title" id="system-privileges-title">Session Privileges</h3>
+              <p class="info-card__hint">
+                Admin privileges held by the backend&rsquo;s current IRIS session &mdash; informational only, not a credential.
+              </p>
+              <ul class="privilege-list" id="system-privileges-list"></ul>
+              <p class="info-card__empty" id="system-privileges-empty" hidden>No privilege information available.</p>
+            </section>
+          </div>
         </section>
 
         <section class="view view--placeholder" id="view-placeholder" hidden>

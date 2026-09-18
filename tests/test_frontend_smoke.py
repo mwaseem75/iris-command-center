@@ -5,13 +5,21 @@ Run directly:  python tests/test_frontend_smoke.py
 FastAPI app to compare routes — see backend/.venv)
 
 Checks, per Phase 3 Step 1's minimum bar ("verify the frontend can be
-served and that its API paths match the existing backend routes"):
+served and that its API paths match the existing backend routes"),
+extended in Phase 3 Step 2 for the System view:
 
 1. The expected frontend files exist and are non-empty.
 2. A plain static file server can actually serve frontend/index.html.
 3. Every /api/iris/* path referenced in frontend/js/api.js is a REAL,
    currently-registered route on the backend FastAPI app (compared via the
    app's own OpenAPI schema, not by guessing/duplicating the route list).
+4. (Step 2) The System nav item and view exist in the markup and the nav
+   item is enabled (not `disabled`).
+5. (Step 2) system.js calls GET /api/iris/info and no other endpoint.
+6. (Step 2, general regression guard) No mutating HTTP method string
+   ("PUT"/"POST"/"DELETE"/"PATCH") appears anywhere in frontend/js/*.js —
+   this is intentionally broad so it keeps guarding every future view,
+   not just System.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -45,6 +53,8 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "app.js",
         FRONTEND_DIR / "js" / "api.js",
         FRONTEND_DIR / "js" / "dashboard.js",
+        FRONTEND_DIR / "js" / "system.js",
+        FRONTEND_DIR / "js" / "nav.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -93,11 +103,60 @@ def test_api_paths_match_real_backend_routes() -> None:
         check(path in registered_paths, f"{path} is a real registered backend route")
 
 
+def test_system_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the System nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="system"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"system\" exists")
+    check("disabled" not in nav_match.group(0), "the System nav-item is NOT disabled")
+
+    view_match = re.search(r'<section[^>]*id="view-system"[^>]*data-view="system"[^>]*>', html)
+    check(view_match is not None, 'a <section id="view-system" data-view="system"> exists')
+
+
+def test_system_view_uses_only_get_info() -> None:
+    print("Checking system.js calls GET /api/iris/info and nothing else...")
+    system_js = (FRONTEND_DIR / "js" / "system.js").read_text(encoding="utf-8")
+
+    check("IrisApi.getInfo" in system_js, "system.js calls IrisApi.getInfo()")
+    other_methods = ["getNamespaces", "getDatabases", "getProcesses", "getWebApps", "getTasks"]
+    for method in other_methods:
+        check(method not in system_js, f"system.js does NOT call IrisApi.{method}()")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', system_js))
+    check(
+        referenced_paths in ({"/api/iris/info"}, set()),
+        f"system.js references only /api/iris/info as a literal path (found: {referenced_paths or 'none, uses IrisApi.getInfo()'})",
+    )
+
+
+def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
+    js_dir = FRONTEND_DIR / "js"
+    mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
+    for js_file in sorted(js_dir.glob("*.js")):
+        content = js_file.read_text(encoding="utf-8")
+        for method in mutating_methods:
+            # Looks for the method as a quoted HTTP verb (e.g. method: "POST"),
+            # not as an incidental substring (e.g. a word containing "post").
+            pattern = rf'["\']{method}["\']'
+            check(
+                re.search(pattern, content) is None,
+                f"{js_file.relative_to(REPO_ROOT)} does not reference HTTP method {method!r}",
+            )
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
         test_frontend_can_be_served,
         test_api_paths_match_real_backend_routes,
+        test_system_nav_and_view_exist_and_are_enabled,
+        test_system_view_uses_only_get_info,
+        test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:
         print(f"\n{test.__name__}")
