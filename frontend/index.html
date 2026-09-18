@@ -54,10 +54,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="databases" disabled>
+            <button class="nav-item" type="button" data-view="databases">
               <span class="nav-item__icon" aria-hidden="true">&#8862;</span>
               <span>Databases</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
           <li>
@@ -287,6 +286,57 @@
                 </tr>
               </thead>
               <tbody id="processes-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-databases" data-view="databases" aria-labelledby="databases-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="databases-title">Databases</h2>
+              <p class="view__subtitle">Configured databases on the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="databases-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="databases-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="databases-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="databases-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading databases&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="databases-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="databases-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="databases-connection-detail"></p>
+            <p class="info-panel__meta" id="databases-count"></p>
+          </div>
+
+          <p class="empty-state" id="databases-empty" hidden>No databases reported.</p>
+
+          <div class="table-wrapper" id="databases-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Directory</th>
+                  <th scope="col">Server</th>
+                  <th scope="col">Mount at Startup</th>
+                  <th scope="col">Mount Required</th>
+                  <th scope="col">Cluster Mount</th>
+                </tr>
+              </thead>
+              <tbody id="databases-table-body"></tbody>
             </table>
           </div>
         </section>
