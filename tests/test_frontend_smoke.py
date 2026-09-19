@@ -58,6 +58,12 @@ for the Security view:
     is enabled (not `disabled`); extensions.js calls only the three
     remaining previously-unexposed read-only endpoints (ext-lang-servers,
     fs-access-purposes, wallet/collections) and no other IrisApi method.
+20. The Investigation nav item and view exist in the markup and the nav
+    item is enabled (not `disabled`); investigation.js calls only
+    IrisApi.getAuditEnabled()/getAuditRecords() and no other IrisApi
+    method, and never references a mutating HTTP method (IRIS's own
+    async-task POST for audit records happens entirely on the backend;
+    this view only ever sends a GET).
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -104,6 +110,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "ai-assistant.js",
         FRONTEND_DIR / "js" / "observability.js",
         FRONTEND_DIR / "js" / "extensions.js",
+        FRONTEND_DIR / "js" / "investigation.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -752,6 +759,73 @@ def test_extensions_view_uses_only_expected_endpoints() -> None:
     )
 
 
+def test_investigation_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the Investigation nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="investigation"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"investigation\" exists")
+    check("disabled" not in nav_match.group(0), "the Investigation nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-investigation"[^>]*data-view="investigation"[^>]*>', html
+    )
+    check(
+        view_match is not None,
+        'a <section id="view-investigation" data-view="investigation"> exists',
+    )
+
+    check('id="investigation-table-body"' in html, "the audit records table body element exists")
+    check(
+        'id="investigation-filter-form"' in html,
+        "the audit record filter form exists",
+    )
+    for filter_id in (
+        "investigation-filter-begin",
+        "investigation-filter-end",
+        "investigation-filter-event-types",
+        "investigation-filter-username",
+        "investigation-filter-search",
+        "investigation-filter-order",
+    ):
+        check(f'id="{filter_id}"' in html, f"the {filter_id!r} filter field exists")
+
+
+def test_investigation_view_uses_only_expected_endpoints() -> None:
+    print("Checking investigation.js calls only its two expected endpoints and nothing else...")
+    investigation_js = (FRONTEND_DIR / "js" / "investigation.js").read_text(encoding="utf-8")
+
+    required_methods = ["IrisApi.getAuditEnabled", "IrisApi.getAuditRecords"]
+    for method in required_methods:
+        check(method in investigation_js, f"investigation.js calls {method}()")
+
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
+        "getExecutionTraces", "getExtLangServers", "getFsAccessPurposes", "getWalletCollections",
+    ]
+    for method in other_methods:
+        check(method not in investigation_js, f"investigation.js does NOT call IrisApi.{method}()")
+
+    check(
+        "fetch(" not in investigation_js,
+        "investigation.js makes no raw fetch() call (goes through IrisApi)",
+    )
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', investigation_js))
+    check(
+        referenced_paths == set(),
+        f"investigation.js references no /api/iris/* path as a literal string "
+        f"(found: {referenced_paths}) — every request goes through IrisApi",
+    )
+    check(
+        "investigation-table-body" in investigation_js,
+        "investigation.js renders into the audit records table body element",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
@@ -832,6 +906,8 @@ def main() -> None:
         test_observability_nav_and_view_exist_and_use_only_traces_endpoint,
         test_extensions_nav_and_view_exist_and_are_enabled,
         test_extensions_view_uses_only_expected_endpoints,
+        test_investigation_nav_and_view_exist_and_are_enabled,
+        test_investigation_view_uses_only_expected_endpoints,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

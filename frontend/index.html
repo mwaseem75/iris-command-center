@@ -113,6 +113,12 @@
               <span>Extensions</span>
             </button>
           </li>
+          <li>
+            <button class="nav-item" type="button" data-view="investigation">
+              <span class="nav-item__icon" aria-hidden="true">&#128269;</span>
+              <span>Investigation</span>
+            </button>
+          </li>
         </ul>
       </nav>
 
@@ -857,6 +863,97 @@
               </div>
               <p class="empty-state" id="extensions-wallet-collections-empty" hidden>No wallet collections reported.</p>
             </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-investigation" data-view="investigation" aria-labelledby="investigation-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="investigation-title">Investigation</h2>
+              <p class="view__subtitle">Search and filter IRIS security audit records to investigate an issue.</p>
+            </div>
+            <button
+              class="btn btn--primary"
+              type="submit"
+              form="investigation-filter-form"
+              id="investigation-search-button"
+            >
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Search
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="investigation-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="investigation-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="investigation-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Searching audit records&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="investigation-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="investigation-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="investigation-audit-enabled"></p>
+            <p class="info-panel__meta" id="investigation-count"></p>
+          </div>
+
+          <section class="info-card info-card--wide" aria-labelledby="investigation-filters-title">
+            <h3 class="info-card__title" id="investigation-filters-title">Filters</h3>
+            <p class="info-card__hint">All fields are optional. Leaving every field blank lists every audit record IRIS has retained.</p>
+            <form class="filter-form" id="investigation-filter-form">
+              <div class="filter-field">
+                <label for="investigation-filter-begin">Begin (YYYY-MM-DD HH:MM:SS)</label>
+                <input type="text" id="investigation-filter-begin" placeholder="2026-09-19 00:00:00" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="investigation-filter-end">End (YYYY-MM-DD HH:MM:SS)</label>
+                <input type="text" id="investigation-filter-end" placeholder="2026-09-19 23:59:59" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="investigation-filter-event-types">Event Type</label>
+                <input type="text" id="investigation-filter-event-types" placeholder="%Security" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="investigation-filter-username">Username</label>
+                <input type="text" id="investigation-filter-username" placeholder="_SYSTEM" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="investigation-filter-search">Search Text</label>
+                <input type="text" id="investigation-filter-search" placeholder="Search event data&hellip;" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="investigation-filter-order">Order</label>
+                <select id="investigation-filter-order">
+                  <option value="0" selected>Most recent first</option>
+                  <option value="1">Earliest first</option>
+                </select>
+              </div>
+            </form>
+          </section>
+
+          <p class="empty-state" id="investigation-empty" hidden></p>
+
+          <div class="table-wrapper" id="investigation-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Event Type</th>
+                  <th scope="col">Event</th>
+                  <th scope="col">Username</th>
+                  <th scope="col">Namespace</th>
+                  <th scope="col">Authentication</th>
+                  <th scope="col">Client IP</th>
+                  <th scope="col">Description</th>
+                </tr>
+              </thead>
+              <tbody id="investigation-table-body"></tbody>
+            </table>
           </div>
         </section>
 

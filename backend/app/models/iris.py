@@ -186,6 +186,47 @@ class JournalSettings(BaseModel):
     targwijsz: int
 
 
+# --- GET /v2/security/audit/enabled ---
+
+
+class AuditEnabledResult(BaseModel):
+    Enabled: bool
+
+
+# --- POST /v2/security/audit/records (async-task-backed; see
+#     app/iris_client/client.py's post_async_task/wait_for_async_task and
+#     docs/api-capability-matrix.md). All 24 fields below were directly
+#     observed, populated, in real audit records returned by icc-iris-dev —
+#     nothing here is guessed from the spec alone. ---
+
+
+class AuditRecordEntry(BaseModel):
+    SystemID: str
+    AuditIndex: int
+    TimeStamp: str
+    EventSource: str
+    EventType: str
+    Event: str
+    Pid: int
+    SessionID: str
+    Username: str
+    Description: str
+    UTCTimeStamp: str
+    JobNumber: int
+    Authentication: str
+    ClientExecutableName: str
+    ClientIPAddress: str
+    EventData: str
+    Namespace: str
+    Roles: str
+    RoutineSpec: str
+    UserInfo: str
+    JobId: int
+    Status: str
+    OSUsername: str
+    StartupClientIPAddress: str
+
+
 # --- Endpoints whose result entry shape has never been observed populated:
 #     GET /v2/fs-access-purposes, GET /v2/security/oauth2/client/server-definitions,
 #     GET /v2/security/oauth2/server/clients, GET /v2/wallet/collections.

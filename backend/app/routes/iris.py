@@ -1,10 +1,17 @@
-"""Routes for the first four VERIFIED, read-only IRIS SysAdmin REST API
-endpoints. All authentication/session handling is delegated entirely to the
-shared IRISClient (via the get_iris_client dependency) — no route here
-performs its own login or holds its own token.
+"""Routes for the VERIFIED, read-only IRIS SysAdmin REST API endpoints.
+All authentication/session handling is delegated entirely to the shared
+IRISClient (via the get_iris_client dependency) — no route here performs
+its own login or holds its own token.
 
-Only GET requests are made against IRIS. No mutating call exists anywhere
-in this module.
+No route in this module ever changes IRIS state. GET /security/audit/records
+is the one exception to "only GET requests are made against IRIS": IRIS
+itself models a (potentially long-running) audit-record query as an async
+task, started via POST and polled via GET (see
+app/iris_client/client.py's post_async_task/wait_for_async_task and
+docs/api-capability-matrix.md) — that POST is IRIS's own read/query
+mechanism, not a mutation, and is not gated by this project's
+authorization/confirmation/execution framework, the same way every other
+route here isn't.
 """
 
 from typing import Any
@@ -14,12 +21,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.dependencies import get_iris_client
 from app.iris_client.client import IRISClient
 from app.iris_client.exceptions import (
+    IRISAsyncTaskError,
     IRISAuthError,
     IRISConnectionError,
     IRISResponseError,
     IRISTimeoutError,
 )
 from app.models.iris import (
+    AuditEnabledResult,
+    AuditRecordEntry,
     DatabaseEntry,
     ExternalLanguageServerEntry,
     InfoResult,
@@ -33,11 +43,17 @@ from app.models.iris import (
 
 router = APIRouter(prefix="/api/iris", tags=["iris"])
 
-_IRIS_CLIENT_ERRORS = (IRISAuthError, IRISConnectionError, IRISTimeoutError, IRISResponseError)
+_IRIS_CLIENT_ERRORS = (
+    IRISAuthError,
+    IRISConnectionError,
+    IRISTimeoutError,
+    IRISResponseError,
+    IRISAsyncTaskError,
+)
 
 
 def _as_http_exception(
-    exc: IRISAuthError | IRISConnectionError | IRISTimeoutError | IRISResponseError,
+    exc: IRISAuthError | IRISConnectionError | IRISTimeoutError | IRISResponseError | IRISAsyncTaskError,
 ) -> HTTPException:
     """Translate an IRIS client error into a safe HTTPException.
 
@@ -56,6 +72,14 @@ def _as_http_exception(
         return HTTPException(
             status_code=502,
             detail=f"IRIS returned an unexpected HTTP {exc.status_code}",
+        )
+    if isinstance(exc, IRISAsyncTaskError):
+        # IRIS's own task state ("Failed"/"Canceled") is a safe, non-sensitive
+        # string — it is not a credential or raw response body, so it is
+        # surfaced as-is, the same discipline as the other branches here.
+        return HTTPException(
+            status_code=502,
+            detail=f"IRIS's audit record query did not complete successfully ({exc.state or 'timed out'})",
         )
     return HTTPException(status_code=502, detail="Unexpected error communicating with IRIS")
 
@@ -219,3 +243,74 @@ async def get_wallet_collections(
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[list[Any]].model_validate(raw)
+
+
+@router.get("/security/audit/enabled", response_model=IRISEnvelope[AuditEnabledResult])
+async def get_audit_enabled(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[AuditEnabledResult]:
+    try:
+        raw = await client.get("/v2/security/audit/enabled")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[AuditEnabledResult].model_validate(raw)
+
+
+@router.get("/security/audit/records", response_model=IRISEnvelope[list[AuditRecordEntry]])
+async def get_audit_records(
+    client: IRISClient = Depends(get_iris_client),
+    beginDateTime: str | None = None,
+    endDateTime: str | None = None,
+    eventSources: str | None = None,
+    eventTypes: str | None = None,
+    events: str | None = None,
+    usernames: str | None = None,
+    systemIDs: str | None = None,
+    pids: str | None = None,
+    namespaces: str | None = None,
+    authentication: str | None = None,
+    ascending: int | None = None,
+    jsonSearch: str | None = None,
+) -> IRISEnvelope[list[AuditRecordEntry]]:
+    """Search IRIS's security audit log — the data behind the Logs /
+    Investigation view.
+
+    Every query parameter here is exactly one `spec/mainspec_v2.json`
+    documents for `POST /v2/security/audit/records` (comma-separated filter
+    lists, an ascending/descending flag, and a JSON-field search string) —
+    none is invented, and all are optional, matching an unfiltered "list
+    everything" query when omitted.
+
+    IRIS runs this as an async task (POST to start, then poll to
+    completion — see app/iris_client/client.py's post_async_task/
+    wait_for_async_task and docs/api-capability-matrix.md); this route waits
+    for that polling to finish and returns just the finished task's `Result`
+    array, in the same IRISEnvelope[list[...]] shape every other list route
+    in this file already returns, so the frontend never needs to know about
+    IRIS's task/polling mechanics.
+    """
+    params = {
+        "beginDateTime": beginDateTime,
+        "endDateTime": endDateTime,
+        "eventSources": eventSources,
+        "eventTypes": eventTypes,
+        "events": events,
+        "usernames": usernames,
+        "systemIDs": systemIDs,
+        "pids": pids,
+        "namespaces": namespaces,
+        "authentication": authentication,
+        "ascending": ascending,
+        "jsonSearch": jsonSearch,
+    }
+    params = {key: value for key, value in params.items() if value is not None}
+
+    try:
+        task_id = await client.post_async_task("/v2/security/audit/records", params=params)
+        task = await client.wait_for_async_task(task_id)
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+
+    return IRISEnvelope[list[AuditRecordEntry]].model_validate(
+        {"status": {"errors": [], "summary": ""}, "console": [], "result": task.get("Result", [])}
+    )

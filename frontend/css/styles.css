@@ -1003,6 +1003,57 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
+/* --- Investigation view: audit-record search filters --- */
+
+.filter-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 4px;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-field label {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.filter-field input,
+.filter-field select {
+  padding: 9px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  transition: border-color var(--transition-base);
+}
+
+.filter-field input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.filter-field input:focus,
+.filter-field select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.filter-form__actions {
+  display: flex;
+  align-items: flex-end;
+}
+
 /* --- Responsive --- */
 
 @media (max-width: 860px) {

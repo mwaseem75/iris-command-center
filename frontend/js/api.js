@@ -93,6 +93,23 @@ export const IrisApi = {
   getExtLangServers: () => fetchIris("/api/iris/ext-lang-servers"),
   getFsAccessPurposes: () => fetchIris("/api/iris/fs-access-purposes"),
   getWalletCollections: () => fetchIris("/api/iris/wallet/collections"),
+  getAuditEnabled: () => fetchIris("/api/iris/security/audit/enabled"),
+  // `filters` is a plain object of the backend's own documented, optional
+  // query parameters (beginDateTime, endDateTime, eventTypes, usernames,
+  // ascending, jsonSearch, ...) — see backend/app/routes/iris.py's
+  // get_audit_records. Empty/undefined values are omitted entirely rather
+  // than sent as empty strings, so an unfilled filter behaves exactly like
+  // never having been supplied (IRIS's own "list everything" default).
+  getAuditRecords: (filters = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== null && value !== "") {
+        params.set(key, value);
+      }
+    }
+    const queryString = params.toString();
+    return fetchIris(`/api/iris/security/audit/records${queryString ? `?${queryString}` : ""}`);
+  },
   getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
   getOperations: () => fetchIris("/api/iris/operations"),
   // Unlike every other IrisApi method, the response here is the Command
