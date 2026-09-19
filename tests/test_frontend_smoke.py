@@ -89,6 +89,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "security.js",
         FRONTEND_DIR / "js" / "journal.js",
         FRONTEND_DIR / "js" / "operations.js",
+        FRONTEND_DIR / "js" / "ai-assistant.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -472,6 +473,48 @@ def test_operations_nav_and_view_exist_and_use_only_operations_endpoint() -> Non
     )
 
 
+def test_ai_assistant_nav_and_view_exist_and_make_no_network_calls() -> None:
+    print("Checking the AI Assistant nav item/view exist and ai-assistant.js makes no network calls...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="ai-assistant"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"ai-assistant\" exists")
+    check("disabled" not in nav_match.group(0), "the AI Assistant nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-ai-assistant"[^>]*data-view="ai-assistant"[^>]*>', html
+    )
+    check(
+        view_match is not None,
+        'a <section id="view-ai-assistant" data-view="ai-assistant"> exists',
+    )
+    check('id="ai-chat-messages"' in html, "the chat message area exists")
+    check('id="ai-chat-input"' in html, "the chat input exists")
+    check('id="ai-chat-send-button"' in html, "the chat Send button exists")
+
+    suggested_prompts = [
+        "Show me the current IRIS system status",
+        "How many processes are running?",
+        "Show database status",
+    ]
+    for prompt in suggested_prompts:
+        check(prompt in html, f"suggested prompt {prompt!r} is present")
+
+    ai_js = (FRONTEND_DIR / "js" / "ai-assistant.js").read_text(encoding="utf-8")
+    check("fetch(" not in ai_js, "ai-assistant.js makes no fetch() call")
+    # Checked as literal, callable code forms (an import statement, or
+    # actual use of the IrisApi object) rather than a blunt substring
+    # match, so an explanatory comment describing what this view
+    # deliberately does NOT do isn't mistaken for the thing itself.
+    check(
+        re.search(r'from\s+["\']\./api\.js["\']', ai_js) is None,
+        "ai-assistant.js does NOT import from api.js",
+    )
+    check("IrisApi." not in ai_js, "ai-assistant.js does NOT call any IrisApi method")
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
     js_dir = FRONTEND_DIR / "js"
@@ -507,6 +550,7 @@ def main() -> None:
         test_security_view_uses_only_security_endpoints,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_operations_nav_and_view_exist_and_use_only_operations_endpoint,
+        test_ai_assistant_nav_and_view_exist_and_make_no_network_calls,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

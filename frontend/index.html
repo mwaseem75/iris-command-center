@@ -90,10 +90,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="ai-assistant" disabled>
+            <button class="nav-item" type="button" data-view="ai-assistant">
               <span class="nav-item__icon" aria-hidden="true">&#10022;</span>
               <span>AI Assistant</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
         </ul>
@@ -599,6 +598,34 @@
               </p>
               <dl class="info-list" id="operations-review-list"></dl>
             </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-ai-assistant" data-view="ai-assistant" aria-labelledby="ai-assistant-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="ai-assistant-title">AI Assistant</h2>
+              <p class="view__subtitle">Ask questions about the connected IRIS instance. AI integration is not connected yet.</p>
+            </div>
+          </div>
+
+          <div class="chat">
+            <div class="chat__messages" id="ai-chat-messages" aria-live="polite">
+              <div class="chat__message chat__message--assistant">
+                <p class="chat__message-text">Hi! I&rsquo;m not connected to a live AI model yet, so I can&rsquo;t answer questions right now &mdash; try the interface below.</p>
+              </div>
+            </div>
+
+            <div class="chat__suggestions" id="ai-chat-suggestions">
+              <button class="chat__suggestion" type="button" data-prompt="Show me the current IRIS system status">Show me the current IRIS system status</button>
+              <button class="chat__suggestion" type="button" data-prompt="How many processes are running?">How many processes are running?</button>
+              <button class="chat__suggestion" type="button" data-prompt="Show database status">Show database status</button>
+            </div>
+
+            <form class="chat__composer" id="ai-chat-composer">
+              <textarea class="chat__input" id="ai-chat-input" rows="1" placeholder="Ask about your IRIS instance&hellip;" aria-label="Message"></textarea>
+              <button class="btn btn--primary" type="submit" id="ai-chat-send-button">Send</button>
+            </form>
           </div>
         </section>
 
