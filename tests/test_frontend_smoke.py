@@ -425,8 +425,8 @@ def test_journal_nav_and_view_exist_and_use_only_journal_settings() -> None:
     check("journal-settings-list" in journal_js, "journal.js renders into the journal settings list element")
 
 
-def test_operations_nav_and_view_exist_and_use_only_operations_endpoint() -> None:
-    print("Checking the Operations nav item/view exist and operations.js uses only GET /api/iris/operations...")
+def test_operations_nav_and_view_exist_and_use_only_expected_endpoints() -> None:
+    print("Checking the Operations nav item/view exist and operations.js uses only its expected IrisApi methods...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
 
     nav_match = re.search(
@@ -444,36 +444,85 @@ def test_operations_nav_and_view_exist_and_use_only_operations_endpoint() -> Non
         "the journal.update_purge_archived review list element exists",
     )
 
+    execute_element_ids = [
+        "operations-execute-current-list",
+        "operations-execute-choose",
+        "operations-set-true-button",
+        "operations-set-false-button",
+        "operations-execute-confirm",
+        "operations-execute-confirm-text",
+        "operations-confirm-button",
+        "operations-cancel-button",
+        "operations-execute-result",
+        "operations-result-list",
+    ]
+    for element_id in execute_element_ids:
+        check(f'id="{element_id}"' in html, f"the {element_id!r} execute-flow element exists")
+
     operations_js = (FRONTEND_DIR / "js" / "operations.js").read_text(encoding="utf-8")
     check("IrisApi.getOperations" in operations_js, "operations.js calls IrisApi.getOperations()")
+    check(
+        "IrisApi.getJournalSettings" in operations_js,
+        "operations.js calls IrisApi.getJournalSettings() to show the CURRENT value",
+    )
+    check(
+        "IrisApi.executeJournalPurgeArchived" in operations_js,
+        "operations.js calls IrisApi.executeJournalPurgeArchived() to execute, via the existing framework",
+    )
+
     other_methods = [
         "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
         "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
-        "getJournalSettings",
     ]
     for method in other_methods:
         check(method not in operations_js, f"operations.js does NOT call IrisApi.{method}()")
 
+    # operations.js must never construct its own request or authorization
+    # decision — everything it sends is via the IrisApi wrapper, whose
+    # scope is independently verified in
+    # test_no_mutating_http_method_anywhere_in_frontend_js.
+    check("fetch(" not in operations_js, "operations.js makes no raw fetch() call")
     referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', operations_js))
     check(
-        referenced_paths in ({"/api/iris/operations"}, set()),
-        f"operations.js references only /api/iris/operations as a literal path "
-        f"(found: {referenced_paths or 'none, uses IrisApi.getOperations()'})",
+        referenced_paths == set(),
+        f"operations.js references no /api/iris/* path as a literal string "
+        f"(found: {referenced_paths}) — every request goes through IrisApi",
     )
 
-    # This view must never trigger the existing mutating operation it only
-    # reviews, and must never carry a confirmation/bypass shortcut. Checked
-    # as literal, callable code forms (a quoted path, or a "confirmed"
-    # request field) rather than a blunt substring match, so explanatory
-    # comments describing what this view deliberately does NOT do aren't
-    # mistaken for the thing itself.
-    check(
-        '"/api/iris/journal/purge-archived"' not in operations_js,
-        "operations.js does NOT reference the mutating purge-archived route as a literal path",
+    # No bypass/force field anywhere, and execution is only ever wired to
+    # the Confirm & Execute button's own click handler — never called
+    # during load/refresh. Checked as a literal, callable code form (a
+    # quoted object key) rather than a blunt substring match, so an
+    # explanatory comment describing what this file deliberately does NOT
+    # do isn't mistaken for the thing itself.
+    for bypass_word in ("force", "bypass", "skip_confirmation", "skipConfirmation"):
+        check(
+            re.search(rf'["\']{bypass_word}["\']\s*:', operations_js) is None,
+            f"operations.js sends no {bypass_word!r} field",
+        )
+    confirm_click_wiring = re.search(
+        r'confirmButton\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*executeConfirmed\(\);',
+        operations_js,
     )
     check(
-        re.search(r'["\']confirmed["\']\s*:', operations_js) is None,
-        "operations.js does NOT send a confirmation/bypass field",
+        confirm_click_wiring is not None,
+        "executeConfirmed() is wired to the Confirm button's own click handler",
+    )
+    # The only CALL (not comment/docstring mention) of the identifier,
+    # outside its own definition, should be that one click handler. Line
+    # and block comments are stripped first, so a prose mention (like the
+    # one a few lines above explaining this exact guarantee) is never
+    # mistaken for a real call site.
+    code_only = re.sub(r"//.*", "", operations_js)
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
+    invocation_sites = [
+        m.start()
+        for m in re.finditer(r"executeConfirmed\(", code_only)
+        if not code_only[: m.start()].endswith("function ")
+    ]
+    check(
+        len(invocation_sites) == 1,
+        "executeConfirmed() is invoked exactly once, from the Confirm button's click handler",
     )
 
 
@@ -548,19 +597,58 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
+
+    # The ONLY sanctioned mutating call in the entire frontend:
+    # api.js's postJournalPurgeArchived, which forwards to the existing,
+    # already-tested POST /api/iris/journal/purge-archived route (see
+    # backend/app/routes/journal.py) — asserted below to be scoped to
+    # exactly that path, never a different/new one. PUT and PATCH remain
+    # forbidden everywhere, including in api.js — this project has no PUT
+    # or PATCH route at all, mutating or otherwise.
+    allowed_post_file = "api.js"
+
     for js_file in sorted(js_dir.glob("*.js")):
         content = js_file.read_text(encoding="utf-8")
         for method in mutating_methods:
             # Looks for the method as a quoted HTTP verb (e.g. method: "POST"),
             # not as an incidental substring (e.g. a word containing "post").
             pattern = rf'["\']{method}["\']'
+            found = re.search(pattern, content) is not None
+            if method == "POST" and js_file.name == allowed_post_file:
+                check(
+                    found,
+                    f"{js_file.relative_to(REPO_ROOT)} contains the one sanctioned POST "
+                    "(to the existing journal/purge-archived route)",
+                )
+                continue
             check(
-                re.search(pattern, content) is None,
+                not found,
                 f"{js_file.relative_to(REPO_ROOT)} does not reference HTTP method {method!r}",
             )
+
+    # The sanctioned POST must be tied to exactly the existing,
+    # already-tested mutating route — never a different/new one.
+    api_js = (js_dir / "api.js").read_text(encoding="utf-8")
+    check(
+        '"/api/iris/journal/purge-archived"' in api_js,
+        "api.js's sanctioned POST is scoped to the existing /api/iris/journal/purge-archived route",
+    )
+
+    # operations.js (where the execute UI lives) must call the api.js
+    # wrapper — it never constructs its own fetch call or duplicates
+    # authorization logic.
+    operations_js = (js_dir / "operations.js").read_text(encoding="utf-8")
+    check(
+        "fetch(" not in operations_js,
+        "operations.js makes no raw fetch() call (goes through IrisApi)",
+    )
+    check(
+        "IrisApi.executeJournalPurgeArchived" in operations_js,
+        "operations.js calls IrisApi.executeJournalPurgeArchived()",
+    )
 
 
 def main() -> None:
@@ -581,7 +669,7 @@ def main() -> None:
         test_security_nav_and_view_exist_and_are_enabled,
         test_security_view_uses_only_security_endpoints,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
-        test_operations_nav_and_view_exist_and_use_only_operations_endpoint,
+        test_operations_nav_and_view_exist_and_use_only_expected_endpoints,
         test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

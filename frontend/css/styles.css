@@ -424,6 +424,33 @@ input:focus-visible {
   box-shadow: none;
 }
 
+/* Visually distinct from every other button in the app — reserved for the
+   one control that actually triggers a real mutation (Operations view's
+   "Confirm & Execute"), so a deliberate action never looks like a routine
+   Refresh click. */
+.btn--warning {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+  color: #1a1200;
+  box-shadow: 0 2px 10px var(--color-warning-soft);
+}
+
+.btn--warning:hover {
+  filter: brightness(1.08);
+}
+
+.btn--warning:disabled {
+  box-shadow: none;
+  filter: none;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 .btn__icon {
   display: inline-block;
   transition: transform 0.4s ease;

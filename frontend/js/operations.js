@@ -1,24 +1,26 @@
-// Operations view: fetches GET /api/iris/operations ONLY — a read-only
-// listing of the operations already registered in the backend's
-// authorization/execution framework (backend/app/authorization/operations.py).
-// No other endpoint is called from this module, and no mutating HTTP
-// method is used anywhere in it.
+// Operations view: lists every registered operation (GET /api/iris/operations)
+// and implements the full UI flow for the one operation this project
+// supports executing — journal.update_purge_archived:
 //
-// GET /api/iris/operations itself makes NO request to IRIS: it serializes
-// the backend's own static OPERATION_REGISTRY. That is why operation
-// names, descriptions, required privileges, and confirmation rules are
-// never hardcoded here as JavaScript literals — this view only displays
-// whatever that single, already-existing source of truth returns.
+//   Review -> explicit confirmation -> [existing backend framework decides
+//   authorization -> execution -> post-action verification] -> result
 //
-// This view deliberately contains NO execution control, confirmation
-// checkbox, or "force"/"bypass" mechanism for journal.update_purge_archived
-// or any other mutating operation — it only reviews what is already
-// registered. Executing it is out of scope for this step.
+// The stages in brackets ALL happen server-side, inside the existing,
+// already-tested POST /api/iris/journal/purge-archived route (see
+// backend/app/routes/journal.py and backend/app/execution/executor.py).
+// This file never re-implements, pre-checks, or second-guesses that
+// decision — it only (a) shows the operation's own registry metadata and
+// the current PurgeArchived value (both already-existing, already-used
+// reads), and (b) sends exactly what the user explicitly chose
+// (PurgeArchived + confirmed) to that one existing endpoint. There is no
+// "force"/"bypass" field anywhere in this file, and nothing here executes
+// automatically — the POST only ever fires from the Confirm & Execute
+// button's own click handler.
 
 import { IrisApi, ApiError } from "./api.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
-const REVIEW_OPERATION_NAME = "journal.update_purge_archived";
+const JOURNAL_OPERATION_NAME = "journal.update_purge_archived";
 
 const dom = {
   loadingState: document.getElementById("operations-loading-state"),
@@ -33,7 +35,26 @@ const dom = {
   empty: document.getElementById("operations-empty"),
   reviewGrid: document.getElementById("operations-review-grid"),
   reviewList: document.getElementById("operations-review-list"),
+  executeLoadingState: document.getElementById("operations-execute-loading-state"),
+  executeCurrentList: document.getElementById("operations-execute-current-list"),
+  executeChoose: document.getElementById("operations-execute-choose"),
+  setTrueButton: document.getElementById("operations-set-true-button"),
+  setFalseButton: document.getElementById("operations-set-false-button"),
+  executeConfirm: document.getElementById("operations-execute-confirm"),
+  executeConfirmText: document.getElementById("operations-execute-confirm-text"),
+  confirmButton: document.getElementById("operations-confirm-button"),
+  cancelButton: document.getElementById("operations-cancel-button"),
+  executingState: document.getElementById("operations-executing-state"),
+  executeResult: document.getElementById("operations-execute-result"),
+  resultList: document.getElementById("operations-result-list"),
 };
+
+// Module-level state for the execute panel only — never used to skip a
+// server-side check, only to drive which UI stage (choose/confirm/result)
+// is currently shown. Reset on every load and after every execution.
+let journalOperation = null; // the operation's own registry metadata, from GET /api/iris/operations
+let currentPurgeArchived = null; // last-known value, from GET /api/iris/journal/settings
+let pendingTarget = null; // the value the user picked but has not yet confirmed
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -126,8 +147,9 @@ function renderReview(operations) {
   dom.reviewList.replaceChildren();
 
   const operation = Array.isArray(operations)
-    ? operations.find((op) => op && op.name === REVIEW_OPERATION_NAME)
+    ? operations.find((op) => op && op.name === JOURNAL_OPERATION_NAME)
     : null;
+  journalOperation = operation || null;
 
   if (!operation) {
     dom.reviewGrid.hidden = true;
@@ -166,11 +188,8 @@ function renderReview(operations) {
 }
 
 /**
- * Fetches GET /api/iris/operations and renders it. This is the ONLY
- * network call this module makes — no mutating request exists anywhere in
- * this file, and nothing here ever calls
- * POST /api/iris/journal/purge-archived (the existing, separate mutating
- * route this view only reviews, never triggers).
+ * Fetches GET /api/iris/operations and renders the table + review card.
+ * This is a READ-ONLY call — no mutating request happens here.
  */
 export async function loadOperations() {
   setLoading(true);
@@ -211,10 +230,205 @@ export async function loadOperations() {
   renderTable(operations);
   renderReview(operations);
   setLoading(false);
+
+  // Independent read (GET /api/iris/journal/settings) that populates the
+  // execute panel's "current value" — safe to run every time this view
+  // loads/refreshes, since it never confirms or executes anything itself.
+  await loadCurrentPurgeArchived();
+}
+
+// --- Execute panel: Review -> explicit confirmation -> execute -> result ---
+
+function addInfoRow(list, label, value, { mono = true } = {}) {
+  const row = document.createElement("div");
+  row.className = "info-list__row";
+
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+
+  const dd = document.createElement("dd");
+  dd.className = mono ? "info-list__value info-list__value--mono" : "info-list__value";
+  dd.textContent = value;
+
+  row.append(dt, dd);
+  list.append(row);
+}
+
+function formatBoolean(value) {
+  return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
+}
+
+// Shows the "choose a value" stage and hides the confirm/result stages —
+// the panel's default, at-rest state. Never called from an execution
+// callback, only from load/cancel/after-result, so the page can never be
+// left mid-confirmation by accident.
+function showChooseStage() {
+  pendingTarget = null;
+  dom.executeChoose.hidden = false;
+  dom.executeConfirm.hidden = true;
+  dom.executeResult.hidden = true;
+}
+
+/**
+ * Fetches the CURRENT PurgeArchived value via the existing, already-used
+ * GET /api/iris/journal/settings — read-only, no confirmation needed to
+ * merely look at it. Only updates the value display; deliberately never
+ * touches which stage (choose/confirm/result) is showing, so calling this
+ * after an execution never hides the result the user just got.
+ */
+async function refreshCurrentValueDisplay() {
+  dom.executeCurrentList.replaceChildren();
+  try {
+    const response = await IrisApi.getJournalSettings();
+    const value =
+      response && response.result && typeof response.result.PurgeArchived === "boolean"
+        ? response.result.PurgeArchived
+        : null;
+    currentPurgeArchived = value;
+    addInfoRow(dom.executeCurrentList, "Current PurgeArchived Value", formatBoolean(value));
+  } catch {
+    // Generic, non-alarming — same discipline as every other view's error
+    // handling.
+    currentPurgeArchived = null;
+    addInfoRow(dom.executeCurrentList, "Current PurgeArchived Value", "Could not load");
+  }
+}
+
+/**
+ * The view-load/Refresh path: refreshes the current value AND resets the
+ * panel back to its at-rest "choose a value" stage. Never called from
+ * executeConfirmed() (see refreshCurrentValueDisplay above) — only from
+ * loadOperations(), i.e. on view load or an explicit Refresh click.
+ */
+async function loadCurrentPurgeArchived() {
+  dom.executeLoadingState.hidden = false;
+  dom.executeChoose.hidden = true;
+  dom.executeConfirm.hidden = true;
+  dom.executeResult.hidden = true;
+
+  await refreshCurrentValueDisplay();
+
+  dom.executeLoadingState.hidden = true;
+  showChooseStage();
+}
+
+// The "choose a value" step — deliberately NOT the confirmation itself.
+// Clicking one of these buttons only moves to a distinct confirm stage; it
+// sends no request.
+function chooseTarget(target) {
+  pendingTarget = target;
+  const privilegesText =
+    journalOperation && Array.isArray(journalOperation.required_privileges)
+      ? journalOperation.required_privileges.join(" or ")
+      : PLACEHOLDER;
+  dom.executeConfirmText.textContent =
+    `You are about to change PurgeArchived from ${formatBoolean(currentPurgeArchived)} to ` +
+    `${formatBoolean(target)}. Required privilege: ${privilegesText}. This calls the existing ` +
+    "authorization and execution framework, which independently decides whether this is " +
+    "allowed to proceed. Nothing has been sent yet.";
+  dom.executeChoose.hidden = true;
+  dom.executeConfirm.hidden = false;
+  dom.executeResult.hidden = true;
+}
+
+function renderExecutionResult(result) {
+  dom.resultList.replaceChildren();
+
+  // An audit-friendly record: operation, outcome, and both the
+  // authorization/verification detail strings the backend already
+  // produced — never re-worded or summarized away, so the exact reason for
+  // any denial or failure stays traceable to its source.
+  addInfoRow(dom.resultList, "Operation", textOrPlaceholder(result.operation_name));
+  addInfoRow(dom.resultList, "Status", textOrPlaceholder(result.status));
+  addInfoRow(dom.resultList, "Detail", textOrPlaceholder(result.detail), { mono: false });
+
+  if (result.handler_result) {
+    addInfoRow(
+      dom.resultList,
+      "Execution Detail",
+      textOrPlaceholder(result.handler_result.detail),
+      { mono: false },
+    );
+    const data = result.handler_result.data || {};
+    if ("original_purge_archived" in data) {
+      addInfoRow(dom.resultList, "Original Value", formatBoolean(data.original_purge_archived));
+    }
+    if ("requested_purge_archived" in data) {
+      addInfoRow(dom.resultList, "Requested Value", formatBoolean(data.requested_purge_archived));
+    }
+  }
+
+  if (result.verification) {
+    addInfoRow(dom.resultList, "Verification Status", textOrPlaceholder(result.verification.status));
+    addInfoRow(
+      dom.resultList,
+      "Verification Detail",
+      textOrPlaceholder(result.verification.detail),
+      { mono: false },
+    );
+  }
+
+  addInfoRow(dom.resultList, "Recorded At", new Date().toLocaleString());
+
+  dom.executeConfirm.hidden = true;
+  dom.executeResult.hidden = false;
+}
+
+/**
+ * The ONLY place in this file (or this view) that calls
+ * IrisApi.executeJournalPurgeArchived — reachable ONLY via the Confirm &
+ * Execute button's click handler below, never from page load, never from
+ * loadOperations()/loadCurrentPurgeArchived(), and never automatically.
+ * `confirmed` is always `true` here because this function only runs after
+ * the user reached this stage via chooseTarget() and clicked Confirm —
+ * there is no path that calls this with a fabricated confirmation.
+ */
+async function executeConfirmed() {
+  if (pendingTarget === null) return;
+  const target = pendingTarget;
+
+  // Disabling synchronously, before any await, is what makes a second
+  // rapid click a no-op — the same in-flight-request guard used by every
+  // Refresh button elsewhere in this app.
+  dom.confirmButton.disabled = true;
+  dom.cancelButton.disabled = true;
+  dom.executeConfirm.hidden = true;
+  dom.executingState.hidden = false;
+
+  try {
+    const result = await IrisApi.executeJournalPurgeArchived(target, true);
+    renderExecutionResult(result);
+  } catch (err) {
+    const message =
+      err instanceof ApiError
+        ? "Could not reach the Command Center backend to execute this operation."
+        : "An unexpected error occurred while executing this operation.";
+    renderExecutionResult({
+      operation_name: JOURNAL_OPERATION_NAME,
+      status: "request_failed",
+      detail: message,
+    });
+  } finally {
+    dom.executingState.hidden = true;
+    dom.confirmButton.disabled = false;
+    dom.cancelButton.disabled = false;
+    // Reflect whatever actually happened by re-reading the real current
+    // value, rather than assuming the request succeeded — but WITHOUT
+    // resetting the panel back to the choose stage, so the result stays
+    // visible. Click Refresh to start another change.
+    await refreshCurrentValueDisplay();
+  }
 }
 
 export function initOperationsControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadOperations();
+  });
+
+  dom.setTrueButton.addEventListener("click", () => chooseTarget(true));
+  dom.setFalseButton.addEventListener("click", () => chooseTarget(false));
+  dom.cancelButton.addEventListener("click", () => showChooseStage());
+  dom.confirmButton.addEventListener("click", () => {
+    executeConfirmed();
   });
 }

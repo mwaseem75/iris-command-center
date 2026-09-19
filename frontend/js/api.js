@@ -46,6 +46,39 @@ async function fetchIris(path) {
   return response.json();
 }
 
+/**
+ * POST /api/iris/journal/purge-archived — the app's ONLY mutating request,
+ * and the sole reason this file has a second fetch helper at all. It never
+ * duplicates the backend's authorization/confirmation logic: this function
+ * only forwards exactly what the caller decided (PurgeArchived + an
+ * explicit, user-driven `confirmed` flag) to the existing, already-tested
+ * route (backend/app/routes/journal.py), which alone decides whether
+ * anything is authorized to happen. There is no "force"/"bypass" field
+ * here — nothing this function accepts can skip that route's own checks.
+ */
+async function postJournalPurgeArchived(purgeArchived, confirmed) {
+  const path = "/api/iris/journal/purge-archived";
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ PurgeArchived: purgeArchived, confirmed }),
+    });
+  } catch {
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+
+  if (!response.ok) {
+    throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+
+  return response.json();
+}
+
 export const IrisApi = {
   getInfo: () => fetchIris("/api/iris/info"),
   getNamespaces: () => fetchIris("/api/iris/namespaces"),
@@ -65,6 +98,11 @@ export const IrisApi = {
   // never returns raw IRIS data, only a natural-language summary of it.
   queryAssistant: (message) =>
     fetchIris(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`),
+  // The response is a plain OperationResult (backend/app/execution/models.py)
+  // — not an IRISEnvelope — the same structured shape
+  // POST /api/iris/journal/purge-archived has always returned.
+  executeJournalPurgeArchived: (purgeArchived, confirmed) =>
+    postJournalPurgeArchived(purgeArchived, confirmed),
 };
 
 export { ApiError, API_BASE_URL };

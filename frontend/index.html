@@ -594,9 +594,49 @@
             <section class="info-card info-card--wide" aria-labelledby="operations-review-title">
               <h3 class="info-card__title" id="operations-review-title">Review: journal.update_purge_archived</h3>
               <p class="info-card__hint">
-                Executing this operation changes the IRIS journal <strong>PurgeArchived</strong> setting. This view is read-only and does not execute it &mdash; no execution control is included here.
+                Executing this operation changes the IRIS journal <strong>PurgeArchived</strong> setting. Execution below always goes through the existing authorization and confirmation framework &mdash; nothing runs automatically and nothing bypasses that framework.
               </p>
               <dl class="info-list" id="operations-review-list"></dl>
+            </section>
+
+            <section class="info-card info-card--wide" aria-labelledby="operations-execute-title">
+              <h3 class="info-card__title" id="operations-execute-title">Execute: journal.update_purge_archived</h3>
+              <p class="info-card__hint">
+                Nothing here executes on page load. Choose a value, review the explicit confirmation step, then confirm &mdash; only that final, deliberate click sends the request.
+              </p>
+
+              <div class="loading-state" id="operations-execute-loading-state" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading current value&hellip;</span>
+              </div>
+
+              <dl class="info-list" id="operations-execute-current-list"></dl>
+
+              <div id="operations-execute-choose" hidden>
+                <p class="info-card__hint">Choose the new value for PurgeArchived:</p>
+                <div class="btn-row">
+                  <button class="btn" type="button" id="operations-set-true-button">Set to Yes</button>
+                  <button class="btn" type="button" id="operations-set-false-button">Set to No</button>
+                </div>
+              </div>
+
+              <div id="operations-execute-confirm" hidden>
+                <p class="info-card__hint" id="operations-execute-confirm-text"></p>
+                <div class="btn-row">
+                  <button class="btn btn--warning" type="button" id="operations-confirm-button">Confirm &amp; Execute</button>
+                  <button class="btn" type="button" id="operations-cancel-button">Cancel</button>
+                </div>
+              </div>
+
+              <div class="loading-state" id="operations-executing-state" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Executing&hellip;</span>
+              </div>
+
+              <div id="operations-execute-result" hidden>
+                <h4 class="info-card__title" id="operations-result-title">Execution Result</h4>
+                <dl class="info-list" id="operations-result-list"></dl>
+              </div>
             </section>
           </div>
         </section>
