@@ -588,6 +588,63 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
+/* --- Dashboard section headings + quicklink cards --- */
+
+.section-heading {
+  margin: 28px 0 14px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.section-heading:first-of-type {
+  margin-top: 20px;
+}
+
+.quicklink-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.quicklink-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 22px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-base);
+}
+
+.quicklink-card:hover {
+  border-color: var(--color-accent);
+}
+
+.quicklink-card__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.quicklink-card__description {
+  margin: 0;
+  flex: 1;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.quicklink-card .btn {
+  align-self: flex-start;
+}
+
 /* --- Connection/info panel (reused at the top of every detail view) --- */
 
 .info-panel {

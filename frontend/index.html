@@ -133,7 +133,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="dashboard-title">Dashboard</h2>
-              <p class="view__subtitle">Live, read-only snapshot of the connected IRIS instance.</p>
+              <p class="view__subtitle">Observe system health, review recent activity, and jump into investigation &mdash; a live snapshot of the connected IRIS instance.</p>
             </div>
             <button class="btn btn--primary" type="button" id="refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -151,6 +151,7 @@
             <span>Loading dashboard data&hellip;</span>
           </div>
 
+          <h3 class="section-heading">System Health</h3>
           <div class="stat-grid" id="stat-grid">
             <article class="stat-card" data-card="version">
               <h3 class="stat-card__label">IRIS Version</h3>
@@ -181,6 +182,59 @@
             <article class="stat-card" data-card="tasks">
               <h3 class="stat-card__label">Tasks</h3>
               <p class="stat-card__value" id="stat-tasks">&mdash;</p>
+            </article>
+          </div>
+
+          <h3 class="section-heading">Recent Activity</h3>
+          <section class="info-card info-card--wide" aria-labelledby="dashboard-activity-title">
+            <h4 class="info-card__title" id="dashboard-activity-title">Recent Executions</h4>
+            <p class="info-card__hint">The most recent operations run through this Command Center's authorization and execution framework.</p>
+
+            <p class="info-card__empty" id="dashboard-activity-empty" hidden>No operations have been executed yet through this Command Center. Try the Operations view.</p>
+
+            <div class="table-wrapper" id="dashboard-activity-table-wrapper" hidden>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Operation</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Duration</th>
+                    <th scope="col">Started</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-activity-table-body"></tbody>
+              </table>
+            </div>
+
+            <div class="btn-row">
+              <button class="btn" type="button" id="dashboard-view-observability-button">View all in Observability &rarr;</button>
+            </div>
+          </section>
+
+          <h3 class="section-heading">Explore</h3>
+          <div class="quicklink-grid" id="dashboard-quicklinks">
+            <article class="quicklink-card">
+              <h4 class="quicklink-card__title">Investigation</h4>
+              <p class="quicklink-card__description">Search IRIS's own security audit log &mdash; filter by time, event type, or username to investigate an issue.</p>
+              <button class="btn" type="button" data-quicklink="investigation">Open &rarr;</button>
+            </article>
+
+            <article class="quicklink-card">
+              <h4 class="quicklink-card__title">Operations</h4>
+              <p class="quicklink-card__description">Execute the journal.update_purge_archived operation through the full authorization &rarr; confirmation &rarr; execution &rarr; verification framework.</p>
+              <button class="btn" type="button" data-quicklink="operations">Open &rarr;</button>
+            </article>
+
+            <article class="quicklink-card">
+              <h4 class="quicklink-card__title">Observability</h4>
+              <p class="quicklink-card__description">Inspect every execution trace and span recorded by the authorization and execution framework.</p>
+              <button class="btn" type="button" data-quicklink="observability">Open &rarr;</button>
+            </article>
+
+            <article class="quicklink-card">
+              <h4 class="quicklink-card__title">API Capability Explorer</h4>
+              <p class="quicklink-card__description">See which IRIS SysAdmin REST API capabilities this Command Center has verified and wired up.</p>
+              <button class="btn" type="button" data-quicklink="capabilities">Open &rarr;</button>
             </article>
           </div>
 

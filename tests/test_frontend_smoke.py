@@ -76,6 +76,12 @@ for the Security view:
     investigation.js exports setTimeWindow() for the reverse direction;
     app.js wires both cross-link callbacks. Neither view gained a new
     endpoint call or a mutating HTTP method reference.
+23. The Dashboard (the contest/demo landing screen) surfaces Recent
+    Activity (dashboard.js additionally calls IrisApi.getExecutionTraces())
+    and Explore quicklinks that navigate (via nav.js's navigateTo()) to
+    other real, enabled nav views — never a typo'd data-view target.
+    Still calls no other IrisApi method, no raw fetch(), and no mutating
+    HTTP method.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -981,6 +987,53 @@ def test_observability_investigation_cross_link_exists() -> None:
     )
 
 
+def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
+    print("Checking the Dashboard surfaces recent activity and working quicklinks to other views...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    for element_id in (
+        "dashboard-activity-empty",
+        "dashboard-activity-table-wrapper",
+        "dashboard-activity-table-body",
+        "dashboard-view-observability-button",
+        "dashboard-quicklinks",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} dashboard element exists")
+
+    # Every quicklink must point at a real, enabled nav view — never a
+    # typo'd or since-renamed data-view value.
+    quicklink_targets = re.findall(r'data-quicklink="([a-z-]+)"', html)
+    check(len(quicklink_targets) >= 3, f"found {len(quicklink_targets)} dashboard quicklinks")
+    for target in quicklink_targets:
+        nav_match = re.search(
+            rf'<button class="nav-item[^"]*"[^>]*data-view="{target}"[^>]*>', html
+        )
+        check(nav_match is not None, f"quicklink target {target!r} matches a real nav-item")
+        check("disabled" not in nav_match.group(0), f"quicklink target {target!r}'s nav-item is NOT disabled")
+
+    dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+    check(
+        "IrisApi.getExecutionTraces" in dashboard_js,
+        "dashboard.js calls IrisApi.getExecutionTraces() for its Recent Activity section",
+    )
+    check(
+        re.search(r'from\s+["\']\./nav\.js["\']', dashboard_js) is not None
+        and "navigateTo" in dashboard_js,
+        "dashboard.js imports and uses navigateTo() for its quicklinks",
+    )
+    # Still true after this refinement: the Dashboard remains entirely
+    # read-only — no other IrisApi method, no raw fetch, no mutating verb.
+    other_methods = [
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
+        "getExtLangServers", "getFsAccessPurposes", "getWalletCollections",
+        "getAuditEnabled", "getAuditRecords", "getCapabilities",
+    ]
+    for method in other_methods:
+        check(method not in dashboard_js, f"dashboard.js does NOT call IrisApi.{method}()")
+    check("fetch(" not in dashboard_js, "dashboard.js makes no raw fetch() call (goes through IrisApi)")
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
@@ -1066,6 +1119,7 @@ def main() -> None:
         test_capabilities_nav_and_view_exist_and_are_enabled,
         test_capabilities_view_uses_only_expected_endpoint,
         test_observability_investigation_cross_link_exists,
+        test_dashboard_is_the_landing_screen_with_activity_and_quicklinks,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:
