@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.assistant.intents import Intent, classify_intent
+from app.assistant.intents import Intent, classify_intent, parse_purge_archived_request
 from app.iris_client.exceptions import IRISConnectionError
 
 # --- classify_intent: pure, no IRIS involved ---
@@ -47,6 +47,47 @@ def test_classify_intent_unknown() -> None:
     assert classify_intent("what's the weather today") is Intent.UNKNOWN
     assert classify_intent("") is Intent.UNKNOWN
     assert classify_intent("   ") is Intent.UNKNOWN
+
+
+def test_classify_intent_journal_operation() -> None:
+    assert classify_intent("change the purge archived setting") is Intent.JOURNAL_OPERATION
+    assert classify_intent("turn on purge archived") is Intent.JOURNAL_OPERATION
+    assert classify_intent("confirm purge archived true") is Intent.JOURNAL_OPERATION
+    assert classify_intent("set PurgeArchived to false") is Intent.JOURNAL_OPERATION
+
+
+# --- parse_purge_archived_request: pure, no IRIS involved ---
+
+
+def test_parse_purge_archived_request_no_value_is_none() -> None:
+    target, confirmed = parse_purge_archived_request("change purge archived")
+    assert target is None
+    assert confirmed is False
+
+
+def test_parse_purge_archived_request_value_without_confirmation() -> None:
+    target, confirmed = parse_purge_archived_request("set purge archived to true")
+    assert target is True
+    assert confirmed is False
+
+
+def test_parse_purge_archived_request_confirmed_true() -> None:
+    target, confirmed = parse_purge_archived_request("confirm purge archived true")
+    assert target is True
+    assert confirmed is True
+
+
+def test_parse_purge_archived_request_confirmed_false() -> None:
+    target, confirmed = parse_purge_archived_request("confirm purge archived false")
+    assert target is False
+    assert confirmed is True
+
+
+def test_parse_purge_archived_request_ambiguous_value_is_none() -> None:
+    # Both a true-word and a false-word present — never guess.
+    target, confirmed = parse_purge_archived_request("confirm purge archived true or false")
+    assert target is None
+    assert confirmed is True
 
 
 # --- GET /api/iris/assistant/query ---
@@ -277,3 +318,148 @@ def test_assistant_never_uses_a_mutating_http_method(client: TestClient) -> None
     # — verify no other method is even registered for it.
     response = client.post("/api/iris/assistant/query", params={"message": "hi"})
     assert response.status_code == 405
+
+
+# --- journal.update_purge_archived via the assistant: operation detection,
+# confirmation gating, authorization rejection, and successful confirmed
+# execution — ALL routed through the existing authorization/execution
+# framework (app/assistant/journal_operation.py), never a direct PUT from
+# this module. ---
+
+
+def _journal_settings_body(purge_archived: bool) -> dict[str, Any]:
+    return {
+        "status": {"errors": [], "summary": ""},
+        "console": [],
+        "result": {
+            "AlternateDirectory": "/usr/irissys/mgr/journal/",
+            "ArchiveName": "",
+            "BackupsBeforePurge": 2,
+            "CurrentDirectory": "/usr/irissys/mgr/journal/",
+            "DaysBeforePurge": 2,
+            "FileSizeLimit": 1024,
+            "FreezeOnError": False,
+            "JournalFilePrefix": "",
+            "JournalcspSession": False,
+            "PurgeArchived": purge_archived,
+            "CompressFiles": True,
+            "wijdir": "",
+            "targwijsz": 0,
+        },
+    }
+
+
+def _info_body(privileges: dict[str, bool]) -> dict[str, Any]:
+    return {
+        "status": {"errors": [], "summary": ""},
+        "console": [],
+        "result": {
+            "apiVersion": 2,
+            "username": "_SYSTEM",
+            "serverVersion": "IRIS for UNIX 2026.2 (Build 221U)",
+            "systemMode": "",
+            "product": "iris",
+            "namespaces": [{"name": "%SYS"}],
+            "privileges": {name: {"use": use} for name, use in privileges.items()},
+        },
+    }
+
+
+def test_assistant_detects_journal_operation_without_calling_iris(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    # No target value was given, so this is pure operation detection/info —
+    # it must never touch IRIS at all (nothing to authorize or execute yet).
+    response = client.get(
+        "/api/iris/assistant/query", params={"message": "change the purge archived setting"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "journal_operation"
+    assert "PurgeArchived" in body["reply"] or "purge archived" in body["reply"].lower()
+    assert "Manage" in body["reply"] or "Journal" in body["reply"]
+    assert "confirm" in body["reply"].lower()
+    mock_iris_client.get.assert_not_awaited()
+    mock_iris_client.put.assert_not_awaited()
+
+
+def test_assistant_journal_operation_requires_confirmation(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    # A concrete value but no confirmation word — the existing framework's
+    # own confirmation gate (authorize()) must block this before any PUT.
+    mock_iris_client.get.return_value = _info_body({"Manage": True})
+
+    response = client.get(
+        "/api/iris/assistant/query", params={"message": "set purge archived to true"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "journal_operation"
+    assert "confirm purge archived true" in body["reply"].lower()
+    assert "nothing has been changed" in body["reply"].lower()
+    mock_iris_client.put.assert_not_awaited()
+
+
+def test_assistant_journal_operation_authorization_rejection_is_explained(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    # Confirmed AND a value given, but the caller holds none of the
+    # required privileges (Manage/Journal) — must be denied with a clear
+    # explanation, never executed.
+    mock_iris_client.get.return_value = _info_body({"Operate": True, "Secure": True})
+
+    response = client.get(
+        "/api/iris/assistant/query", params={"message": "confirm purge archived true"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "journal_operation"
+    assert "can't do that" in body["reply"].lower()
+    assert "privilege" in body["reply"].lower()
+    mock_iris_client.put.assert_not_awaited()
+
+
+def test_assistant_journal_operation_successful_confirmed_execution(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    # Confirmed, a value given, AND the caller holds the required
+    # privilege — the existing execution framework should actually run the
+    # existing handler, using the mocked IRIS client only (no real IRIS
+    # mutation is possible in this test).
+    mock_iris_client.get.side_effect = [
+        _info_body({"Manage": True}),  # get_caller_privileges -> GET /info
+        _journal_settings_body(False),  # handler.execute()'s pre-action GET
+        _journal_settings_body(True),  # handler.verify()'s post-action GET
+    ]
+    mock_iris_client.put.return_value = _journal_settings_body(True)
+
+    response = client.get(
+        "/api/iris/assistant/query", params={"message": "confirm purge archived true"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "journal_operation"
+    assert body["reply"].startswith("Done.")
+    assert "True" in body["reply"] or "true" in body["reply"].lower()
+    mock_iris_client.put.assert_awaited_once_with(
+        "/v2/journal/settings", json={"PurgeArchived": True}
+    )
+    assert mock_iris_client.get.await_count == 3
+
+
+def test_assistant_journal_operation_never_bypasses_confirmation() -> None:
+    # Structural guarantee, not just a behavioral one: there is no field on
+    # ExecutionContext this module (or any caller) could set to skip
+    # confirmation — see app/execution/models.py.
+    from app.execution.models import ExecutionContext
+
+    assert set(ExecutionContext.model_fields.keys()) == {
+        "available_privileges",
+        "confirmation_received",
+        "dry_run",
+    }
