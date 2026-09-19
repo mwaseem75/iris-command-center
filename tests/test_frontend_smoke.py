@@ -8,7 +8,8 @@ Checks, per Phase 3 Step 1's minimum bar ("verify the frontend can be
 served and that its API paths match the existing backend routes"),
 extended in Phase 3 Step 2 for the System view, Phase 3 Step 3 for the
 Processes view, Phase 3 Step 4 for the Databases view, Phase 3 Step 5 for
-the Web Apps view, and Phase 3 Step 6 for the Tasks view:
+the Web Apps view, Phase 3 Step 6 for the Tasks view, and Phase 3 Step 7
+for the Security view:
 
 1. The expected frontend files exist and are non-empty.
 2. A plain static file server can actually serve frontend/index.html.
@@ -34,10 +35,15 @@ the Web Apps view, and Phase 3 Step 6 for the Tasks view:
     item is enabled (not `disabled`).
 13. (Step 6) tasks.js calls GET /api/iris/tasks and no other endpoint, and
     renders into the tasks table body.
-14. (general regression guard) No mutating HTTP method string
+14. (Step 7) The Security nav item and view exist in the markup and the
+    nav item is enabled (not `disabled`).
+15. (Step 7) security.js calls only the three OAuth2 endpoints (server,
+    client/server-definitions, server/clients) and no other endpoint, and
+    renders into the security view's own elements.
+16. (general regression guard) No mutating HTTP method string
     ("PUT"/"POST"/"DELETE"/"PATCH") appears anywhere in frontend/js/*.js —
     this is intentionally broad so it keeps guarding every future view,
-    not just System/Processes/Databases/Web Apps/Tasks.
+    not just System/Processes/Databases/Web Apps/Tasks/Security.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -77,6 +83,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "databases.js",
         FRONTEND_DIR / "js" / "web-apps.js",
         FRONTEND_DIR / "js" / "tasks.js",
+        FRONTEND_DIR / "js" / "security.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -311,6 +318,70 @@ def test_tasks_view_uses_only_get_tasks() -> None:
     )
 
 
+def test_security_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the Security nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="security"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"security\" exists")
+    check("disabled" not in nav_match.group(0), "the Security nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-security"[^>]*data-view="security"[^>]*>', html
+    )
+    check(view_match is not None, 'a <section id="view-security" data-view="security"> exists')
+
+    check('id="security-oauth2-server-list"' in html, "the OAuth2 server info list element exists")
+    check(
+        'id="security-client-defs-table-body"' in html,
+        "the client server definitions table body element exists",
+    )
+    check(
+        'id="security-server-clients-table-body"' in html,
+        "the registered clients table body element exists",
+    )
+
+
+def test_security_view_uses_only_security_endpoints() -> None:
+    print("Checking security.js calls only the three OAuth2 endpoints and nothing else...")
+    security_js = (FRONTEND_DIR / "js" / "security.js").read_text(encoding="utf-8")
+
+    required_methods = [
+        "IrisApi.getOauth2Server",
+        "IrisApi.getOauth2ClientServerDefinitions",
+        "IrisApi.getOauth2ServerClients",
+    ]
+    for method in required_methods:
+        check(method in security_js, f"security.js calls {method}()")
+
+    other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks"]
+    for method in other_methods:
+        check(method not in security_js, f"security.js does NOT call IrisApi.{method}()")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', security_js))
+    expected_paths = {
+        "/api/iris/security/oauth2/server",
+        "/api/iris/security/oauth2/client/server-definitions",
+        "/api/iris/security/oauth2/server/clients",
+    }
+    check(
+        referenced_paths in (expected_paths, set()),
+        f"security.js references only the three OAuth2 paths as literal paths "
+        f"(found: {referenced_paths or 'none, uses IrisApi methods'})",
+    )
+    check(
+        "security-oauth2-server-list" in security_js,
+        "security.js renders into the OAuth2 server info list element",
+    )
+    check(
+        "security-client-defs-table-body" in security_js
+        and "security-server-clients-table-body" in security_js,
+        "security.js renders into both OAuth2 list table body elements",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
     js_dir = FRONTEND_DIR / "js"
@@ -342,6 +413,8 @@ def main() -> None:
         test_web_apps_view_uses_only_get_web_apps,
         test_tasks_nav_and_view_exist_and_are_enabled,
         test_tasks_view_uses_only_get_tasks,
+        test_security_nav_and_view_exist_and_are_enabled,
+        test_security_view_uses_only_security_endpoints,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

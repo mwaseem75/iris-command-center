@@ -72,10 +72,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="security" disabled>
+            <button class="nav-item" type="button" data-view="security">
               <span class="nav-item__icon" aria-hidden="true">&#128274;</span>
               <span>Security</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
           <li>
@@ -439,6 +438,68 @@
               </thead>
               <tbody id="tasks-table-body"></tbody>
             </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-security" data-view="security" aria-labelledby="security-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="security-title">Security</h2>
+              <p class="view__subtitle">OAuth 2.0 authorization server configuration and registered clients.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="security-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="security-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="security-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="security-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading security data&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="security-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="security-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="security-connection-detail"></p>
+          </div>
+
+          <div class="info-grid">
+            <section class="info-card info-card--wide" aria-labelledby="security-oauth2-server-title">
+              <h3 class="info-card__title" id="security-oauth2-server-title">OAuth 2.0 Authorization Server</h3>
+              <dl class="info-list" id="security-oauth2-server-list"></dl>
+              <p class="info-card__empty" id="security-oauth2-server-empty" hidden></p>
+            </section>
+
+            <section class="info-card info-card--wide" aria-labelledby="security-client-defs-title">
+              <h3 class="info-card__title" id="security-client-defs-title">Client Server Definitions</h3>
+              <p class="info-card__hint">OAuth 2.0 authorization servers this instance is configured to trust as a client.</p>
+              <div class="table-wrapper" id="security-client-defs-table-wrapper" hidden>
+                <table class="data-table">
+                  <thead id="security-client-defs-thead"></thead>
+                  <tbody id="security-client-defs-table-body"></tbody>
+                </table>
+              </div>
+              <p class="empty-state" id="security-client-defs-empty" hidden>No client server definitions reported.</p>
+            </section>
+
+            <section class="info-card info-card--wide" aria-labelledby="security-server-clients-title">
+              <h3 class="info-card__title" id="security-server-clients-title">Registered OAuth 2.0 Clients</h3>
+              <div class="table-wrapper" id="security-server-clients-table-wrapper" hidden>
+                <table class="data-table">
+                  <thead id="security-server-clients-thead"></thead>
+                  <tbody id="security-server-clients-table-body"></tbody>
+                </table>
+              </div>
+              <p class="empty-state" id="security-server-clients-empty" hidden>No registered clients reported.</p>
+            </section>
           </div>
         </section>
 

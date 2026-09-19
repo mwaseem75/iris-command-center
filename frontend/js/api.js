@@ -53,6 +53,10 @@ export const IrisApi = {
   getProcesses: () => fetchIris("/api/iris/processes"),
   getWebApps: () => fetchIris("/api/iris/web-apps"),
   getTasks: () => fetchIris("/api/iris/tasks"),
+  getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
+  getOauth2ClientServerDefinitions: () =>
+    fetchIris("/api/iris/security/oauth2/client/server-definitions"),
+  getOauth2ServerClients: () => fetchIris("/api/iris/security/oauth2/server/clients"),
 };
 
 export { ApiError, API_BASE_URL };
