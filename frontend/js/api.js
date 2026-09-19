@@ -90,6 +90,9 @@ export const IrisApi = {
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),
   getOauth2ServerClients: () => fetchIris("/api/iris/security/oauth2/server/clients"),
+  getExtLangServers: () => fetchIris("/api/iris/ext-lang-servers"),
+  getFsAccessPurposes: () => fetchIris("/api/iris/fs-access-purposes"),
+  getWalletCollections: () => fetchIris("/api/iris/wallet/collections"),
   getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
   getOperations: () => fetchIris("/api/iris/operations"),
   // Unlike every other IrisApi method, the response here is the Command

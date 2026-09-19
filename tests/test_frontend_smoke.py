@@ -54,6 +54,10 @@ for the Security view:
     ai-assistant.js calls only GET /api/iris/assistant/query (the backend's
     read-only, natural-language query endpoint) and no other IrisApi
     method — see backend/app/routes/assistant.py.
+19. The Extensions nav item and view exist in the markup and the nav item
+    is enabled (not `disabled`); extensions.js calls only the three
+    remaining previously-unexposed read-only endpoints (ext-lang-servers,
+    fs-access-purposes, wallet/collections) and no other IrisApi method.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -99,6 +103,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "operations.js",
         FRONTEND_DIR / "js" / "ai-assistant.js",
         FRONTEND_DIR / "js" / "observability.js",
+        FRONTEND_DIR / "js" / "extensions.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -682,6 +687,71 @@ def test_observability_nav_and_view_exist_and_use_only_traces_endpoint() -> None
     )
 
 
+def test_extensions_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the Extensions nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="extensions"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"extensions\" exists")
+    check("disabled" not in nav_match.group(0), "the Extensions nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-extensions"[^>]*data-view="extensions"[^>]*>', html
+    )
+    check(view_match is not None, 'a <section id="view-extensions" data-view="extensions"> exists')
+
+    check(
+        'id="extensions-ext-lang-servers-table-body"' in html,
+        "the external language servers table body element exists",
+    )
+    check(
+        'id="extensions-fs-access-purposes-table-body"' in html,
+        "the file system access purposes table body element exists",
+    )
+    check(
+        'id="extensions-wallet-collections-table-body"' in html,
+        "the wallet collections table body element exists",
+    )
+
+
+def test_extensions_view_uses_only_expected_endpoints() -> None:
+    print("Checking extensions.js calls only its three expected endpoints and nothing else...")
+    extensions_js = (FRONTEND_DIR / "js" / "extensions.js").read_text(encoding="utf-8")
+
+    required_methods = [
+        "IrisApi.getExtLangServers",
+        "IrisApi.getFsAccessPurposes",
+        "IrisApi.getWalletCollections",
+    ]
+    for method in required_methods:
+        check(method in extensions_js, f"extensions.js calls {method}()")
+
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
+        "getExecutionTraces",
+    ]
+    for method in other_methods:
+        check(method not in extensions_js, f"extensions.js does NOT call IrisApi.{method}()")
+
+    check("fetch(" not in extensions_js, "extensions.js makes no raw fetch() call (goes through IrisApi)")
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', extensions_js))
+    check(
+        referenced_paths == set(),
+        f"extensions.js references no /api/iris/* path as a literal string "
+        f"(found: {referenced_paths}) — every request goes through IrisApi",
+    )
+    check(
+        "extensions-ext-lang-servers-table-body" in extensions_js
+        and "extensions-fs-access-purposes-table-body" in extensions_js
+        and "extensions-wallet-collections-table-body" in extensions_js,
+        "extensions.js renders into all three table body elements",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
@@ -760,6 +830,8 @@ def main() -> None:
         test_operations_nav_and_view_exist_and_use_only_expected_endpoints,
         test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,
         test_observability_nav_and_view_exist_and_use_only_traces_endpoint,
+        test_extensions_nav_and_view_exist_and_are_enabled,
+        test_extensions_view_uses_only_expected_endpoints,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

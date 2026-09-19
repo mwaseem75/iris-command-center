@@ -107,6 +107,12 @@
               <span>Observability</span>
             </button>
           </li>
+          <li>
+            <button class="nav-item" type="button" data-view="extensions">
+              <span class="nav-item__icon" aria-hidden="true">&#128268;</span>
+              <span>Extensions</span>
+            </button>
+          </li>
         </ul>
       </nav>
 
@@ -778,6 +784,79 @@
               </thead>
               <tbody id="observability-table-body"></tbody>
             </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-extensions" data-view="extensions" aria-labelledby="extensions-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="extensions-title">Extensions</h2>
+              <p class="view__subtitle">External language servers, file system access purposes, and wallet collections configured on the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="extensions-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="extensions-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="extensions-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="extensions-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading extension data&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="extensions-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="extensions-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="extensions-connection-detail"></p>
+          </div>
+
+          <div class="info-grid">
+            <section class="info-card info-card--wide" aria-labelledby="extensions-ext-lang-servers-title">
+              <h3 class="info-card__title" id="extensions-ext-lang-servers-title">External Language Servers</h3>
+              <p class="info-card__hint">Embedded gateways for external languages (.NET, Java, Python, R, ML, ODBC, JDBC, XSLT).</p>
+              <div class="table-wrapper" id="extensions-ext-lang-servers-table-wrapper" hidden>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Port</th>
+                      <th scope="col">Type</th>
+                    </tr>
+                  </thead>
+                  <tbody id="extensions-ext-lang-servers-table-body"></tbody>
+                </table>
+              </div>
+              <p class="empty-state" id="extensions-ext-lang-servers-empty" hidden>No external language servers reported.</p>
+            </section>
+
+            <section class="info-card info-card--wide" aria-labelledby="extensions-fs-access-purposes-title">
+              <h3 class="info-card__title" id="extensions-fs-access-purposes-title">File System Access Purposes</h3>
+              <div class="table-wrapper" id="extensions-fs-access-purposes-table-wrapper" hidden>
+                <table class="data-table">
+                  <thead id="extensions-fs-access-purposes-thead"></thead>
+                  <tbody id="extensions-fs-access-purposes-table-body"></tbody>
+                </table>
+              </div>
+              <p class="empty-state" id="extensions-fs-access-purposes-empty" hidden>No file system access purposes reported.</p>
+            </section>
+
+            <section class="info-card info-card--wide" aria-labelledby="extensions-wallet-collections-title">
+              <h3 class="info-card__title" id="extensions-wallet-collections-title">Wallet Collections</h3>
+              <div class="table-wrapper" id="extensions-wallet-collections-table-wrapper" hidden>
+                <table class="data-table">
+                  <thead id="extensions-wallet-collections-thead"></thead>
+                  <tbody id="extensions-wallet-collections-table-body"></tbody>
+                </table>
+              </div>
+              <p class="empty-state" id="extensions-wallet-collections-empty" hidden>No wallet collections reported.</p>
+            </section>
           </div>
         </section>
 
