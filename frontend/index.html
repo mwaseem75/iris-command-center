@@ -78,10 +78,9 @@
             </button>
           </li>
           <li>
-            <button class="nav-item" type="button" data-view="journal" disabled>
+            <button class="nav-item" type="button" data-view="journal">
               <span class="nav-item__icon" aria-hidden="true">&#128220;</span>
               <span>Journal</span>
-              <span class="nav-item__badge">Soon</span>
             </button>
           </li>
           <li>
@@ -499,6 +498,48 @@
                 </table>
               </div>
               <p class="empty-state" id="security-server-clients-empty" hidden>No registered clients reported.</p>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-journal" data-view="journal" aria-labelledby="journal-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="journal-title">Journal</h2>
+              <p class="view__subtitle">Journal configuration for the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="journal-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="journal-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="journal-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="journal-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading journal settings&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="journal-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="journal-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="journal-connection-detail"></p>
+          </div>
+
+          <div class="info-grid">
+            <section class="info-card info-card--wide" aria-labelledby="journal-settings-title">
+              <h3 class="info-card__title" id="journal-settings-title">Journal Settings</h3>
+              <p class="info-card__hint">
+                <strong>Purge Archived</strong> (below) is the setting read and updated by the existing, protected PurgeArchived operation &mdash; no mutation control is included in this view.
+              </p>
+              <dl class="info-list" id="journal-settings-list"></dl>
+              <p class="info-card__empty" id="journal-settings-empty" hidden>No journal settings reported.</p>
             </section>
           </div>
         </section>

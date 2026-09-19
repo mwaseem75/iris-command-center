@@ -40,10 +40,13 @@ for the Security view:
 15. (Step 7) security.js calls only the three OAuth2 endpoints (server,
     client/server-definitions, server/clients) and no other endpoint, and
     renders into the security view's own elements.
-16. (general regression guard) No mutating HTTP method string
+16. (Step 8) The Journal nav item and view exist in the markup and the nav
+    item is enabled (not `disabled`), and journal.js calls only
+    GET /api/iris/journal/settings.
+17. (general regression guard) No mutating HTTP method string
     ("PUT"/"POST"/"DELETE"/"PATCH") appears anywhere in frontend/js/*.js —
     this is intentionally broad so it keeps guarding every future view,
-    not just System/Processes/Databases/Web Apps/Tasks/Security.
+    not just System/Processes/Databases/Web Apps/Tasks/Security/Journal.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -84,6 +87,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "web-apps.js",
         FRONTEND_DIR / "js" / "tasks.js",
         FRONTEND_DIR / "js" / "security.js",
+        FRONTEND_DIR / "js" / "journal.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -382,6 +386,39 @@ def test_security_view_uses_only_security_endpoints() -> None:
     )
 
 
+def test_journal_nav_and_view_exist_and_use_only_journal_settings() -> None:
+    print("Checking the Journal nav item/view exist and journal.js uses only GET /api/iris/journal/settings...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="journal"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"journal\" exists")
+    check("disabled" not in nav_match.group(0), "the Journal nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-journal"[^>]*data-view="journal"[^>]*>', html
+    )
+    check(view_match is not None, 'a <section id="view-journal" data-view="journal"> exists')
+
+    journal_js = (FRONTEND_DIR / "js" / "journal.js").read_text(encoding="utf-8")
+    check("IrisApi.getJournalSettings" in journal_js, "journal.js calls IrisApi.getJournalSettings()")
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+    ]
+    for method in other_methods:
+        check(method not in journal_js, f"journal.js does NOT call IrisApi.{method}()")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', journal_js))
+    check(
+        referenced_paths in ({"/api/iris/journal/settings"}, set()),
+        f"journal.js references only /api/iris/journal/settings as a literal path "
+        f"(found: {referenced_paths or 'none, uses IrisApi.getJournalSettings()'})",
+    )
+    check("journal-settings-list" in journal_js, "journal.js renders into the journal settings list element")
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
     js_dir = FRONTEND_DIR / "js"
@@ -415,6 +452,7 @@ def main() -> None:
         test_tasks_view_uses_only_get_tasks,
         test_security_nav_and_view_exist_and_are_enabled,
         test_security_view_uses_only_security_endpoints,
+        test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

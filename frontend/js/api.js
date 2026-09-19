@@ -57,6 +57,7 @@ export const IrisApi = {
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),
   getOauth2ServerClients: () => fetchIris("/api/iris/security/oauth2/server/clients"),
+  getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
 };
 
 export { ApiError, API_BASE_URL };
