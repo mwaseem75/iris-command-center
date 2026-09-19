@@ -780,6 +780,24 @@
             <p class="info-panel__meta" id="observability-count"></p>
           </div>
 
+          <section class="info-card info-card--wide" aria-labelledby="observability-filters-title">
+            <h3 class="info-card__title" id="observability-filters-title">Filter by Time (UTC)</h3>
+            <p class="info-card__hint">Optional. Leaving both fields blank shows every recorded trace. Filtering happens instantly, without re-fetching.</p>
+            <form class="filter-form" id="observability-filter-form">
+              <div class="filter-field">
+                <label for="observability-filter-begin">Begin (UTC, YYYY-MM-DD HH:MM:SS)</label>
+                <input type="text" id="observability-filter-begin" placeholder="2026-09-19 00:00:00" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="observability-filter-end">End (UTC, YYYY-MM-DD HH:MM:SS)</label>
+                <input type="text" id="observability-filter-end" placeholder="2026-09-19 23:59:59" autocomplete="off" />
+              </div>
+              <div class="filter-field filter-form__actions">
+                <button class="btn" type="button" id="observability-filter-clear-button">Clear</button>
+              </div>
+            </form>
+          </section>
+
           <p class="empty-state" id="observability-empty" hidden>No execution traces recorded yet. Traces appear here after an operation is attempted (e.g. from the Operations view).</p>
 
           <div class="table-wrapper" id="observability-table-wrapper" hidden>
@@ -956,6 +974,7 @@
                   <th scope="col">Authentication</th>
                   <th scope="col">Client IP</th>
                   <th scope="col">Description</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody id="investigation-table-body"></tbody>

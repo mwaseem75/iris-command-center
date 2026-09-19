@@ -69,6 +69,13 @@ for the Security view:
     capabilities.js calls only IrisApi.getCapabilities() and no other
     IrisApi method, filters entirely client-side (no other network call on
     input), and never references a mutating HTTP method.
+22. Observability and Investigation cross-link to each other by time
+    window only (never a shared IRIS/trace ID, since none exists):
+    nav.js exports navigateTo(); observability.js gained its own
+    client-side Begin/End (UTC) time filter and exports setTimeWindow();
+    investigation.js exports setTimeWindow() for the reverse direction;
+    app.js wires both cross-link callbacks. Neither view gained a new
+    endpoint call or a mutating HTTP method reference.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -907,6 +914,73 @@ def test_capabilities_view_uses_only_expected_endpoint() -> None:
     )
 
 
+def test_observability_investigation_cross_link_exists() -> None:
+    print("Checking the Observability <-> Investigation cross-link is wired end to end...")
+
+    nav_js = (FRONTEND_DIR / "js" / "nav.js").read_text(encoding="utf-8")
+    check(
+        "export function navigateTo" in nav_js,
+        "nav.js exports navigateTo(), used by the cross-link to switch views programmatically",
+    )
+
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    for element_id in (
+        "observability-filter-form",
+        "observability-filter-begin",
+        "observability-filter-end",
+        "observability-filter-clear-button",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} Observability time-filter element exists")
+
+    observability_js = (FRONTEND_DIR / "js" / "observability.js").read_text(encoding="utf-8")
+    check(
+        "export function setTimeWindow" in observability_js,
+        "observability.js exports setTimeWindow() for Investigation's cross-link to call",
+    )
+    check(
+        "onInvestigateTimeWindow" in observability_js,
+        "observability.js accepts an onInvestigateTimeWindow callback for its own cross-link button",
+    )
+    # The cross-link's whole reason for existing is that no real IRIS/trace
+    # ID ties the two systems together — only this app never sends a
+    # mutating request anywhere, still true after adding this feature.
+    check("fetch(" not in observability_js, "observability.js still makes no raw fetch() call")
+    check(
+        set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', observability_js)) == set(),
+        "observability.js still references no /api/iris/* path as a literal string",
+    )
+
+    investigation_js = (FRONTEND_DIR / "js" / "investigation.js").read_text(encoding="utf-8")
+    check(
+        "export function setTimeWindow" in investigation_js,
+        "investigation.js exports setTimeWindow() for Observability's cross-link to call",
+    )
+    check(
+        "onInvestigateTraces" in investigation_js,
+        "investigation.js accepts an onInvestigateTraces callback for its own cross-link button",
+    )
+    check("fetch(" not in investigation_js, "investigation.js still makes no raw fetch() call")
+    check(
+        set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', investigation_js)) == set(),
+        "investigation.js still references no /api/iris/* path as a literal string",
+    )
+
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    check(
+        "navigateTo" in app_js,
+        "app.js imports/uses navigateTo() to wire the cross-link",
+    )
+    check(
+        "onInvestigateTimeWindow" in app_js and "onInvestigateTraces" in app_js,
+        "app.js wires both cross-link callbacks (Observability -> Investigation and back)",
+    )
+    check(
+        "setInvestigationTimeWindow" in app_js and "setObservabilityTimeWindow" in app_js,
+        "app.js calls each view's own setTimeWindow() (aliased to avoid a name collision) "
+        "rather than reimplementing either view's filtering",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
@@ -991,6 +1065,7 @@ def main() -> None:
         test_investigation_view_uses_only_expected_endpoints,
         test_capabilities_nav_and_view_exist_and_are_enabled,
         test_capabilities_view_uses_only_expected_endpoint,
+        test_observability_investigation_cross_link_exists,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

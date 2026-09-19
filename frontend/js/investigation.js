@@ -11,6 +11,16 @@
 // Namespace/Authentication/ClientIPAddress/Description) — nothing invented.
 // See docs/api-capability-matrix.md's "POST /v2/security/audit/records"
 // entry for how that shape was verified against a real IRIS instance.
+//
+// Cross-links with Observability (backend/app/observability/,
+// frontend/js/observability.js): the only correlation this app ever draws
+// between an execution trace and an audit record is TIME PROXIMITY — there
+// is no shared ID linking the two, since the Command Center's own
+// execution traces and IRIS's own audit log are two entirely separate
+// systems. `setTimeWindow()` lets Observability jump here with a time
+// window pre-filled (see app.js); the "Traces near this time" button per
+// row below does the reverse, using this record's own UTCTimeStamp — never
+// an invented or assumed IRIS-side link between the two systems.
 
 import { IrisApi, ApiError } from "./api.js";
 
@@ -76,6 +86,48 @@ function makeCell(text, { mono = false } = {}) {
   cell.title = text;
   return cell;
 }
+
+// How far either side of a record's/trace's own timestamp the cross-link
+// window extends — wide enough to absorb normal clock/processing skew
+// between this backend and IRIS, without being so wide it defeats the
+// point of narrowing the search.
+const CROSS_LINK_PADDING_MS = 30_000;
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+// Formats a JS Date as "YYYY-MM-DD HH:MM:SS" in UTC — the shape
+// observability.js's own (UTC) time filter expects. Distinct from this
+// view's OWN beginDateTime/endDateTime filters, which IRIS interprets in
+// the server's LOCAL time (see docs/api-capability-matrix.md's "POST
+// /v2/security/audit/records" entry) — never conflated with this.
+function formatUtcForObservabilityFilter(date) {
+  return (
+    `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
+    `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`
+  );
+}
+
+// AuditRecordEntry.UTCTimeStamp (backend/app/models/iris.py) looks like
+// "2026-09-19 14:10:36.808" — genuinely UTC, but not directly
+// Date-parseable without normalizing to ISO 8601 first.
+function parseUtcTimestamp(value) {
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(`${value.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function computeObservabilityTimeWindow(utcTimeStamp) {
+  const center = parseUtcTimestamp(utcTimeStamp);
+  if (!center) return null;
+  return {
+    begin: formatUtcForObservabilityFilter(new Date(center.getTime() - CROSS_LINK_PADDING_MS)),
+    end: formatUtcForObservabilityFilter(new Date(center.getTime() + CROSS_LINK_PADDING_MS)),
+  };
+}
+
+let onInvestigateTraces = null;
 
 /** Reads the current filter form values into the plain object shape
  * IrisApi.getAuditRecords()/the backend's get_audit_records route expect —
@@ -150,6 +202,22 @@ function renderRecords(settled, auditEnabled) {
       makeCell(textOrPlaceholder(record.ClientIPAddress), { mono: true }),
       makeCell(textOrPlaceholder(record.Description)),
     );
+
+    const actionsCell = document.createElement("td");
+    actionsCell.className = "data-table__cell";
+    const window_ = computeObservabilityTimeWindow(record.UTCTimeStamp);
+    if (onInvestigateTraces && window_) {
+      const tracesButton = document.createElement("button");
+      tracesButton.className = "btn";
+      tracesButton.type = "button";
+      tracesButton.textContent = "Traces";
+      tracesButton.title =
+        "View execution traces recorded within 30 seconds of this audit record (UTC)";
+      tracesButton.addEventListener("click", () => onInvestigateTraces(window_));
+      actionsCell.append(tracesButton);
+    }
+    row.append(actionsCell);
+
     dom.tableBody.append(row);
   }
 }
@@ -196,7 +264,31 @@ export async function loadInvestigation() {
   setLoading(false);
 }
 
-export function initInvestigationControls() {
+/**
+ * Sets the Begin/End filter fields (IRIS server local time, per this
+ * view's own convention) without fetching anything itself — called by
+ * app.js right before nav.navigateTo("investigation"), so the navigation's
+ * own view-opened callback performs the one real fetch, already using
+ * these values. Also clears the other filters, so a stale username/event
+ * type typed earlier can't silently narrow a cross-link's results.
+ */
+export function setTimeWindow(beginDateTime, endDateTime) {
+  dom.filterBegin.value = beginDateTime;
+  dom.filterEnd.value = endDateTime;
+  dom.filterEventTypes.value = "";
+  dom.filterUsername.value = "";
+  dom.filterSearch.value = "";
+}
+
+/**
+ * `onInvestigateTraces`, when provided, is called with `{ begin, end }`
+ * (UTC, formatted for observability.js's own time filter) whenever the
+ * operator clicks a row's "Traces" cross-link button — see app.js for how
+ * it's wired to actually switch views.
+ */
+export function initInvestigationControls({ onInvestigateTraces: callback } = {}) {
+  onInvestigateTraces = typeof callback === "function" ? callback : null;
+
   // The Search button is type="submit" and associated with this form via
   // its `form="investigation-filter-form"` attribute (it lives in the view
   // header, outside the <form> itself) — so both clicking it AND pressing

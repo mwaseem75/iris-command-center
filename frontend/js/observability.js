@@ -6,6 +6,18 @@
 // never triggers an operation itself — it only displays traces that
 // already exist because something else (e.g. the Operations view) ran
 // one.
+//
+// The Begin/End time filter below is entirely client-side (the same
+// fetch-once-then-filter-in-memory approach capabilities.js already uses)
+// — filtering never re-fetches from the backend.
+//
+// Cross-links with Investigation (frontend/js/investigation.js): the only
+// correlation drawn between an execution trace and an IRIS audit record is
+// TIME PROXIMITY — there is no shared ID between the Command Center's own
+// execution traces and IRIS's own audit log. "Investigate audit records"
+// below uses this trace's own start_time/end_time; investigation.js's
+// "Traces" button does the reverse using an audit record's UTCTimeStamp.
+// Neither direction invents or assumes any IRIS-side link.
 
 import { IrisApi, ApiError } from "./api.js";
 
@@ -19,6 +31,10 @@ const dom = {
   connectionStatus: document.getElementById("observability-connection-status"),
   connectionStatusLabel: document.getElementById("observability-connection-status-label"),
   countLabel: document.getElementById("observability-count"),
+  filterForm: document.getElementById("observability-filter-form"),
+  filterBegin: document.getElementById("observability-filter-begin"),
+  filterEnd: document.getElementById("observability-filter-end"),
+  filterClearButton: document.getElementById("observability-filter-clear-button"),
   tableWrapper: document.getElementById("observability-table-wrapper"),
   tableBody: document.getElementById("observability-table-body"),
   empty: document.getElementById("observability-empty"),
@@ -27,6 +43,53 @@ const dom = {
 // Which trace/span each expanded detail row belongs to, so a Refresh can
 // re-render without losing which rows the user had open.
 const expandedTraceIds = new Set();
+
+// The full list from the last successful fetch — the time filter only
+// ever re-renders a subset of this, never re-fetches it.
+let allTraces = [];
+
+let onInvestigateTimeWindow = null;
+
+// How far either side of a trace's own start/end time the cross-link
+// window extends — wide enough to absorb normal clock/processing skew
+// between this backend and IRIS, without being so wide it defeats the
+// point of narrowing the search.
+const CROSS_LINK_PADDING_MS = 30_000;
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+// Formats a JS Date as "YYYY-MM-DD HH:MM:SS" in UTC — matches both this
+// view's own (UTC) time filter and, separately, what is sent to
+// investigation.js's setTimeWindow() (IRIS's server-LOCAL time filter —
+// this app never converts between the two timezones, since a trace's
+// start/end time carries no information about the connected IRIS
+// instance's own clock/timezone; see investigation.js's module header).
+function formatUtc(date) {
+  return (
+    `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
+    `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`
+  );
+}
+
+function parseFilterInput(value) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  const date = new Date(`${trimmed.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function computeInvestigationTimeWindow(startIso, endIso) {
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = endIso ? new Date(endIso) : start;
+  const endTime = Number.isNaN(end.getTime()) ? start.getTime() : end.getTime();
+  return {
+    begin: formatUtc(new Date(start.getTime() - CROSS_LINK_PADDING_MS)),
+    end: formatUtc(new Date(endTime + CROSS_LINK_PADDING_MS)),
+  };
+}
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -186,6 +249,21 @@ function buildTraceDetail(trace) {
   );
   container.append(summary);
 
+  const window_ = computeInvestigationTimeWindow(trace.start_time, trace.end_time);
+  if (onInvestigateTimeWindow && window_) {
+    const actions = document.createElement("div");
+    actions.className = "btn-row";
+    const investigateButton = document.createElement("button");
+    investigateButton.className = "btn";
+    investigateButton.type = "button";
+    investigateButton.textContent = "Investigate audit records";
+    investigateButton.title =
+      "View IRIS audit records within 30 seconds of this trace (assumes the IRIS server clock is close to UTC)";
+    investigateButton.addEventListener("click", () => onInvestigateTimeWindow(window_));
+    actions.append(investigateButton);
+    container.append(actions);
+  }
+
   const spansGrid = document.createElement("div");
   spansGrid.className = "trace-detail__spans";
   const spans = Array.isArray(trace.spans) ? trace.spans : [];
@@ -204,13 +282,34 @@ function buildTraceDetail(trace) {
   return container;
 }
 
-function toggleTraceDetail(traceId, traces) {
+function toggleTraceDetail(traceId) {
   if (expandedTraceIds.has(traceId)) {
     expandedTraceIds.delete(traceId);
   } else {
     expandedTraceIds.add(traceId);
   }
-  renderTable(traces);
+  applyFilters();
+}
+
+// `null` for either bound means "unfiltered" on that side. Compares
+// against `trace.start_time` — a trace with no start_time (should never
+// happen; every trace records one) is excluded rather than guessed into
+// matching or not.
+function matchesTimeWindow(trace, begin, end) {
+  if (!begin && !end) return true;
+  const start = new Date(trace.start_time);
+  if (Number.isNaN(start.getTime())) return false;
+  if (begin && start < begin) return false;
+  if (end && start > end) return false;
+  return true;
+}
+
+/** Re-renders from the already-fetched `allTraces` list using the current
+ * time filter values — never triggers a network request. */
+function applyFilters() {
+  const begin = parseFilterInput(dom.filterBegin.value);
+  const end = parseFilterInput(dom.filterEnd.value);
+  renderTable(allTraces.filter((trace) => matchesTimeWindow(trace, begin, end)));
 }
 
 function renderTable(traces) {
@@ -219,13 +318,20 @@ function renderTable(traces) {
   if (!Array.isArray(traces) || traces.length === 0) {
     dom.tableWrapper.hidden = true;
     dom.empty.hidden = false;
+    dom.empty.textContent =
+      allTraces.length > 0
+        ? "No traces fall within this time window."
+        : "No execution traces recorded yet. Traces appear here after an operation is attempted (e.g. from the Operations view).";
     dom.countLabel.textContent = "";
     return;
   }
 
   dom.tableWrapper.hidden = false;
   dom.empty.hidden = true;
-  dom.countLabel.textContent = `${traces.length} trace${traces.length === 1 ? "" : "s"}`;
+  dom.countLabel.textContent =
+    traces.length === allTraces.length
+      ? `${traces.length} trace${traces.length === 1 ? "" : "s"}`
+      : `Showing ${traces.length} of ${allTraces.length} traces`;
 
   for (const trace of traces) {
     const isExpanded = expandedTraceIds.has(trace.trace_id);
@@ -247,7 +353,7 @@ function renderTable(traces) {
     toggleButton.className = "btn";
     toggleButton.type = "button";
     toggleButton.textContent = isExpanded ? "Hide" : "Details";
-    toggleButton.addEventListener("click", () => toggleTraceDetail(trace.trace_id, traces));
+    toggleButton.addEventListener("click", () => toggleTraceDetail(trace.trace_id));
     toggleCell.append(toggleButton);
     row.append(toggleCell);
 
@@ -288,6 +394,7 @@ export async function loadExecutionTraces() {
         : "An unexpected error occurred while loading execution traces.";
     setConnectionState("error", "Could not reach the backend");
     setErrorBanner(message);
+    allTraces = [];
     renderTable(null);
     setLoading(false);
     return;
@@ -298,6 +405,7 @@ export async function loadExecutionTraces() {
   if (traces === null) {
     setConnectionState("error", "Backend returned no data");
     setErrorBanner("The backend did not return the expected traces list.");
+    allTraces = [];
     renderTable(null);
     setLoading(false);
     return;
@@ -305,12 +413,50 @@ export async function loadExecutionTraces() {
 
   setConnectionState("connected", "Connected");
   setErrorBanner(null);
-  renderTable(traces);
+  allTraces = traces;
+  applyFilters();
   setLoading(false);
 }
 
-export function initObservabilityControls() {
+/**
+ * Sets the Begin/End (UTC) filter fields and re-renders from the
+ * already-fetched trace list — never fetches anything itself. Called by
+ * app.js right before nav.navigateTo("observability"), so the
+ * navigation's own view-opened callback performs the one real fetch,
+ * after which this filter is naturally re-applied by loadExecutionTraces()
+ * -> applyFilters().
+ */
+export function setTimeWindow(begin, end) {
+  dom.filterBegin.value = begin;
+  dom.filterEnd.value = end;
+}
+
+/**
+ * `onInvestigateTimeWindow`, when provided, is called with
+ * `{ begin, end }` (IRIS server local time, formatted for
+ * investigation.js's own filters) whenever the operator clicks a trace's
+ * "Investigate audit records" button — see app.js for how it's wired to
+ * actually switch views.
+ */
+export function initObservabilityControls({ onInvestigateTimeWindow: callback } = {}) {
+  onInvestigateTimeWindow = typeof callback === "function" ? callback : null;
   dom.refreshButton.addEventListener("click", () => {
     loadExecutionTraces();
+  });
+
+  // Filtering is client-side and instant — no network request, so every
+  // input re-renders immediately rather than waiting for a submit/click.
+  dom.filterBegin.addEventListener("input", applyFilters);
+  dom.filterEnd.addEventListener("input", applyFilters);
+  dom.filterClearButton.addEventListener("click", () => {
+    dom.filterBegin.value = "";
+    dom.filterEnd.value = "";
+    applyFilters();
+  });
+  // Pressing Enter in a filter field would otherwise submit this <form>
+  // and reload the page; filtering already happens live via the "input"
+  // listeners above, so submitting just needs to be a harmless no-op.
+  dom.filterForm.addEventListener("submit", (event) => {
+    event.preventDefault();
   });
 }

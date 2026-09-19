@@ -3,8 +3,12 @@
 // Processes, Databases, Web Apps, Tasks, Security, Journal, Operations,
 // AI Assistant, Observability, Extensions, Investigation, and the API
 // Capability Explorer.
+//
+// Also wires the one cross-link between Observability and Investigation
+// (see nav.js's navigateTo() and each view's own setTimeWindow()) — this
+// is the only place either view's module is aware the other exists.
 
-import { initNavigation } from "./nav.js";
+import { initNavigation, navigateTo } from "./nav.js";
 import { loadDashboard, initDashboardControls } from "./dashboard.js";
 import { loadSystemInfo, initSystemControls } from "./system.js";
 import { loadNamespaces, initNamespacesControls } from "./namespaces.js";
@@ -16,9 +20,17 @@ import { loadSecurity, initSecurityControls } from "./security.js";
 import { loadJournal, initJournalControls } from "./journal.js";
 import { loadOperations, initOperationsControls } from "./operations.js";
 import { initAiAssistantControls } from "./ai-assistant.js";
-import { loadExecutionTraces, initObservabilityControls } from "./observability.js";
+import {
+  loadExecutionTraces,
+  initObservabilityControls,
+  setTimeWindow as setObservabilityTimeWindow,
+} from "./observability.js";
 import { loadExtensions, initExtensionsControls } from "./extensions.js";
-import { loadInvestigation, initInvestigationControls } from "./investigation.js";
+import {
+  loadInvestigation,
+  initInvestigationControls,
+  setTimeWindow as setInvestigationTimeWindow,
+} from "./investigation.js";
 import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 
 function init() {
@@ -33,9 +45,23 @@ function init() {
   initJournalControls();
   initOperationsControls();
   initAiAssistantControls();
-  initObservabilityControls();
+  // These two cross-links are the only coupling between Observability and
+  // Investigation: each just sets the OTHER view's own filter fields
+  // (never re-implementing the other's rendering) and then navigates,
+  // so the target view's normal view-opened load picks the filter up.
+  initObservabilityControls({
+    onInvestigateTimeWindow: ({ begin, end }) => {
+      setInvestigationTimeWindow(begin, end);
+      navigateTo("investigation");
+    },
+  });
   initExtensionsControls();
-  initInvestigationControls();
+  initInvestigationControls({
+    onInvestigateTraces: ({ begin, end }) => {
+      setObservabilityTimeWindow(begin, end);
+      navigateTo("observability");
+    },
+  });
   initCapabilitiesControls();
 
   // Fetch fresh data every time a detail view is opened, so it can never
