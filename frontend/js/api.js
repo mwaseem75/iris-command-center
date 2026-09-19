@@ -59,6 +59,12 @@ export const IrisApi = {
   getOauth2ServerClients: () => fetchIris("/api/iris/security/oauth2/server/clients"),
   getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
   getOperations: () => fetchIris("/api/iris/operations"),
+  // Unlike every other IrisApi method, the response here is the Command
+  // Center's own { reply, intent } shape (backend/app/models/schemas.py's
+  // AssistantQueryResponse) — not an IRISEnvelope — because this endpoint
+  // never returns raw IRIS data, only a natural-language summary of it.
+  queryAssistant: (message) =>
+    fetchIris(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`),
 };
 
 export { ApiError, API_BASE_URL };

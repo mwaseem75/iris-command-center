@@ -47,6 +47,10 @@ for the Security view:
     ("PUT"/"POST"/"DELETE"/"PATCH") appears anywhere in frontend/js/*.js —
     this is intentionally broad so it keeps guarding every future view,
     not just System/Processes/Databases/Web Apps/Tasks/Security/Journal.
+18. (Phase 4) The AI Assistant nav item/view exist and are enabled, and
+    ai-assistant.js calls only GET /api/iris/assistant/query (the backend's
+    read-only, natural-language query endpoint) and no other IrisApi
+    method — see backend/app/routes/assistant.py.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -473,8 +477,8 @@ def test_operations_nav_and_view_exist_and_use_only_operations_endpoint() -> Non
     )
 
 
-def test_ai_assistant_nav_and_view_exist_and_make_no_network_calls() -> None:
-    print("Checking the AI Assistant nav item/view exist and ai-assistant.js makes no network calls...")
+def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
+    print("Checking the AI Assistant nav item/view exist and ai-assistant.js uses only IrisApi.queryAssistant...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
 
     nav_match = re.search(
@@ -503,16 +507,44 @@ def test_ai_assistant_nav_and_view_exist_and_make_no_network_calls() -> None:
         check(prompt in html, f"suggested prompt {prompt!r} is present")
 
     ai_js = (FRONTEND_DIR / "js" / "ai-assistant.js").read_text(encoding="utf-8")
-    check("fetch(" not in ai_js, "ai-assistant.js makes no fetch() call")
-    # Checked as literal, callable code forms (an import statement, or
-    # actual use of the IrisApi object) rather than a blunt substring
-    # match, so an explanatory comment describing what this view
-    # deliberately does NOT do isn't mistaken for the thing itself.
+    check("fetch(" not in ai_js, "ai-assistant.js makes no raw fetch() call (goes through IrisApi)")
     check(
-        re.search(r'from\s+["\']\./api\.js["\']', ai_js) is None,
-        "ai-assistant.js does NOT import from api.js",
+        re.search(r'from\s+["\']\./api\.js["\']', ai_js) is not None,
+        "ai-assistant.js imports from api.js",
     )
-    check("IrisApi." not in ai_js, "ai-assistant.js does NOT call any IrisApi method")
+    check(
+        "IrisApi.queryAssistant" in ai_js,
+        "ai-assistant.js calls IrisApi.queryAssistant()",
+    )
+
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings", "getOperations",
+    ]
+    for method in other_methods:
+        check(method not in ai_js, f"ai-assistant.js does NOT call IrisApi.{method}() directly")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', ai_js))
+    check(
+        referenced_paths in ({"/api/iris/assistant/query"}, set()),
+        f"ai-assistant.js references only /api/iris/assistant/query as a literal path "
+        f"(found: {referenced_paths or 'none, uses IrisApi.queryAssistant()'})",
+    )
+
+    # This view must never trigger the existing mutating operation, and
+    # must never carry a confirmation/bypass shortcut. Checked as literal,
+    # callable code forms rather than a blunt substring match, so an
+    # explanatory comment describing what this view deliberately does NOT
+    # do isn't mistaken for the thing itself.
+    check(
+        '"/api/iris/journal/purge-archived"' not in ai_js,
+        "ai-assistant.js does NOT reference the mutating purge-archived route as a literal path",
+    )
+    check(
+        re.search(r'["\']confirmed["\']\s*:', ai_js) is None,
+        "ai-assistant.js does NOT send a confirmation/bypass field",
+    )
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
@@ -550,7 +582,7 @@ def main() -> None:
         test_security_view_uses_only_security_endpoints,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_operations_nav_and_view_exist_and_use_only_operations_endpoint,
-        test_ai_assistant_nav_and_view_exist_and_make_no_network_calls,
+        test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

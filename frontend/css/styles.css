@@ -836,6 +836,11 @@ input:focus-visible {
 
 .chat__message-text {
   margin: 0;
+  /* Assistant replies may contain real newlines (e.g. a short list of
+     databases/processes/tasks) — preserve them instead of the browser's
+     default collapse-to-one-line behavior, while still wrapping long
+     lines normally. */
+  white-space: pre-line;
 }
 
 .chat__suggestions {

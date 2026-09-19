@@ -31,3 +31,15 @@ class OperationSummary(BaseModel):
 
 class OperationsListResponse(BaseModel):
     operations: list[OperationSummary]
+
+
+class AssistantQueryResponse(BaseModel):
+    """The AI Assistant's reply to one read-only natural-language question.
+
+    `intent` is the classified intent name (see
+    app.assistant.intents.Intent) — informational only, useful for tests
+    and debugging; the frontend only displays `reply`.
+    """
+
+    reply: str
+    intent: str

@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.iris_client.client import IRISClient
+from app.routes.assistant import router as assistant_router
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
 from app.routes.journal import router as journal_router
@@ -39,3 +40,4 @@ app.include_router(health_router)
 app.include_router(iris_router)
 app.include_router(journal_router)
 app.include_router(operations_router)
+app.include_router(assistant_router)
