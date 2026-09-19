@@ -42,7 +42,7 @@ def classify_intent(message: str) -> Intent:
     if not text:
         return Intent.UNKNOWN
 
-    if "purge archived" in text or "purgearchived" in text:
+    if "purge archived" in text or "purgearchived" in text or "purge_archived" in text:
         return Intent.JOURNAL_OPERATION
 
     if "database" in text:

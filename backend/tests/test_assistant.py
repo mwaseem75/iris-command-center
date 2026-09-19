@@ -54,6 +54,8 @@ def test_classify_intent_journal_operation() -> None:
     assert classify_intent("turn on purge archived") is Intent.JOURNAL_OPERATION
     assert classify_intent("confirm purge archived true") is Intent.JOURNAL_OPERATION
     assert classify_intent("set PurgeArchived to false") is Intent.JOURNAL_OPERATION
+    assert classify_intent("update_purge_archived") is Intent.JOURNAL_OPERATION
+    assert classify_intent("journal.update_purge_archived") is Intent.JOURNAL_OPERATION
 
 
 # --- parse_purge_archived_request: pure, no IRIS involved ---
