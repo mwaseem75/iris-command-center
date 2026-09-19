@@ -95,6 +95,12 @@
               <span>AI Assistant</span>
             </button>
           </li>
+          <li>
+            <button class="nav-item" type="button" data-view="observability">
+              <span class="nav-item__icon" aria-hidden="true">&#128202;</span>
+              <span>Observability</span>
+            </button>
+          </li>
         </ul>
       </nav>
 
@@ -666,6 +672,55 @@
               <textarea class="chat__input" id="ai-chat-input" rows="1" placeholder="Ask about your IRIS instance&hellip;" aria-label="Message"></textarea>
               <button class="btn btn--primary" type="submit" id="ai-chat-send-button">Send</button>
             </form>
+          </div>
+        </section>
+
+        <section class="view" id="view-observability" data-view="observability" aria-labelledby="observability-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="observability-title">Observability</h2>
+              <p class="view__subtitle">Execution traces for every operation attempt, recorded in-memory by the authorization and execution framework.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="observability-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="observability-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="observability-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="observability-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading execution traces&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="observability-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="observability-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="observability-count"></p>
+          </div>
+
+          <p class="empty-state" id="observability-empty" hidden>No execution traces recorded yet. Traces appear here after an operation is attempted (e.g. from the Operations view).</p>
+
+          <div class="table-wrapper" id="observability-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Trace ID</th>
+                  <th scope="col">Operation</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Started</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody id="observability-table-body"></tbody>
+            </table>
           </div>
         </section>
 

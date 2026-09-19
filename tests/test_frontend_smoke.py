@@ -94,6 +94,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "journal.js",
         FRONTEND_DIR / "js" / "operations.js",
         FRONTEND_DIR / "js" / "ai-assistant.js",
+        FRONTEND_DIR / "js" / "observability.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -596,6 +597,48 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
     )
 
 
+def test_observability_nav_and_view_exist_and_use_only_traces_endpoint() -> None:
+    print("Checking the Observability nav item/view exist and observability.js uses only GET /api/iris/observability/traces...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="observability"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"observability\" exists")
+    check("disabled" not in nav_match.group(0), "the Observability nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-observability"[^>]*data-view="observability"[^>]*>', html
+    )
+    check(
+        view_match is not None,
+        'a <section id="view-observability" data-view="observability"> exists',
+    )
+    check('id="observability-table-body"' in html, "the traces table body element exists")
+
+    observability_js = (FRONTEND_DIR / "js" / "observability.js").read_text(encoding="utf-8")
+    check(
+        "IrisApi.getExecutionTraces" in observability_js,
+        "observability.js calls IrisApi.getExecutionTraces()",
+    )
+
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
+    ]
+    for method in other_methods:
+        check(method not in observability_js, f"observability.js does NOT call IrisApi.{method}()")
+
+    check("fetch(" not in observability_js, "observability.js makes no raw fetch() call")
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', observability_js))
+    check(
+        referenced_paths == set(),
+        f"observability.js references no /api/iris/* path as a literal string "
+        f"(found: {referenced_paths}) — every request goes through IrisApi",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
@@ -671,6 +714,7 @@ def main() -> None:
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_operations_nav_and_view_exist_and_use_only_expected_endpoints,
         test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,
+        test_observability_nav_and_view_exist_and_use_only_traces_endpoint,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

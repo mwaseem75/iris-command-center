@@ -927,6 +927,82 @@ input:focus-visible {
   border-color: var(--color-accent);
 }
 
+/* --- Observability view: status badges + expandable trace detail --- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.status-badge--ok {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.status-badge--error {
+  background: var(--color-error-soft);
+  color: var(--color-error);
+}
+
+.status-badge--warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.status-badge--neutral {
+  background: var(--color-surface-raised);
+  color: var(--color-text-faint);
+}
+
+.trace-detail-row {
+  background: var(--color-surface-raised);
+}
+
+.trace-detail {
+  padding: 16px 20px;
+  white-space: normal;
+}
+
+.trace-detail__spans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.trace-detail__span {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.trace-detail__span-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.trace-detail__span-meta {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
+
 /* --- Responsive --- */
 
 @media (max-width: 860px) {

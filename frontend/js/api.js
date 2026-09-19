@@ -103,6 +103,9 @@ export const IrisApi = {
   // POST /api/iris/journal/purge-archived has always returned.
   executeJournalPurgeArchived: (purgeArchived, confirmed) =>
     postJournalPurgeArchived(purgeArchived, confirmed),
+  // Read-only — this endpoint makes no IRIS call itself; it only reads the
+  // backend's in-memory execution trace store (backend/app/observability/).
+  getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),
 };
 
 export { ApiError, API_BASE_URL };

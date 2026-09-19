@@ -6,6 +6,7 @@ These describe the Command Center's own responses, not IRIS's.
 from pydantic import BaseModel
 
 from app.authorization.operations import OperationKind, RiskLevel
+from app.observability.models import ExecutionTrace
 
 
 class HealthResponse(BaseModel):
@@ -43,3 +44,12 @@ class AssistantQueryResponse(BaseModel):
 
     reply: str
     intent: str
+
+
+class TraceListResponse(BaseModel):
+    """Read-only view of the in-memory execution trace store
+    (app/observability/store.py). Each ExecutionTrace already includes its
+    full spans list — there is deliberately no separate "detail" endpoint;
+    the frontend's expandable trace view renders straight from this."""
+
+    traces: list[ExecutionTrace]
