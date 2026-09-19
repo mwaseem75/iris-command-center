@@ -1,30 +1,53 @@
 /* IRIS Command Center — dashboard shell styles.
-   Vanilla CSS only, no framework. Dark, functional console aesthetic. */
+   Vanilla CSS only, no framework. Dark, functional console aesthetic.
+
+   Phase 4 note: every class/id name below is unchanged from Phase 3 — the
+   frontend JS (see frontend/js/*.js) selects elements by these exact
+   selectors (getElementById, classList.toggle/add/remove, querySelector),
+   so this pass only changes VALUES (color, spacing, radius, shadow,
+   typography) and adds new, purely additive rules (focus-visible states,
+   scrollbar styling, subtle transitions) — it never renames or removes a
+   selector another file relies on. */
 
 :root {
-  --color-bg: #0e1117;
+  --color-bg: #0b0e14;
   --color-surface: #161b22;
   --color-surface-raised: #1c222c;
+  --color-surface-hover: #222937;
   --color-border: #2a3140;
   --color-border-subtle: #232936;
 
-  --color-text: #e6e9ef;
+  --color-text: #e9ecf2;
   --color-text-muted: #9aa4b2;
   --color-text-faint: #6b7280;
 
   --color-accent: #4f8cff;
   --color-accent-hover: #6b9fff;
+  --color-accent-soft: rgba(79, 140, 255, 0.14);
 
   --color-success: #3fbf7f;
+  --color-success-soft: rgba(63, 191, 127, 0.12);
   --color-warning: #e0a33e;
+  --color-warning-soft: rgba(224, 163, 62, 0.12);
   --color-error: #e0663e;
+  --color-error-soft: rgba(224, 102, 62, 0.1);
 
   --font-display: "Syne", "Segoe UI", sans-serif;
   --font-body: "Lato", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "Consolas", monospace;
 
-  --radius: 8px;
-  --sidebar-width: 232px;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.32);
+  --shadow-focus: 0 0 0 3px var(--color-accent-soft);
+
+  --transition-fast: 0.12s ease;
+  --transition-base: 0.18s ease;
+
+  --sidebar-width: 236px;
   --header-height: 72px;
 }
 
@@ -51,10 +74,55 @@ body {
   font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-button {
+button,
+textarea,
+input {
   font-family: inherit;
+}
+
+/* A single, consistent keyboard-focus treatment for every interactive
+   element in the app, instead of each browser's inconsistent default
+   outline. `:focus-visible` means a mouse click never shows this ring —
+   only real keyboard/assistive-tech navigation does. */
+a:focus-visible,
+button:focus-visible,
+textarea:focus-visible,
+input:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Slim, low-contrast scrollbars (WebKit/Blink) so long tables, the sidebar,
+   and the chat log feel native to the dark console rather than showing the
+   platform's default light scrollbar chrome. Progressive enhancement only
+   — unsupported browsers keep their default scrollbar with no loss of
+   function. */
+.content,
+.sidebar,
+.table-wrapper,
+.chat__messages {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.content::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.table-wrapper::-webkit-scrollbar,
+.chat__messages::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.content::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb,
+.table-wrapper::-webkit-scrollbar-thumb,
+.chat__messages::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
 }
 
 .app-shell {
@@ -71,15 +139,18 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 28px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  z-index: 2;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .brand__mark {
@@ -88,8 +159,9 @@ button {
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--color-accent), #7c5cff);
+  box-shadow: 0 4px 14px rgba(79, 140, 255, 0.28);
   color: #fff;
   font-family: var(--font-display);
   font-weight: 800;
@@ -102,7 +174,7 @@ button {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 18px;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
   color: var(--color-text);
 }
 
@@ -110,18 +182,21 @@ button {
   margin: 2px 0 0;
   font-size: 12.5px;
   color: var(--color-text-muted);
+  letter-spacing: 0.01em;
 }
 
 .connection-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   font-size: 13px;
+  font-weight: 600;
   color: var(--color-text-muted);
+  transition: border-color var(--transition-base), color var(--transition-base);
 }
 
 .connection-status__dot {
@@ -130,23 +205,29 @@ button {
   border-radius: 50%;
   background: var(--color-text-faint);
   flex-shrink: 0;
+  box-shadow: 0 0 0 3px transparent;
+  transition: background-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .connection-status[data-state="checking"] .connection-status__dot {
   background: var(--color-warning);
+  box-shadow: 0 0 0 3px var(--color-warning-soft);
   animation: pulse 1.4s ease-in-out infinite;
 }
 
 .connection-status[data-state="connected"] .connection-status__dot {
   background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-soft);
 }
 
 .connection-status[data-state="error"] .connection-status__dot {
   background: var(--color-error);
+  box-shadow: 0 0 0 3px var(--color-error-soft);
 }
 
 .connection-status[data-state="degraded"] .connection-status__dot {
   background: var(--color-warning);
+  box-shadow: 0 0 0 3px var(--color-warning-soft);
 }
 
 .connection-status[data-state="connected"] .connection-status__label,
@@ -154,9 +235,17 @@ button {
   color: var(--color-text);
 }
 
+.connection-status[data-state="connected"] {
+  border-color: rgba(63, 191, 127, 0.3);
+}
+
+.connection-status[data-state="error"] {
+  border-color: rgba(224, 102, 62, 0.35);
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.45; }
 }
 
 /* --- Body layout --- */
@@ -172,7 +261,7 @@ button {
   flex-shrink: 0;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
-  padding: 16px 12px;
+  padding: 18px 14px;
   overflow-y: auto;
 }
 
@@ -189,16 +278,17 @@ button {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   padding: 10px 12px;
   background: transparent;
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   font-size: 14px;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color var(--transition-base), color var(--transition-base);
 }
 
 .nav-item__icon {
@@ -206,7 +296,7 @@ button {
   width: 18px;
   justify-content: center;
   font-size: 14px;
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
 .nav-item span:nth-child(2) {
@@ -221,23 +311,28 @@ button {
   color: var(--color-text-faint);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 6px;
 }
 
 .nav-item:not(:disabled):hover {
-  background: var(--color-surface-raised);
+  background: var(--color-surface-hover);
   color: var(--color-text);
 }
 
 .nav-item--active {
-  background: var(--color-surface-raised);
+  background: var(--color-accent-soft);
   color: var(--color-text);
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
+.nav-item--active .nav-item__icon {
+  opacity: 1;
+}
+
 .nav-item:disabled {
   cursor: default;
+  opacity: 0.5;
 }
 
 /* --- Main content --- */
@@ -245,7 +340,7 @@ button {
 .content {
   flex: 1;
   min-width: 0;
-  padding: 28px 32px 48px;
+  padding: 32px 36px 56px;
   overflow-y: auto;
 }
 
@@ -255,19 +350,23 @@ button {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .view__title {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 24px;
+  font-size: 25px;
+  letter-spacing: 0.002em;
 }
 
 .view__subtitle {
   margin: 6px 0 0;
   color: var(--color-text-muted);
   font-size: 14px;
+  max-width: 62ch;
 }
 
 .view--placeholder {
@@ -280,20 +379,22 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 16px;
-  border-radius: var(--radius);
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface-raised);
   color: var(--color-text);
   font-size: 13.5px;
   font-weight: 700;
   cursor: pointer;
-  transition: border-color 0.12s ease, background-color 0.12s ease;
+  transition: border-color var(--transition-base), background-color var(--transition-base),
+    transform var(--transition-fast), box-shadow var(--transition-base);
   white-space: nowrap;
 }
 
 .btn:hover {
   border-color: var(--color-accent);
+  background: var(--color-surface-hover);
 }
 
 .btn:active {
@@ -303,17 +404,24 @@ button {
 .btn:disabled {
   opacity: 0.6;
   cursor: default;
+  transform: none;
 }
 
 .btn--primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: #0b1220;
+  box-shadow: 0 2px 10px rgba(79, 140, 255, 0.22);
 }
 
 .btn--primary:hover {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
+  box-shadow: 0 4px 16px rgba(79, 140, 255, 0.3);
+}
+
+.btn--primary:disabled {
+  box-shadow: none;
 }
 
 .btn__icon {
@@ -335,20 +443,22 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px;
-  border-radius: var(--radius);
+  padding: 13px 16px;
+  border-radius: var(--radius-sm);
   font-size: 13.5px;
+  font-weight: 600;
   margin-bottom: 20px;
 }
 
 .banner--error {
-  background: rgba(224, 102, 62, 0.1);
+  background: var(--color-error-soft);
   border: 1px solid rgba(224, 102, 62, 0.35);
   color: #f0a583;
 }
 
 .banner__icon {
   font-size: 15px;
+  flex-shrink: 0;
 }
 
 /* --- Loading state --- */
@@ -372,6 +482,22 @@ button {
   flex-shrink: 0;
 }
 
+/* --- Shared "surface panel" treatment ---
+   Every raised container in the app (stat cards, info cards, table
+   wrappers, the chat log) shares the same background/border/radius/shadow
+   — consolidated here once instead of repeated per component. Each
+   component below only adds its own padding/layout on top. */
+
+.stat-card,
+.info-card,
+.table-wrapper,
+.chat__messages {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
 /* --- Stat cards --- */
 
 .stat-grid {
@@ -381,18 +507,16 @@ button {
 }
 
 .stat-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
+  padding: 20px 22px;
+  transition: border-color var(--transition-base);
 }
 
 .stat-card__label {
-  margin: 0 0 10px;
-  font-size: 12px;
+  margin: 0 0 12px;
+  font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--color-text-muted);
 }
 
@@ -400,7 +524,8 @@ button {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 28px;
+  font-size: 29px;
+  line-height: 1.15;
   color: var(--color-text);
 }
 
@@ -419,7 +544,7 @@ button {
 }
 
 .stat-card__meta {
-  margin: 6px 0 0;
+  margin: 7px 0 0;
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--color-text-faint);
@@ -430,13 +555,13 @@ button {
 }
 
 .last-updated {
-  margin-top: 20px;
+  margin-top: 22px;
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--color-text-faint);
 }
 
-/* --- System view: connection panel --- */
+/* --- Connection/info panel (reused at the top of every detail view) --- */
 
 .info-panel {
   display: flex;
@@ -448,6 +573,7 @@ button {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   margin-bottom: 20px;
 }
 
@@ -465,7 +591,7 @@ button {
   color: var(--color-text-faint);
 }
 
-/* --- System view: info cards --- */
+/* --- Info cards (System/Security/Journal/Operations detail sections) --- */
 
 .info-grid {
   display: grid;
@@ -474,10 +600,7 @@ button {
 }
 
 .info-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
+  padding: 20px 22px;
 }
 
 .info-card--wide {
@@ -489,11 +612,13 @@ button {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 15px;
+  letter-spacing: 0.005em;
 }
 
 .info-card__hint {
   margin: -6px 0 14px;
   font-size: 12.5px;
+  line-height: 1.5;
   color: var(--color-text-muted);
 }
 
@@ -511,7 +636,7 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
+  padding: 9px 0;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
@@ -548,10 +673,10 @@ button {
 .tag-list__item {
   font-family: var(--font-mono);
   font-size: 12px;
-  padding: 4px 10px;
+  padding: 4px 11px;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text);
 }
 
@@ -581,6 +706,7 @@ button {
 .privilege-list__value {
   font-family: var(--font-mono);
   font-size: 12px;
+  font-weight: 700;
 }
 
 .privilege-list__value--granted {
@@ -589,9 +715,10 @@ button {
 
 .privilege-list__value--denied {
   color: var(--color-text-faint);
+  font-weight: 400;
 }
 
-/* --- Processes view: empty state --- */
+/* --- Empty state (Processes/Databases/Web Apps/Tasks/Security/Operations) --- */
 
 .empty-state {
   display: flex;
@@ -600,19 +727,16 @@ button {
   gap: 10px;
   color: var(--color-text-faint);
   font-size: 14px;
-  padding: 40px 0;
+  padding: 44px 0;
   margin: 0;
   border: 1px dashed var(--color-border);
   border-radius: var(--radius);
 }
 
-/* --- Processes view: data table --- */
+/* --- Data tables (Processes/Databases/Web Apps/Tasks/Security/Operations) --- */
 
 .table-wrapper {
   overflow-x: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
 }
 
 .data-table {
@@ -624,11 +748,11 @@ button {
 
 .data-table thead th {
   text-align: left;
-  padding: 10px 16px;
+  padding: 11px 16px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-raised);
@@ -637,7 +761,7 @@ button {
 }
 
 .data-table__cell {
-  padding: 10px 16px;
+  padding: 11px 16px;
   color: var(--color-text);
   border-bottom: 1px solid var(--color-border-subtle);
   max-width: 260px;
@@ -649,8 +773,16 @@ button {
   border-bottom: none;
 }
 
+.data-table tbody tr:nth-child(even) .data-table__cell {
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.data-table tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
 .data-table tbody tr:hover .data-table__cell {
-  background: var(--color-surface-raised);
+  background: var(--color-surface-hover);
 }
 
 .data-table__cell--mono {
@@ -670,35 +802,36 @@ button {
 .chat__messages {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 160px;
   max-height: 420px;
   overflow-y: auto;
-  padding: 16px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  padding: 18px;
 }
 
 .chat__message {
   max-width: 80%;
-  padding: 10px 14px;
+  padding: 11px 15px;
   border-radius: var(--radius);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.55;
+  box-shadow: var(--shadow-sm);
 }
 
 .chat__message--assistant {
   align-self: flex-start;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
+  border-bottom-left-radius: 4px;
   color: var(--color-text);
 }
 
 .chat__message--user {
   align-self: flex-end;
   background: var(--color-accent);
+  border-bottom-right-radius: 4px;
   color: #0b1220;
+  box-shadow: 0 2px 10px rgba(79, 140, 255, 0.22);
 }
 
 .chat__message-text {
@@ -714,18 +847,21 @@ button {
 .chat__suggestion {
   font-family: var(--font-body);
   font-size: 13px;
-  padding: 8px 14px;
+  font-weight: 600;
+  padding: 8px 15px;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: border-color 0.12s ease, color 0.12s ease;
+  transition: border-color var(--transition-base), color var(--transition-base),
+    background-color var(--transition-base);
 }
 
 .chat__suggestion:hover {
   border-color: var(--color-accent);
   color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 
 .chat__composer {
@@ -739,7 +875,7 @@ button {
   resize: none;
   min-height: 44px;
   max-height: 140px;
-  padding: 10px 14px;
+  padding: 11px 15px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -747,6 +883,11 @@ button {
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.4;
+  transition: border-color var(--transition-base);
+}
+
+.chat__input::placeholder {
+  color: var(--color-text-faint);
 }
 
 .chat__input:focus {
@@ -782,11 +923,11 @@ button {
   }
 
   .content {
-    padding: 20px;
+    padding: 22px;
   }
 
   .app-header {
-    padding: 0 16px;
+    padding: 0 18px;
   }
 
   .brand__tagline {
@@ -795,6 +936,10 @@ button {
 }
 
 @media (max-width: 480px) {
+  .content {
+    padding: 16px;
+  }
+
   .view__header {
     flex-direction: column;
     align-items: stretch;
@@ -802,6 +947,10 @@ button {
 
   .stat-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-card {
+    padding: 16px 18px;
   }
 
   .data-table thead th,
