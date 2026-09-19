@@ -19,6 +19,9 @@ for the Security view:
 4. (Step 2) The System nav item and view exist in the markup and the nav
    item is enabled (not `disabled`).
 5. (Step 2) system.js calls GET /api/iris/info and no other endpoint.
+5b. The Namespaces nav item and view exist in the markup and the nav item
+    is enabled (not `disabled`); namespaces.js calls GET /api/iris/namespaces
+    and no other endpoint.
 6. (Step 3) The Processes nav item and view exist in the markup and the
    nav item is enabled (not `disabled`).
 7. (Step 3) processes.js calls GET /api/iris/processes and no other
@@ -85,6 +88,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "api.js",
         FRONTEND_DIR / "js" / "dashboard.js",
         FRONTEND_DIR / "js" / "system.js",
+        FRONTEND_DIR / "js" / "namespaces.js",
         FRONTEND_DIR / "js" / "nav.js",
         FRONTEND_DIR / "js" / "processes.js",
         FRONTEND_DIR / "js" / "databases.js",
@@ -170,6 +174,45 @@ def test_system_view_uses_only_get_info() -> None:
     check(
         referenced_paths in ({"/api/iris/info"}, set()),
         f"system.js references only /api/iris/info as a literal path (found: {referenced_paths or 'none, uses IrisApi.getInfo()'})",
+    )
+
+
+def test_namespaces_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the Namespaces nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="namespaces"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"namespaces\" exists")
+    check("disabled" not in nav_match.group(0), "the Namespaces nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-namespaces"[^>]*data-view="namespaces"[^>]*>', html
+    )
+    check(view_match is not None, 'a <section id="view-namespaces" data-view="namespaces"> exists')
+
+    check('id="namespaces-table-body"' in html, "the namespaces table body element exists")
+
+
+def test_namespaces_view_uses_only_get_namespaces() -> None:
+    print("Checking namespaces.js calls GET /api/iris/namespaces and nothing else...")
+    namespaces_js = (FRONTEND_DIR / "js" / "namespaces.js").read_text(encoding="utf-8")
+
+    check("IrisApi.getNamespaces" in namespaces_js, "namespaces.js calls IrisApi.getNamespaces()")
+    other_methods = ["getInfo", "getProcesses", "getDatabases", "getWebApps", "getTasks"]
+    for method in other_methods:
+        check(method not in namespaces_js, f"namespaces.js does NOT call IrisApi.{method}()")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', namespaces_js))
+    check(
+        referenced_paths in ({"/api/iris/namespaces"}, set()),
+        f"namespaces.js references only /api/iris/namespaces as a literal path "
+        f"(found: {referenced_paths or 'none, uses IrisApi.getNamespaces()'})",
+    )
+    check(
+        "namespaces-table-body" in namespaces_js,
+        "namespaces.js renders into the namespaces table body element",
     )
 
 
@@ -701,6 +744,8 @@ def main() -> None:
         test_api_paths_match_real_backend_routes,
         test_system_nav_and_view_exist_and_are_enabled,
         test_system_view_uses_only_get_info,
+        test_namespaces_nav_and_view_exist_and_are_enabled,
+        test_namespaces_view_uses_only_get_namespaces,
         test_processes_nav_and_view_exist_and_are_enabled,
         test_processes_view_uses_only_get_processes,
         test_databases_nav_and_view_exist_and_are_enabled,

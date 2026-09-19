@@ -48,6 +48,12 @@
             </button>
           </li>
           <li>
+            <button class="nav-item" type="button" data-view="namespaces">
+              <span class="nav-item__icon" aria-hidden="true">&#8983;</span>
+              <span>Namespaces</span>
+            </button>
+          </li>
+          <li>
             <button class="nav-item" type="button" data-view="processes">
               <span class="nav-item__icon" aria-hidden="true">&#9646;&#9646;</span>
               <span>Processes</span>
@@ -234,6 +240,57 @@
               <ul class="privilege-list" id="system-privileges-list"></ul>
               <p class="info-card__empty" id="system-privileges-empty" hidden>No privilege information available.</p>
             </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-namespaces" data-view="namespaces" aria-labelledby="namespaces-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="namespaces-title">Namespaces</h2>
+              <p class="view__subtitle">Configured namespaces on the connected IRIS instance.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="namespaces-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="namespaces-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="namespaces-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="namespaces-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading namespaces&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <div class="connection-status" id="namespaces-connection-status" data-state="checking">
+              <span class="connection-status__dot" aria-hidden="true"></span>
+              <span class="connection-status__label" id="namespaces-connection-status-label">Checking connection&hellip;</span>
+            </div>
+            <p class="info-panel__meta" id="namespaces-connection-detail"></p>
+            <p class="info-panel__meta" id="namespaces-count"></p>
+          </div>
+
+          <p class="empty-state" id="namespaces-empty" hidden>No namespaces reported.</p>
+
+          <div class="table-wrapper" id="namespaces-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Globals</th>
+                  <th scope="col">Routines</th>
+                  <th scope="col">Sys Globals</th>
+                  <th scope="col">Sys Routines</th>
+                  <th scope="col">Library</th>
+                  <th scope="col">Temp Globals</th>
+                </tr>
+              </thead>
+              <tbody id="namespaces-table-body"></tbody>
+            </table>
           </div>
         </section>
 
