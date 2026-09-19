@@ -126,6 +126,11 @@ export const IrisApi = {
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),
+  // Read-only — this endpoint makes no IRIS call itself either; it serves
+  // the backend's own project-maintained capability registry
+  // (backend/app/capabilities.py), with `available` computed against this
+  // backend's own currently-registered routes.
+  getCapabilities: () => fetchIris("/api/iris/capabilities"),
 };
 
 export { ApiError, API_BASE_URL };

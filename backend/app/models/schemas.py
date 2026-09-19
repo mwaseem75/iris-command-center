@@ -6,6 +6,7 @@ These describe the Command Center's own responses, not IRIS's.
 from pydantic import BaseModel
 
 from app.authorization.operations import OperationKind, RiskLevel
+from app.capabilities import CapabilityEntry
 from app.observability.models import ExecutionTrace
 
 
@@ -44,6 +45,20 @@ class AssistantQueryResponse(BaseModel):
 
     reply: str
     intent: str
+
+
+class CapabilityViewEntry(CapabilityEntry):
+    """One app.capabilities.CapabilityEntry plus `available` — whether this
+    backend currently exposes a real, registered route for it. `available`
+    is computed fresh on every request by app/routes/capabilities.py
+    checking this backend's own actual route table; it is never a
+    hand-maintained boolean stored alongside the rest of the entry."""
+
+    available: bool
+
+
+class CapabilityListResponse(BaseModel):
+    capabilities: list[CapabilityViewEntry]
 
 
 class TraceListResponse(BaseModel):

@@ -64,6 +64,11 @@ for the Security view:
     method, and never references a mutating HTTP method (IRIS's own
     async-task POST for audit records happens entirely on the backend;
     this view only ever sends a GET).
+21. The API Capability Explorer ("capabilities") nav item and view exist in
+    the markup and the nav item is enabled (not `disabled`);
+    capabilities.js calls only IrisApi.getCapabilities() and no other
+    IrisApi method, filters entirely client-side (no other network call on
+    input), and never references a mutating HTTP method.
 
 Does not start icc-iris-dev, does not call any IRIS endpoint, does not
 import or exercise anything mutating.
@@ -111,6 +116,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "observability.js",
         FRONTEND_DIR / "js" / "extensions.js",
         FRONTEND_DIR / "js" / "investigation.js",
+        FRONTEND_DIR / "js" / "capabilities.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -826,6 +832,81 @@ def test_investigation_view_uses_only_expected_endpoints() -> None:
     )
 
 
+def test_capabilities_nav_and_view_exist_and_are_enabled() -> None:
+    print("Checking the API Capability Explorer nav item and view exist and are enabled...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="capabilities"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"capabilities\" exists")
+    check("disabled" not in nav_match.group(0), "the API Capability Explorer nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-capabilities"[^>]*data-view="capabilities"[^>]*>', html
+    )
+    check(
+        view_match is not None,
+        'a <section id="view-capabilities" data-view="capabilities"> exists',
+    )
+
+    check('id="capabilities-table-body"' in html, "the capabilities table body element exists")
+    check('id="capabilities-filter-form"' in html, "the capability filter form exists")
+    for filter_id in (
+        "capabilities-filter-search",
+        "capabilities-filter-verification",
+        "capabilities-filter-available",
+    ):
+        check(f'id="{filter_id}"' in html, f"the {filter_id!r} filter field exists")
+
+
+def test_capabilities_view_uses_only_expected_endpoint() -> None:
+    print("Checking capabilities.js calls only IrisApi.getCapabilities() and nothing else...")
+    capabilities_js = (FRONTEND_DIR / "js" / "capabilities.js").read_text(encoding="utf-8")
+
+    check(
+        "IrisApi.getCapabilities" in capabilities_js,
+        "capabilities.js calls IrisApi.getCapabilities()",
+    )
+
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
+        "getExecutionTraces", "getExtLangServers", "getFsAccessPurposes", "getWalletCollections",
+        "getAuditEnabled", "getAuditRecords",
+    ]
+    for method in other_methods:
+        check(method not in capabilities_js, f"capabilities.js does NOT call IrisApi.{method}()")
+
+    check(
+        "fetch(" not in capabilities_js,
+        "capabilities.js makes no raw fetch() call (goes through IrisApi)",
+    )
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', capabilities_js))
+    check(
+        referenced_paths == set(),
+        f"capabilities.js references no /api/iris/* path as a literal string "
+        f"(found: {referenced_paths}) — every request goes through IrisApi",
+    )
+    check(
+        "capabilities-table-body" in capabilities_js,
+        "capabilities.js renders into the capabilities table body element",
+    )
+
+    # Filtering must be a pure re-render of the already-fetched list, never
+    # a second network call — this module fetches exactly once per
+    # load/Refresh, unlike investigation.js's server-side filtered search.
+    # Comments are stripped first so a prose mention of "IrisApi." isn't
+    # mistaken for a second real call site.
+    code_only = re.sub(r"//.*", "", capabilities_js)
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
+    check(
+        code_only.count("IrisApi.") == 1,
+        "capabilities.js calls an IrisApi method exactly once (filtering never re-fetches)",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
     js_dir = FRONTEND_DIR / "js"
@@ -908,6 +989,8 @@ def main() -> None:
         test_extensions_view_uses_only_expected_endpoints,
         test_investigation_nav_and_view_exist_and_are_enabled,
         test_investigation_view_uses_only_expected_endpoints,
+        test_capabilities_nav_and_view_exist_and_are_enabled,
+        test_capabilities_view_uses_only_expected_endpoint,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

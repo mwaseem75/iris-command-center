@@ -1,7 +1,8 @@
 // Application bootstrap: wires sidebar navigation and starts the initial
 // view. Every nav item is functional: Dashboard, System, Namespaces,
 // Processes, Databases, Web Apps, Tasks, Security, Journal, Operations,
-// AI Assistant, Observability, Extensions, and Investigation.
+// AI Assistant, Observability, Extensions, Investigation, and the API
+// Capability Explorer.
 
 import { initNavigation } from "./nav.js";
 import { loadDashboard, initDashboardControls } from "./dashboard.js";
@@ -18,6 +19,7 @@ import { initAiAssistantControls } from "./ai-assistant.js";
 import { loadExecutionTraces, initObservabilityControls } from "./observability.js";
 import { loadExtensions, initExtensionsControls } from "./extensions.js";
 import { loadInvestigation, initInvestigationControls } from "./investigation.js";
+import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 
 function init() {
   initDashboardControls();
@@ -34,6 +36,7 @@ function init() {
   initObservabilityControls();
   initExtensionsControls();
   initInvestigationControls();
+  initCapabilitiesControls();
 
   // Fetch fresh data every time a detail view is opened, so it can never
   // show stale information from an earlier visit.
@@ -62,6 +65,8 @@ function init() {
       loadExtensions();
     } else if (view === "investigation") {
       loadInvestigation();
+    } else if (view === "capabilities") {
+      loadCapabilities();
     }
   });
 

@@ -119,6 +119,12 @@
               <span>Investigation</span>
             </button>
           </li>
+          <li>
+            <button class="nav-item" type="button" data-view="capabilities">
+              <span class="nav-item__icon" aria-hidden="true">&#128218;</span>
+              <span>API Explorer</span>
+            </button>
+          </li>
         </ul>
       </nav>
 
@@ -953,6 +959,79 @@
                 </tr>
               </thead>
               <tbody id="investigation-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-capabilities" data-view="capabilities" aria-labelledby="capabilities-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="capabilities-title">API Capability Explorer</h2>
+              <p class="view__subtitle">Which IRIS SysAdmin REST API capabilities this Command Center has verified and wired up &mdash; see docs/api-capability-matrix.md for full detail.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="capabilities-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="capabilities-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="capabilities-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="capabilities-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading capability data&hellip;</span>
+          </div>
+
+          <div class="info-panel">
+            <p class="info-panel__meta" id="capabilities-summary"></p>
+            <p class="info-panel__meta" id="capabilities-count"></p>
+          </div>
+
+          <section class="info-card info-card--wide" aria-labelledby="capabilities-filters-title">
+            <h3 class="info-card__title" id="capabilities-filters-title">Filters</h3>
+            <form class="filter-form" id="capabilities-filter-form">
+              <div class="filter-field">
+                <label for="capabilities-filter-search">Search</label>
+                <input type="text" id="capabilities-filter-search" placeholder="Search capability, endpoint, notes&hellip;" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="capabilities-filter-verification">Verification Status</label>
+                <select id="capabilities-filter-verification">
+                  <option value="" selected>All</option>
+                  <option value="Verified">Verified</option>
+                  <option value="Not tested">Not tested</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="capabilities-filter-available">Availability</label>
+                <select id="capabilities-filter-available">
+                  <option value="" selected>All</option>
+                  <option value="true">Available in Command Center</option>
+                  <option value="false">Not available in Command Center</option>
+                </select>
+              </div>
+            </form>
+          </section>
+
+          <p class="empty-state" id="capabilities-empty" hidden>No capabilities match these filters.</p>
+
+          <div class="table-wrapper" id="capabilities-table-wrapper" hidden>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Capability</th>
+                  <th scope="col">Endpoint</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Required Privilege</th>
+                  <th scope="col">Verification</th>
+                  <th scope="col">Available</th>
+                  <th scope="col">Notes</th>
+                </tr>
+              </thead>
+              <tbody id="capabilities-table-body"></tbody>
             </table>
           </div>
         </section>
