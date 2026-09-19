@@ -21,6 +21,7 @@ from app.iris_client.client import IRISClient
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
 from app.routes.journal import router as journal_router
+from app.routes.operations import router as operations_router
 
 
 @asynccontextmanager
@@ -37,3 +38,4 @@ app = FastAPI(title="IRIS Command Center", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(iris_router)
 app.include_router(journal_router)
+app.include_router(operations_router)

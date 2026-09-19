@@ -88,6 +88,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "tasks.js",
         FRONTEND_DIR / "js" / "security.js",
         FRONTEND_DIR / "js" / "journal.js",
+        FRONTEND_DIR / "js" / "operations.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -419,6 +420,58 @@ def test_journal_nav_and_view_exist_and_use_only_journal_settings() -> None:
     check("journal-settings-list" in journal_js, "journal.js renders into the journal settings list element")
 
 
+def test_operations_nav_and_view_exist_and_use_only_operations_endpoint() -> None:
+    print("Checking the Operations nav item/view exist and operations.js uses only GET /api/iris/operations...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    nav_match = re.search(
+        r'<button class="nav-item[^"]*"[^>]*data-view="operations"[^>]*>', html
+    )
+    check(nav_match is not None, "a nav-item button with data-view=\"operations\" exists")
+    check("disabled" not in nav_match.group(0), "the Operations nav-item is NOT disabled")
+
+    view_match = re.search(
+        r'<section[^>]*id="view-operations"[^>]*data-view="operations"[^>]*>', html
+    )
+    check(view_match is not None, 'a <section id="view-operations" data-view="operations"> exists')
+    check(
+        'id="operations-review-list"' in html,
+        "the journal.update_purge_archived review list element exists",
+    )
+
+    operations_js = (FRONTEND_DIR / "js" / "operations.js").read_text(encoding="utf-8")
+    check("IrisApi.getOperations" in operations_js, "operations.js calls IrisApi.getOperations()")
+    other_methods = [
+        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
+        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
+        "getJournalSettings",
+    ]
+    for method in other_methods:
+        check(method not in operations_js, f"operations.js does NOT call IrisApi.{method}()")
+
+    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', operations_js))
+    check(
+        referenced_paths in ({"/api/iris/operations"}, set()),
+        f"operations.js references only /api/iris/operations as a literal path "
+        f"(found: {referenced_paths or 'none, uses IrisApi.getOperations()'})",
+    )
+
+    # This view must never trigger the existing mutating operation it only
+    # reviews, and must never carry a confirmation/bypass shortcut. Checked
+    # as literal, callable code forms (a quoted path, or a "confirmed"
+    # request field) rather than a blunt substring match, so explanatory
+    # comments describing what this view deliberately does NOT do aren't
+    # mistaken for the thing itself.
+    check(
+        '"/api/iris/journal/purge-archived"' not in operations_js,
+        "operations.js does NOT reference the mutating purge-archived route as a literal path",
+    )
+    check(
+        re.search(r'["\']confirmed["\']\s*:', operations_js) is None,
+        "operations.js does NOT send a confirmation/bypass field",
+    )
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js...")
     js_dir = FRONTEND_DIR / "js"
@@ -453,6 +506,7 @@ def main() -> None:
         test_security_nav_and_view_exist_and_are_enabled,
         test_security_view_uses_only_security_endpoints,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
+        test_operations_nav_and_view_exist_and_use_only_operations_endpoint,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:
