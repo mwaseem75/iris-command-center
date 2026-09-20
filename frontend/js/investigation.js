@@ -129,6 +129,26 @@ function computeObservabilityTimeWindow(utcTimeStamp) {
 
 let onInvestigateTraces = null;
 
+// Observability's identical-looking filter card updates instantly on every
+// keystroke (it's just re-rendering already-fetched data). This view's
+// filters map to real server-side query parameters, so a true "instant"
+// re-fetch per keystroke isn't appropriate — but leaving the two views with
+// opposite interaction models (type-and-see vs. type-then-click-Search) is
+// confusing given they're directly cross-linked to each other. Debouncing
+// gets the same "just start typing" feel without hammering the backend on
+// every character. The Search button/Enter still work immediately, for an
+// operator who wants a result right away.
+const AUTO_SEARCH_DEBOUNCE_MS = 500;
+let autoSearchTimer = null;
+
+function scheduleAutoSearch() {
+  if (autoSearchTimer) clearTimeout(autoSearchTimer);
+  autoSearchTimer = setTimeout(() => {
+    autoSearchTimer = null;
+    loadInvestigation();
+  }, AUTO_SEARCH_DEBOUNCE_MS);
+}
+
 /** Reads the current filter form values into the plain object shape
  * IrisApi.getAuditRecords()/the backend's get_audit_records route expect —
  * exactly the documented, optional query parameters, nothing invented. */
@@ -293,9 +313,25 @@ export function initInvestigationControls({ onInvestigateTraces: callback } = {}
   // its `form="investigation-filter-form"` attribute (it lives in the view
   // header, outside the <form> itself) — so both clicking it AND pressing
   // Enter in any filter field fire this one `submit` event; there is no
-  // separate click handler to keep in sync with it.
+  // separate click handler to keep in sync with it. An explicit submit
+  // always searches immediately, cancelling any pending debounced search
+  // so the two never race and fire twice.
   dom.filterForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (autoSearchTimer) {
+      clearTimeout(autoSearchTimer);
+      autoSearchTimer = null;
+    }
     loadInvestigation();
   });
+
+  // Live-ish filtering to match Observability's instant feel: typing (or
+  // changing Order) schedules a debounced re-search rather than requiring
+  // an explicit Search click every time.
+  [dom.filterBegin, dom.filterEnd, dom.filterEventTypes, dom.filterUsername, dom.filterSearch].forEach(
+    (input) => {
+      input.addEventListener("input", scheduleAutoSearch);
+    },
+  );
+  dom.filterOrder.addEventListener("change", scheduleAutoSearch);
 }

@@ -20,6 +20,24 @@ class ApiError extends Error {
   }
 }
 
+// The header's connection pill (index.html's #connection-status) is shell
+// chrome shared by every view, but only Dashboard used to keep it updated —
+// so it went stale (frozen at Dashboard's last state) the moment the
+// operator navigated anywhere else. Every view already funnels its IRIS
+// reads through this one fetchIris() function, so updating the header pill
+// here — the single real choke point — keeps it honest for whichever view
+// is actually active, without any per-view module needing to know about it.
+// A richer, view-specific label (e.g. Dashboard's own "Connected as X")
+// set right after its own batch of requests settles simply overwrites this
+// generic one, since that happens strictly after these per-request updates.
+function setHeaderConnectionStatus(state, label) {
+  const dot = document.getElementById("connection-status");
+  const labelEl = document.getElementById("connection-status-label");
+  if (!dot || !labelEl) return;
+  dot.dataset.state = state;
+  labelEl.textContent = label;
+}
+
 /**
  * Fetch and parse a GET /api/iris/* endpoint. Never logs or includes
  * headers, credentials, or response bodies from failed requests — only a
@@ -33,16 +51,19 @@ async function fetchIris(path) {
       headers: { Accept: "application/json" },
     });
   } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
     throw new ApiError("Could not reach the Command Center backend.", { path });
   }
 
   if (!response.ok) {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
     throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
       status: response.status,
       path,
     });
   }
 
+  setHeaderConnectionStatus("connected", "Connected to backend");
   return response.json();
 }
 
@@ -66,16 +87,19 @@ async function postJournalPurgeArchived(purgeArchived, confirmed) {
       body: JSON.stringify({ PurgeArchived: purgeArchived, confirmed }),
     });
   } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
     throw new ApiError("Could not reach the Command Center backend.", { path });
   }
 
   if (!response.ok) {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
     throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
       status: response.status,
       path,
     });
   }
 
+  setHeaderConnectionStatus("connected", "Connected to backend");
   return response.json();
 }
 

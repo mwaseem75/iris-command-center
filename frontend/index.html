@@ -79,19 +79,19 @@
           </li>
           <li>
             <button class="nav-item" type="button" data-view="security">
-              <span class="nav-item__icon" aria-hidden="true">&#128274;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#9919;</span>
               <span>Security</span>
             </button>
           </li>
           <li>
             <button class="nav-item" type="button" data-view="journal">
-              <span class="nav-item__icon" aria-hidden="true">&#128220;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#9636;</span>
               <span>Journal</span>
             </button>
           </li>
           <li>
             <button class="nav-item" type="button" data-view="operations">
-              <span class="nav-item__icon" aria-hidden="true">&#9889;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#9654;</span>
               <span>Operations</span>
             </button>
           </li>
@@ -103,25 +103,25 @@
           </li>
           <li>
             <button class="nav-item" type="button" data-view="observability">
-              <span class="nav-item__icon" aria-hidden="true">&#128202;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#9637;</span>
               <span>Observability</span>
             </button>
           </li>
           <li>
             <button class="nav-item" type="button" data-view="extensions">
-              <span class="nav-item__icon" aria-hidden="true">&#128268;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#11041;</span>
               <span>Extensions</span>
             </button>
           </li>
           <li>
             <button class="nav-item" type="button" data-view="investigation">
-              <span class="nav-item__icon" aria-hidden="true">&#128269;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#9678;</span>
               <span>Investigation</span>
             </button>
           </li>
           <li>
             <button class="nav-item" type="button" data-view="capabilities">
-              <span class="nav-item__icon" aria-hidden="true">&#128218;</span>
+              <span class="nav-item__icon" aria-hidden="true">&#9672;</span>
               <span>API Explorer</span>
             </button>
           </li>
@@ -727,7 +727,7 @@
 
           <div class="info-grid" id="operations-review-grid" hidden>
             <section class="info-card info-card--wide" aria-labelledby="operations-review-title">
-              <h3 class="info-card__title" id="operations-review-title">Review: journal.update_purge_archived</h3>
+              <h3 class="info-card__title" id="operations-review-title">Review: Update Journal Purge-Archived Setting</h3>
               <p class="info-card__hint">
                 Executing this operation changes the IRIS journal <strong>PurgeArchived</strong> setting. Execution below always goes through the existing authorization and confirmation framework &mdash; nothing runs automatically and nothing bypasses that framework.
               </p>
@@ -735,7 +735,7 @@
             </section>
 
             <section class="info-card info-card--wide" aria-labelledby="operations-execute-title">
-              <h3 class="info-card__title" id="operations-execute-title">Execute: journal.update_purge_archived</h3>
+              <h3 class="info-card__title" id="operations-execute-title">Execute: Update Journal Purge-Archived Setting</h3>
               <p class="info-card__hint">
                 Nothing here executes on page load. Choose a value, review the explicit confirmation step, then confirm &mdash; only that final, deliberate click sends the request.
               </p>
@@ -780,14 +780,14 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="ai-assistant-title">AI Assistant</h2>
-              <p class="view__subtitle">Ask questions about the connected IRIS instance. AI integration is not connected yet.</p>
+              <p class="view__subtitle">Ask about the connected IRIS instance&rsquo;s status, processes, databases, web apps, tasks, or the journal purge-archived setting.</p>
             </div>
           </div>
 
           <div class="chat">
             <div class="chat__messages" id="ai-chat-messages" aria-live="polite">
               <div class="chat__message chat__message--assistant">
-                <p class="chat__message-text">Hi! I&rsquo;m not connected to a live AI model yet, so I can&rsquo;t answer questions right now &mdash; try the interface below.</p>
+                <p class="chat__message-text">Hi! I can answer questions about this IRIS instance using live data &mdash; try a suggestion below, or ask about system status, processes, databases, web apps, tasks, or the journal purge-archived setting.</p>
               </div>
             </div>
 
@@ -982,7 +982,7 @@
 
           <section class="info-card info-card--wide" aria-labelledby="investigation-filters-title">
             <h3 class="info-card__title" id="investigation-filters-title">Filters</h3>
-            <p class="info-card__hint">All fields are optional. Leaving every field blank lists every audit record IRIS has retained.</p>
+            <p class="info-card__hint">All fields are optional. Leaving every field blank lists every audit record IRIS has retained. Results refresh automatically shortly after you stop typing, or press Search for an immediate refresh.</p>
             <form class="filter-form" id="investigation-filter-form">
               <div class="filter-field">
                 <label for="investigation-filter-begin">Begin (YYYY-MM-DD HH:MM:SS)</label>

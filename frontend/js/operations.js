@@ -104,14 +104,44 @@ function formatConfirmation(required) {
   return required ? "Yes" : "No";
 }
 
+// Same status-badge convention already used by observability.js's trace
+// status column — reused here so risk level and confirmation-required read
+// as the same kind of at-a-glance safety signal, instead of plain table
+// text next to a view whose whole purpose is "Act—safely."
+const RISK_BADGE_CLASS = {
+  none: "status-badge--neutral",
+  low: "status-badge--ok",
+  medium: "status-badge--warning",
+  high: "status-badge--error",
+};
+
+function makeRiskBadge(riskLevel) {
+  const key = typeof riskLevel === "string" ? riskLevel.toLowerCase() : "";
+  const badge = document.createElement("span");
+  badge.className = `status-badge ${RISK_BADGE_CLASS[key] || "status-badge--neutral"}`;
+  badge.textContent = textOrPlaceholder(riskLevel);
+  return badge;
+}
+
+function makeConfirmationBadge(required) {
+  const badge = document.createElement("span");
+  badge.className = `status-badge ${required ? "status-badge--warning" : "status-badge--neutral"}`;
+  badge.textContent = formatConfirmation(required);
+  return badge;
+}
+
 // Cells/rows are always built via document.createElement + .textContent —
 // never innerHTML — so an operation name/description containing
 // HTML-special characters can never be interpreted as markup.
-function makeCell(text) {
+function makeCell(content) {
   const cell = document.createElement("td");
   cell.className = "data-table__cell";
-  cell.textContent = text;
-  cell.title = text;
+  if (content instanceof Node) {
+    cell.append(content);
+  } else {
+    cell.textContent = content;
+    cell.title = content;
+  }
   return cell;
 }
 
@@ -134,9 +164,9 @@ function renderTable(operations) {
     row.append(
       makeCell(textOrPlaceholder(op.name)),
       makeCell(formatKind(op.kind)),
-      makeCell(textOrPlaceholder(op.risk_level)),
+      makeCell(makeRiskBadge(op.risk_level)),
       makeCell(formatPrivileges(op.required_privileges)),
-      makeCell(formatConfirmation(op.confirmation_required)),
+      makeCell(makeConfirmationBadge(op.confirmation_required)),
       makeCell(textOrPlaceholder(op.description)),
     );
     dom.tableBody.append(row);
@@ -163,6 +193,7 @@ function renderReview(operations) {
   // changes" — it is real, registry-sourced fact (the operation's own
   // description already names this field), not invented copy.
   const rows = [
+    ["Operation ID", textOrPlaceholder(operation.name)],
     ["Description", textOrPlaceholder(operation.description)],
     ["Kind", formatKind(operation.kind)],
     ["Risk Level", textOrPlaceholder(operation.risk_level)],
