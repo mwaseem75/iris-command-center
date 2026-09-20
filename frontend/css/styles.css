@@ -47,8 +47,8 @@
   --transition-fast: 0.12s ease;
   --transition-base: 0.18s ease;
 
-  --sidebar-width: 236px;
-  --header-height: 72px;
+  --sidebar-width: 248px;
+  --header-height: 76px;
 }
 
 * {
@@ -139,12 +139,25 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
+  padding: 0 32px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   position: relative;
   z-index: 2;
+}
+
+/* A thin accent line under the header gives the shell a defined top edge
+   without adding another heavy border — echoes the brand mark's gradient. */
+.app-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-accent) 0%, rgba(124, 92, 255, 0.5) 32%, transparent 68%);
+  opacity: 0.7;
 }
 
 .brand {
@@ -157,11 +170,11 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--color-accent), #7c5cff);
-  box-shadow: 0 4px 14px rgba(79, 140, 255, 0.28);
+  box-shadow: 0 4px 16px rgba(79, 140, 255, 0.34);
   color: #fff;
   font-family: var(--font-display);
   font-weight: 800;
@@ -173,8 +186,8 @@ input:focus-visible {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 18px;
-  letter-spacing: 0.005em;
+  font-size: 19px;
+  letter-spacing: 0.008em;
   color: var(--color-text);
 }
 
@@ -261,7 +274,8 @@ input:focus-visible {
   flex-shrink: 0;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
-  padding: 18px 14px;
+  box-shadow: 2px 0 18px rgba(0, 0, 0, 0.18);
+  padding: 22px 16px;
   overflow-y: auto;
 }
 
@@ -271,15 +285,15 @@ input:focus-visible {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .nav-item {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 11px 13px;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
@@ -288,7 +302,8 @@ input:focus-visible {
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--transition-base), color var(--transition-base);
+  transition: background-color var(--transition-base), color var(--transition-base),
+    transform var(--transition-fast);
 }
 
 .nav-item__icon {
@@ -318,12 +333,17 @@ input:focus-visible {
 .nav-item:not(:disabled):hover {
   background: var(--color-surface-hover);
   color: var(--color-text);
+  transform: translateX(1px);
 }
 
 .nav-item--active {
   background: var(--color-accent-soft);
   color: var(--color-text);
   box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.nav-item--active:not(:disabled):hover {
+  transform: none;
 }
 
 .nav-item--active .nav-item__icon {
@@ -591,7 +611,7 @@ input:focus-visible {
 /* --- Dashboard section headings + quicklink cards --- */
 
 .section-heading {
-  margin: 28px 0 14px;
+  margin: 0 0 14px;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12.5px;
@@ -600,8 +620,29 @@ input:focus-visible {
   color: var(--color-text-muted);
 }
 
-.section-heading:first-of-type {
-  margin-top: 20px;
+/* --- Dashboard: Observe -> Recent Activity -> Quick Access hierarchy ---
+   Each block gets its own vertical rhythm (more space above a block than
+   within it) and its heading's weight/contrast steps down from primary
+   (Observe, the reason this screen exists) to tertiary (Quick Access,
+   pure navigation) — so the eye lands on live system state first. */
+
+.dashboard-section + .dashboard-section {
+  margin-top: 36px;
+}
+
+.section-heading--primary {
+  font-size: 14px;
+  color: var(--color-text);
+  letter-spacing: 0.06em;
+}
+
+.section-heading--secondary {
+  color: var(--color-text-muted);
+}
+
+.section-heading--tertiary {
+  font-size: 11.5px;
+  color: var(--color-text-faint);
 }
 
 .quicklink-grid {
@@ -710,6 +751,16 @@ input:focus-visible {
   margin: 0;
   font-size: 13px;
   color: var(--color-text-faint);
+}
+
+/* Dashboard-only: a genuinely empty "no activity yet" glance shouldn't
+   compete visually with real data once it appears, so it renders quieter
+   than other views' empty states (which are often the whole point of that
+   view, e.g. Investigation's "no matching records"). */
+.info-card__empty--quiet {
+  font-size: 12.5px;
+  font-style: italic;
+  opacity: 0.85;
 }
 
 .info-list {
@@ -1122,6 +1173,7 @@ input:focus-visible {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
+    box-shadow: 0 2px 18px rgba(0, 0, 0, 0.18);
     padding: 10px;
   }
 
@@ -1148,6 +1200,10 @@ input:focus-visible {
 
   .brand__tagline {
     display: none;
+  }
+
+  .dashboard-section + .dashboard-section {
+    margin-top: 28px;
   }
 }
 
