@@ -9,6 +9,14 @@ real IRIS instance.
 Constructing IRISClient does not itself contact IRIS — no request is made
 until a route that needs one is actually called (see app/auth/iris_auth.py:
 the session is only obtained lazily, on first use).
+
+Optional IRIS execution-trace persistence (app/observability/
+iris_trace_writer.py): off by default (Settings.persist_traces_to_iris).
+When enabled, an IRISTraceWriter is constructed here (itself making no
+network call until first use — same lazy pattern as IRISClient above) and
+registered with app/observability/store.py, which then best-effort,
+additionally persists every trace it already records in-memory. Disabled,
+this app behaves exactly as it did before this feature existed.
 """
 
 from contextlib import asynccontextmanager
@@ -19,6 +27,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.iris_client.client import IRISClient
+from app.observability import store as observability_store
+from app.observability.iris_trace_writer import IRISTraceWriter
 from app.routes.assistant import router as assistant_router
 from app.routes.capabilities import router as capabilities_router
 from app.routes.health import router as health_router
@@ -30,11 +40,21 @@ from app.routes.operations import router as operations_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    app.state.iris_client = IRISClient(get_settings())
+    settings = get_settings()
+    app.state.iris_client = IRISClient(settings)
+
+    trace_writer: IRISTraceWriter | None = None
+    if settings.persist_traces_to_iris:
+        trace_writer = IRISTraceWriter(settings)
+        observability_store.set_trace_persister(trace_writer)
+
     try:
         yield
     finally:
         await app.state.iris_client.aclose()
+        if trace_writer is not None:
+            trace_writer.close()
+            observability_store.set_trace_persister(None)
 
 
 app = FastAPI(title="IRIS Command Center", lifespan=lifespan)

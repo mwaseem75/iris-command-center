@@ -6,3 +6,7 @@ pydantic-settings
 python-dotenv
 pytest
 pytest-asyncio
+# Optional: only imported (lazily) by app/observability/iris_trace_writer.py
+# when Settings.persist_traces_to_iris is enabled (default: off). Not
+# required for the app or test suite to run with that flag off.
+intersystems-irispython

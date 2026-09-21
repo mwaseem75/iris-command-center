@@ -22,6 +22,22 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
 
+    # --- Optional IRIS-side execution trace persistence (see
+    # app/observability/iris_trace_writer.py). Off by default: the
+    # in-memory trace store (app/observability/store.py) is the only trace
+    # storage until this is explicitly enabled. When enabled, traces are
+    # additionally, best-effort written to ^CommandCenterTrace in the given
+    # namespace via IRIS's Native API — this never replaces or changes the
+    # in-memory store or any existing read route. ---
+    persist_traces_to_iris: bool = False
+    iris_namespace: str = "USER"
+    # Default matches icc-iris-dev's host-mapped superserver port (the
+    # container's own internal port is the standard 1972, but Docker
+    # publishes it to the host as 1973 — see `docker ps`'s PORTS column,
+    # `0.0.0.0:1973->1972/tcp`). This backend always connects from the
+    # host, so 1973 is the correct default for this project's dev setup.
+    iris_superserver_port: int = 1973
+
 
 @lru_cache
 def get_settings() -> Settings:
