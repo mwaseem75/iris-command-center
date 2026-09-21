@@ -235,6 +235,68 @@ function buildSpanCard(span) {
   return card;
 }
 
+// Fixed stage order for the waterfall below — matches the order
+// app/observability/tracer.py always records spans in (authorization ->
+// confirmation -> execution -> verification), but this is looked up by
+// name, not assumed by array position.
+const WATERFALL_STAGES = ["authorization", "confirmation", "execution", "verification"];
+
+/** A compact, proportional-by-duration visual timeline for the same four
+ * spans buildSpanCard() below already renders as detail cards — this is
+ * an additional, purely visual summary of the exact same trace/span data
+ * already fetched from GET /api/iris/observability/traces, nothing new is
+ * fetched or invented. Each segment's width (via CSS flex-grow) is
+ * proportional to that span's real `duration_ms`; a small flex-grow floor
+ * only keeps an exactly-zero-duration (e.g. skipped) stage visibly
+ * present in the track — the duration shown in its tooltip/legend text is
+ * always the real, unrounded value from the trace itself. Returns null if
+ * the trace has none of the four expected spans (defensive; every real
+ * trace recorded by TraceRecorder.finish() has all four).
+ */
+function buildWaterfall(trace) {
+  const spans = Array.isArray(trace.spans) ? trace.spans : [];
+  const spansByName = new Map(spans.map((span) => [span.name, span]));
+
+  const track = document.createElement("div");
+  track.className = "trace-detail__waterfall-track";
+
+  const legend = document.createElement("div");
+  legend.className = "trace-detail__waterfall-legend";
+
+  let stageCount = 0;
+  for (const stageName of WATERFALL_STAGES) {
+    const span = spansByName.get(stageName);
+    if (!span) continue;
+    stageCount += 1;
+
+    const duration = typeof span.duration_ms === "number" ? span.duration_ms : 0;
+    // Reuses the exact same status -> badge-color mapping already used for
+    // every other status badge in this file, so a segment's color always
+    // means the same thing here as it does everywhere else in the app.
+    const colorSuffix = statusBadgeClass(span.status).replace("status-badge--", "");
+
+    const segment = document.createElement("div");
+    segment.className = `trace-detail__waterfall-segment trace-detail__waterfall-segment--${colorSuffix}`;
+    segment.style.flexGrow = String(Math.max(duration, 0.05));
+    segment.title = `${stageName} — ${textOrPlaceholder(span.status)} — ${formatDuration(duration)}`;
+    track.append(segment);
+
+    const legendItem = document.createElement("span");
+    legendItem.className = "trace-detail__waterfall-legend-item";
+    const dot = document.createElement("span");
+    dot.className = `trace-detail__waterfall-dot trace-detail__waterfall-dot--${colorSuffix}`;
+    legendItem.append(dot, document.createTextNode(`${stageName} ${formatDuration(duration)}`));
+    legend.append(legendItem);
+  }
+
+  if (stageCount === 0) return null;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "trace-detail__waterfall";
+  wrapper.append(track, legend);
+  return wrapper;
+}
+
 function buildTraceDetail(trace) {
   const container = document.createElement("div");
   container.className = "trace-detail";
@@ -248,6 +310,11 @@ function buildTraceDetail(trace) {
     buildInfoRow("Verification", textOrPlaceholder(trace.verification_result)),
   );
   container.append(summary);
+
+  const waterfall = buildWaterfall(trace);
+  if (waterfall) {
+    container.append(waterfall);
+  }
 
   const window_ = computeInvestigationTimeWindow(trace.start_time, trace.end_time);
   if (onInvestigateTimeWindow && window_) {

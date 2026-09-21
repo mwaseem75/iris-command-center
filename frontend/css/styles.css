@@ -1111,6 +1111,84 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
+/* Compact trace timeline/waterfall: the four stage spans (Authorization,
+   Confirmation, Execution, Verification), sized proportionally to their
+   real duration_ms via flex-grow — see observability.js's buildWaterfall(). */
+
+.trace-detail__waterfall {
+  margin: 14px 0 18px;
+}
+
+.trace-detail__waterfall-track {
+  display: flex;
+  gap: 2px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.trace-detail__waterfall-segment {
+  min-width: 3px;
+}
+
+.trace-detail__waterfall-segment--ok {
+  background: var(--color-success);
+}
+
+.trace-detail__waterfall-segment--error {
+  background: var(--color-error);
+}
+
+.trace-detail__waterfall-segment--warning {
+  background: var(--color-warning);
+}
+
+.trace-detail__waterfall-segment--neutral {
+  background: var(--color-text-faint);
+}
+
+.trace-detail__waterfall-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.trace-detail__waterfall-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: capitalize;
+}
+
+.trace-detail__waterfall-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.trace-detail__waterfall-dot--ok {
+  background: var(--color-success);
+}
+
+.trace-detail__waterfall-dot--error {
+  background: var(--color-error);
+}
+
+.trace-detail__waterfall-dot--warning {
+  background: var(--color-warning);
+}
+
+.trace-detail__waterfall-dot--neutral {
+  background: var(--color-text-faint);
+}
+
 /* --- Investigation view: audit-record search filters --- */
 
 .filter-form {
