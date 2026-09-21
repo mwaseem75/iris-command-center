@@ -147,12 +147,11 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
             "Update the IRIS journal 'Purge Archived Files' setting "
             "(PUT /api/admin/v2/journal/settings, PurgeArchived field only). "
             "Selected as the project's first real mutating operation per "
-            "docs/first-mutation-selection.md. As of Phase 2 Step 7, this is "
-            "implemented (handler + route) but has NOT been executed against any "
-            "real IRIS instance — see docs/first-mutation-implementation.md. "
-            "Chosen because archiving is not configured on icc-iris-dev "
-            "(ArchiveName was empty in every Phase 1 observation), so this specific "
-            "field has no practical effect on that instance today."
+            "docs/first-mutation-selection.md — see docs/first-mutation-implementation.md "
+            "for the handler/route implementation. Chosen because archiving is not "
+            "configured on icc-iris-dev (ArchiveName was empty in every Phase 1 "
+            "observation), so this specific field has no practical effect on that "
+            "instance today."
         ),
         kind=OperationKind.MUTATING,
         required_privileges=frozenset({IRISPrivilege.MANAGE, IRISPrivilege.JOURNAL}),
