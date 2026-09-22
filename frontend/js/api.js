@@ -284,6 +284,14 @@ export const IrisApi = {
   getSecurityResources: () => fetchIris("/api/iris/security/resources"),
   getSecurityResourceDetail: (name) =>
     fetchIris(`/api/iris/security/resources/detail?name=${encodeURIComponent(name)}`),
+  // Read-only Authentication Posture (same backend module). web-auth
+  // arrives with SMTPUsername already withheld by the backend.
+  getSecurityServices: () => fetchIris("/api/iris/security/services"),
+  getSecurityServiceDetail: (name) =>
+    fetchIris(`/api/iris/security/services/detail?name=${encodeURIComponent(name)}`),
+  getSecurityWebAuth: () => fetchIris("/api/iris/security/web-auth"),
+  getSecuritySuperservers: () => fetchIris("/api/iris/security/superservers"),
+  getSecurityClassAccess: () => fetchIris("/api/iris/security/class-access"),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),

@@ -42,6 +42,7 @@ const dom = {
     users: $("security-panel-users"),
     roles: $("security-panel-roles"),
     resources: $("security-panel-resources"),
+    authentication: $("security-panel-authentication"),
   },
   users: {
     form: $("security-users-filter-form"),
@@ -91,7 +92,9 @@ const dom = {
   drawerBody: $("security-drawer-body"),
 };
 
-const TABS = ["users", "roles", "resources"];
+// "authentication" is owned by security-auth.js: this module only shows its
+// panel and announces it with a "security-tab-shown" event on the tab bar.
+const TABS = ["users", "roles", "resources", "authentication"];
 
 // Resource permission letters, per mainspec_v2.json ("a string consisting
 // only of 'R', 'W', and 'U'").
@@ -592,7 +595,7 @@ function finishTable(c, shown, total, selects, query) {
 function renderActiveTable() {
   if (activeTab === "users") renderUsersTable();
   else if (activeTab === "roles") renderRolesTable();
-  else renderResourcesTable();
+  else if (activeTab === "resources") renderResourcesTable();
 }
 
 function setTab(tab) {
@@ -604,6 +607,7 @@ function setTab(tab) {
   }
   for (const name of TABS) dom.panels[name].hidden = name !== activeTab;
   renderActiveTable();
+  dom.tabs.dispatchEvent(new CustomEvent("security-tab-shown", { detail: { tab: activeTab } }));
 }
 
 // --- drawer ---
@@ -776,7 +780,9 @@ async function renderDrawerTop() {
   dom.drawer.scrollTop = 0;
   if (wasHidden) dom.drawerClose.focus();
 
-  const renderer = { user: renderUserDrawer, role: renderRoleDrawer, resource: renderResourceDrawer }[top.kind];
+  const renderer =
+    { user: renderUserDrawer, role: renderRoleDrawer, resource: renderResourceDrawer }[top.kind] ||
+    extraDrawerRenderers.get(top.kind);
   try {
     await renderer(top.name, seq);
   } catch (err) {
@@ -787,7 +793,7 @@ async function renderDrawerTop() {
 }
 
 function openEntity(kind, name, { push = true } = {}) {
-  if (!["user", "role", "resource"].includes(kind) || !name) return;
+  if (!(["user", "role", "resource"].includes(kind) || extraDrawerRenderers.has(kind)) || !name) return;
   if (!push || dom.drawer.hidden) drawerStack = [];
   drawerStack.push({ kind, name });
   renderDrawerTop();
@@ -893,6 +899,43 @@ export async function loadSecurityAccess() {
   // Re-open the drawer's current entity with fresh data after a refresh.
   if (!dom.drawer.hidden && drawerStack.length > 0) renderDrawerTop();
 }
+
+// --- API for other Security modules (security-auth.js) ---
+//
+// Lets another module render its own entity kinds (e.g. "service") in this
+// module's shared drawer, with the same Back history, loading/error states
+// and stale-response guard, and reuse the same DOM helpers. A renderer is
+// `async (name, isCurrent) => void`: it fills `securityUi.drawerBody` and
+// must stop if `isCurrent()` is false after an await; a thrown ApiError is
+// shown as the drawer's error.
+
+const extraDrawerRenderers = new Map();
+
+export function registerSecurityDrawerRenderer(kind, renderer) {
+  extraDrawerRenderers.set(kind, (name, seq) => renderer(name, () => seq === drawerSeq));
+}
+
+export function openSecurityDrawer(kind, name) {
+  openEntity(kind, name, { push: false });
+}
+
+export const securityUi = {
+  drawerBody: dom.drawerBody,
+  drawerHint: dom.drawerHint,
+  setDrawerHeader,
+  textOrPlaceholder,
+  formatBoolean,
+  includesText,
+  makeCell,
+  makeBadge,
+  makeBadgeCell,
+  makeInfoRow,
+  makeInfoList,
+  makeSection,
+  makeNote,
+  populateSelect,
+  uniqueSorted,
+};
 
 function onActivate(event, handler) {
   if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;

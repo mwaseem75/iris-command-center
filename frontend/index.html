@@ -1397,6 +1397,7 @@
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-users" data-tab="users" aria-controls="security-panel-users" aria-selected="true">Users</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-roles" data-tab="roles" aria-controls="security-panel-roles" aria-selected="false" tabindex="-1">Roles</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-resources" data-tab="resources" aria-controls="security-panel-resources" aria-selected="false" tabindex="-1">Resources</button>
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-authentication" data-tab="authentication" aria-controls="security-panel-authentication" aria-selected="false" tabindex="-1">Authentication</button>
               </div>
 
               <div id="security-panel-users" role="tabpanel" aria-labelledby="security-tab-users">
@@ -1526,6 +1527,129 @@
                     </thead>
                     <tbody id="security-resources-table-body"></tbody>
                   </table>
+                </div>
+              </div>
+              <div id="security-panel-authentication" role="tabpanel" aria-labelledby="security-tab-authentication" hidden>
+                <p class="ns-hint">How this instance authenticates connections, exactly as IRIS reports it: services, system-wide web authentication, superservers and application class access. Read-only &mdash; the SMTP username and two-factor sender address are withheld by the Command Center backend, and IRIS returns no passwords or secrets.</p>
+
+                <div class="banner banner--error" id="security-auth-error-banner" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="security-auth-error-banner-text"></span>
+                </div>
+                <div class="loading-state" id="security-auth-loading" hidden>
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span>Loading authentication settings&hellip;</span>
+                </div>
+
+                <div id="security-auth-content" hidden>
+                  <div class="stat-grid stat-grid--compact" id="security-auth-summary-grid" aria-label="Authentication posture"></div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Web Authentication</h4>
+                    </div>
+                    <p class="ns-hint">System-wide authentication options (GET /v2/security/web-auth). Each method shows the raw IRIS setting it reflects.</p>
+                    <p class="empty-state" id="security-web-auth-unavailable" hidden>Could not load system-wide web authentication settings.</p>
+                    <ul class="privilege-list" id="security-web-auth-methods"></ul>
+                    <dl class="info-list" id="security-web-auth-settings"></dl>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Services</h4>
+                    </div>
+                    <form class="filter-form filter-form--toolbar" id="security-services-filter-form" role="search" aria-label="Filter services">
+                      <div class="filter-field filter-field--wide">
+                        <label for="security-services-search">Search</label>
+                        <input type="search" id="security-services-search" placeholder="Service name, description&hellip;" autocomplete="off" />
+                      </div>
+                      <div class="filter-field">
+                        <label for="security-services-status">Status</label>
+                        <select id="security-services-status">
+                          <option value="">All</option>
+                          <option value="enabled">Enabled</option>
+                          <option value="disabled">Disabled</option>
+                        </select>
+                      </div>
+                      <div class="filter-field">
+                        <label for="security-services-method">Authentication Method</label>
+                        <select id="security-services-method">
+                          <option value="">Any method</option>
+                        </select>
+                      </div>
+                      <div class="filter-field filter-form__actions">
+                        <button class="btn" type="button" id="security-services-clear">Clear</button>
+                      </div>
+                    </form>
+                    <p class="info-panel__meta filter-count" id="security-services-count" aria-live="polite"></p>
+                    <p class="empty-state" id="security-services-empty" hidden>No services match the current filters.</p>
+                    <div class="table-wrapper" id="security-services-table-wrapper">
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Service</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Authentication Methods</th>
+                            <th scope="col">Public</th>
+                            <th scope="col">Two-Factor</th>
+                            <th scope="col">Allowed Connections</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-services-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Superservers</h4>
+                    </div>
+                    <p class="empty-state" id="security-superservers-empty" hidden></p>
+                    <div class="table-wrapper" id="security-superservers-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Bind Address</th>
+                            <th scope="col">Port</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Client TLS</th>
+                            <th scope="col">SSL Configuration</th>
+                            <th scope="col">Enabled Protocols</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-superservers-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Application Class Access</h4>
+                    </div>
+                    <p class="ns-hint">Which % classes each web application may use (IRIS&rsquo;s percent class access). &ldquo;all-applications&rdquo; applies to every application.</p>
+                    <form class="filter-form filter-form--toolbar" id="security-class-access-filter-form" role="search" aria-label="Filter class access">
+                      <div class="filter-field filter-field--wide">
+                        <label for="security-class-access-search">Search</label>
+                        <input type="search" id="security-class-access-search" placeholder="Application, class&hellip;" autocomplete="off" />
+                      </div>
+                    </form>
+                    <p class="info-panel__meta filter-count" id="security-class-access-count" aria-live="polite"></p>
+                    <p class="empty-state" id="security-class-access-empty" hidden></p>
+                    <div class="table-wrapper" id="security-class-access-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Application</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Allow Type</th>
+                            <th scope="col">Access</th>
+                            <th scope="col">System</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-class-access-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

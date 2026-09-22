@@ -128,6 +128,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "tasks.js",
         FRONTEND_DIR / "js" / "security.js",
         FRONTEND_DIR / "js" / "security-access.js",
+        FRONTEND_DIR / "js" / "security-auth.js",
         FRONTEND_DIR / "js" / "journal.js",
         FRONTEND_DIR / "js" / "operations.js",
         FRONTEND_DIR / "js" / "ai-assistant.js",
@@ -695,6 +696,49 @@ def test_security_identity_access_is_read_only_and_withholds_personal_data() -> 
     check(
         "loadSecurityAccess()" in app_js and "initSecurityAccessControls()" in app_js,
         "app.js loads and initializes the Identity & Access section with the Security view",
+    )
+
+
+def test_security_authentication_tab_is_read_only_and_withholds_smtp_username() -> None:
+    print("Checking the Security view's Authentication tab and security-auth.js...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    for element_id in (
+        "security-tab-authentication",
+        "security-panel-authentication",
+        "security-auth-summary-grid",
+        "security-web-auth-methods",
+        "security-web-auth-settings",
+        "security-services-table-body",
+        "security-services-search",
+        "security-superservers-table-body",
+        "security-class-access-table-body",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} element exists")
+
+    auth_js = (FRONTEND_DIR / "js" / "security-auth.js").read_text(encoding="utf-8")
+    used = set(re.findall(r"IrisApi[.](\w+)", auth_js))
+    expected = {
+        "getSecurityServices", "getSecurityServiceDetail", "getSecurityWebAuth",
+        "getSecuritySuperservers", "getSecurityClassAccess",
+    }
+    check(used == expected, f"security-auth.js uses exactly the five read-only Authentication methods (found: {sorted(used)})")
+    check("fetch(" not in auth_js, "security-auth.js makes no raw fetch() call (goes through IrisApi)")
+    check(
+        re.search(r'"(/api/iris/[a-z0-9\-/]*)"', auth_js) is None,
+        "security-auth.js references no /api/iris/* path other than via IrisApi",
+    )
+    # SMTPUsername and TwoFactorFrom are withheld by the backend: the frontend only checks the
+    # WithheldFields list for its name, never reads a value for it.
+    check(
+        re.search(r"[.]SMTPUsername|[.]SMTPPassword|SMTPPassword|[.]TwoFactorFrom", auth_js) is None,
+        "security-auth.js never reads an SMTP username/password or two-factor sender value",
+    )
+    check(re.search(r"[.]innerHTML\s*=", auth_js) is None, "security-auth.js never assigns innerHTML")
+
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    check(
+        "initSecurityAuthControls()" in app_js and "refreshSecurityAuthIfLoaded()" in app_js,
+        "app.js initializes the Authentication tab and refreshes it with the Security view",
     )
 
 
@@ -1413,6 +1457,7 @@ def main() -> None:
         test_security_nav_and_view_exist_and_are_enabled,
         test_security_view_uses_only_security_endpoints,
         test_security_identity_access_is_read_only_and_withholds_personal_data,
+        test_security_authentication_tab_is_read_only_and_withholds_smtp_username,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_operations_nav_and_view_exist_and_use_only_expected_endpoints,
         test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,

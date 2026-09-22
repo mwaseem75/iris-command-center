@@ -1,6 +1,9 @@
-"""Read-only Identity & Access routes: users, roles, role owners and
-resources (IRIS's GET /v2/security/users|user|roles|role|role/owners|
-resources|resource, all %Admin_Secure:U).
+"""Read-only Security routes, all %Admin_Secure:U:
+  - Identity & Access: users, roles, role owners and resources (IRIS's GET
+    /v2/security/users|user|roles|role|role/owners|resources|resource).
+  - Authentication Posture: services, system-wide web authentication,
+    superservers and application class-access (GET /v2/security/services|
+    service|web-auth|superservers|superserver, /v2/web-app/pct-accesses).
 
 Nothing here changes IRIS state — only GETs are sent, and no route is gated
 by the authorization/confirmation/execution framework, the same as every
@@ -8,7 +11,8 @@ read route in app/routes/iris.py.
 
 Personal data: GET /v2/security/user's EmailAddress, PhoneNumber,
 PhoneProvider and free-text Comment are withheld (see app/models/iris.py's SecurityUserDetail).
-IRIS returns no password, hash or secret from any of these endpoints.
+web-auth's SMTPUsername and TwoFactorFrom are withheld the same way. IRIS returns no
+password, hash or secret from any of these endpoints.
 """
 
 import asyncio
@@ -22,14 +26,20 @@ from app.iris_client.client import IRISClient
 from app.iris_client.exceptions import IRISResponseError
 from app.models.iris import (
     IRISEnvelope,
+    ClassAccessEntry,
     RoleAccessEntry,
     RoleOwnerEntry,
     SecurityResourceDetail,
+    SecurityServiceDetail,
+    SecurityServiceEntry,
     SecurityResourceEntry,
     SecurityRoleDetail,
     SecurityRoleEntry,
     SecurityUserDetail,
     SecurityUserEntry,
+    SuperserverDetail,
+    SuperserverEntry,
+    WebAuthSettings,
 )
 from app.routes.iris import _IRIS_CLIENT_ERRORS, _as_http_exception
 
@@ -37,6 +47,11 @@ router = APIRouter(prefix="/api/iris/security", tags=["iris-security"])
 
 # User-detail fields IRIS returns that never leave this backend.
 _WITHHELD_USER_FIELDS = ("EmailAddress", "PhoneNumber", "PhoneProvider", "Comment")
+
+# web-auth fields that never leave this backend: a mail-server credential
+# identifier and the two-factor sender email address. IRIS returns no SMTP
+# password at all.
+_WITHHELD_WEB_AUTH_FIELDS = ("SMTPUsername", "TwoFactorFrom")
 
 # Roles that exist but that GET /v2/security/roles was observed not to list
 # on IRIS 2026.2 (icc-iris-dev: 38 roles in Security.Roles, 37 listed;
@@ -47,6 +62,7 @@ _KNOWN_UNLISTED_ROLES = ("%SQLTuneTable",)
 # At most this many role-detail calls are in flight for one access-map
 # request (38 roles on icc-iris-dev).
 _ROLE_DETAIL_CONCURRENCY = 8
+_SUPERSERVER_DETAIL_CONCURRENCY = 4
 
 
 async def _get(client: IRISClient, path: str, params: dict[str, Any] | None, not_found: str) -> Any:
@@ -194,3 +210,89 @@ async def get_resource_detail(
         client, "/v2/security/resource", {"name": name}, "IRIS reports no resource with this name"
     )
     return IRISEnvelope[SecurityResourceDetail].model_validate(raw)
+
+
+# --- Authentication Posture ---
+
+
+@router.get("/services", response_model=IRISEnvelope[list[SecurityServiceEntry]])
+async def get_services(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[SecurityServiceEntry]]:
+    raw = await _get(client, "/v2/security/services", None, "IRIS reports no services")
+    return IRISEnvelope[list[SecurityServiceEntry]].model_validate(raw)
+
+
+@router.get("/services/detail", response_model=IRISEnvelope[SecurityServiceDetail])
+async def get_service_detail(
+    name: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[SecurityServiceDetail]:
+    raw = await _get(client, "/v2/security/service", {"name": name}, "IRIS reports no service with this name")
+    return IRISEnvelope[SecurityServiceDetail].model_validate(raw)
+
+
+@router.get("/web-auth", response_model=IRISEnvelope[WebAuthSettings])
+async def get_web_auth(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[WebAuthSettings]:
+    """System-wide authentication settings. SMTPUsername and TwoFactorFrom
+    are dropped before the response is built; their names (only those IRIS
+    sent) are listed in `WithheldFields`, their values never are."""
+    raw = await _get(client, "/v2/security/web-auth", None, "IRIS reports no web authentication settings")
+    result = raw.get("result") if isinstance(raw, dict) else None
+    if isinstance(result, dict):
+        withheld = [field for field in _WITHHELD_WEB_AUTH_FIELDS if field in result]
+        result = {k: v for k, v in result.items() if k not in _WITHHELD_WEB_AUTH_FIELDS}
+        result["WithheldFields"] = withheld
+        raw = {**raw, "result": result}
+    return IRISEnvelope[WebAuthSettings].model_validate(raw)
+
+
+@router.get("/superservers", response_model=IRISEnvelope[list[SuperserverEntry]])
+async def get_superservers(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[SuperserverEntry]]:
+    """Every superserver from the list, each merged with its own detail
+    (keyed by the list's real Port + BindAddress). A failed detail call
+    gives Detail=None and a warning in status.errors, never a guess."""
+    raw = await _get(client, "/v2/security/superservers", None, "IRIS reports no superservers")
+    listing = IRISEnvelope[list[dict[str, Any]]].model_validate(raw)
+    semaphore = asyncio.Semaphore(_SUPERSERVER_DETAIL_CONCURRENCY)
+
+    async def read_detail(entry: dict[str, Any]) -> SuperserverDetail | None:
+        async with semaphore:
+            try:
+                body = await client.get(
+                    "/v2/security/superserver",
+                    params={"port": entry.get("Port"), "bindAddress": entry.get("BindAddress")},
+                )
+                return SuperserverDetail.model_validate(body.get("result") if isinstance(body, dict) else None)
+            except (*_IRIS_CLIENT_ERRORS, ValidationError):
+                return None
+
+    details = await asyncio.gather(*(read_detail(entry) for entry in listing.result))
+
+    errors = list(listing.status.errors)
+    entries: list[SuperserverEntry] = []
+    for entry, detail in zip(listing.result, details):
+        server = SuperserverEntry.model_validate({**entry, "Detail": detail})
+        if detail is None:
+            errors.append(
+                {"error": f"Superserver detail unavailable for {server.BindAddress}:{server.Port}", "port": server.Port}
+            )
+        entries.append(server)
+    missing = sum(1 for detail in details if detail is None)
+    summary = listing.status.summary
+    if missing and not summary:
+        summary = f"Superserver detail unavailable for {missing} superserver{'' if missing == 1 else 's'}"
+    return IRISEnvelope[list[SuperserverEntry]](
+        status={"errors": errors, "summary": summary}, console=listing.console, result=entries
+    )
+
+
+@router.get("/class-access", response_model=IRISEnvelope[list[ClassAccessEntry]])
+async def get_class_access(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[ClassAccessEntry]]:
+    """Application class-access (IRIS's "percent class access") entries:
+    which % classes each web application may use."""
+    raw = await _get(client, "/v2/web-app/pct-accesses", None, "IRIS reports no class-access entries")
+    return IRISEnvelope[list[ClassAccessEntry]].model_validate(raw)

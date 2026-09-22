@@ -574,6 +574,116 @@ class SecurityResourceDetail(BaseModel):
     PublicPermission: str
 
 
+# --- Security: Authentication Posture. All shapes observed live on
+#     icc-iris-dev (15 services, 1 superserver, 10 class-access entries). ---
+
+# GET /v2/security/services. The spec types `Enabled` as a string and lists
+# an `EnabledBoolean`; live, `Enabled` is a boolean and `EnabledBoolean` is
+# absent, so the model follows the live response. AllowedConnections empty
+# means "no restrictions" (spec). AuthenticationMethods omits AutheSystem
+# (bit 10), which the detail's AutheEnabled bitmask does include.
+
+
+class SecurityServiceEntry(BaseModel):
+    Name: str
+    Enabled: bool
+    Public: str
+    AuthenticationMethods: list[str]
+    AllowedConnections: list[str]
+    Description: str
+    HttpOnlyCookies: bool
+    TwoFactorEnabled: bool
+
+
+# GET /v2/security/service?name= — AutheEnabled is the spec-documented
+# bitmask (Bit 0 AutheK5CCache … Bit 25 MutualTLS).
+
+
+class SecurityServiceDetail(BaseModel):
+    AutheEnabled: int
+    ClientSystems: list[str]
+    Description: str
+    Enabled: bool
+
+
+# GET /v2/security/web-auth — system-wide authentication settings. The
+# response's SMTPUsername (a mail-server credential identifier) and
+# TwoFactorFrom (the two-factor sender email address) are deliberately NOT
+# modelled (the route lists them in `WithheldFields`, this backend's own
+# field); no SMTP password is ever returned by IRIS. The model
+# is an allowlist, so any field IRIS adds later is dropped too.
+
+
+class WebAuthSettings(BaseModel):
+    AutheUnauthenticated: bool
+    AutheOS: bool
+    AutheOSDelegated: bool
+    AutheOSLDAP: bool
+    AutheCache: bool
+    AutheDelegated: bool
+    AutheAlwaysTryDelegated: bool
+    AutheKB: bool
+    AutheLDAP: bool
+    AutheLDAPCache: bool
+    AutheOAuth2: bool
+    AutheLoginToken: bool
+    AutheTwoFactorSMS: bool
+    AutheTwoFactorPW: bool
+    LoginCookieTimeout: int
+    TwoFactorTimeout: int
+    SMTPServer: str
+    JWTIssuer: str
+    JWTSigAlg: str
+    WithheldFields: list[str] = Field(default_factory=list)
+
+
+# GET /v2/security/superserver?port=&bindAddress= (the list's own key
+# fields). SSLSupportLevel: 0 = None, 1 = Accept, 2 = Require (spec).
+
+
+class SuperserverDetail(BaseModel):
+    Description: str
+    Enabled: bool
+    SystemDefault: bool
+    SSLConfig: str
+    SSLSupportLevel: int
+    EnableCacheDirect: bool
+    EnableClients: bool
+    EnableCSP: bool
+    EnableDataCheck: bool
+    EnableECP: bool
+    EnableMirror: bool
+    EnableNodeJS: bool
+    EnableShadows: bool
+    EnableSharding: bool
+    EnableSNMP: bool
+    EnableWebLink: bool
+
+
+# GET /api/iris/security/superservers — GET /v2/security/superservers merged
+# with each entry's detail; `Detail` is None when that detail call failed.
+
+
+class SuperserverEntry(BaseModel):
+    Port: int
+    BindAddress: str
+    Enabled: bool
+    SystemDefault: bool
+    Detail: SuperserverDetail | None
+
+
+# GET /v2/web-app/pct-accesses — which % classes each web application (or
+# "all-applications") may use.
+
+
+class ClassAccessEntry(BaseModel):
+    Name: str
+    AllowType: str
+    Class: str
+    AllowAccess: bool
+    System: bool
+
+
 # --- GET /v2/journal/settings ---
 
 
