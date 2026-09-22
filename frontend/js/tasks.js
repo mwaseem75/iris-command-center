@@ -10,6 +10,8 @@
 // against a real IRIS instance.
 
 import { IrisApi, ApiError } from "./api.js";
+import { navigateTo } from "./nav.js";
+import { countBy, renderStackedBar } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -18,6 +20,7 @@ const dom = {
   errorBanner: document.getElementById("tasks-error-banner"),
   errorBannerText: document.getElementById("tasks-error-banner-text"),
   refreshButton: document.getElementById("tasks-refresh-button"),
+  backButton: document.getElementById("tasks-back-button"),
   connectionStatus: document.getElementById("tasks-connection-status"),
   connectionStatusLabel: document.getElementById("tasks-connection-status-label"),
   connectionDetail: document.getElementById("tasks-connection-detail"),
@@ -25,7 +28,22 @@ const dom = {
   tableWrapper: document.getElementById("tasks-table-wrapper"),
   tableBody: document.getElementById("tasks-table-body"),
   empty: document.getElementById("tasks-empty"),
+  overview: document.getElementById("tasks-overview"),
+  overviewViz: document.getElementById("tasks-overview-viz"),
 };
+
+/** A real Active/Suspended split over the same `tasks` array renderTasks()
+ * below already renders as a table — no extra fetch, no invented
+ * category. Hidden entirely when there's nothing to show. */
+function renderOverview(tasks) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  const entries = countBy(tasks, (task) => (task.Suspended ? "Suspended" : "Active"));
+  renderStackedBar(dom.overviewViz, entries);
+}
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -74,6 +92,7 @@ function makeCell(text, { mono = false } = {}) {
 
 function renderTasks(tasks) {
   dom.tableBody.replaceChildren();
+  renderOverview(tasks);
 
   if (!Array.isArray(tasks) || tasks.length === 0) {
     dom.tableWrapper.hidden = true;
@@ -159,5 +178,8 @@ export async function loadTasks() {
 export function initTasksControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadTasks();
+  });
+  dom.backButton.addEventListener("click", () => {
+    navigateTo("dashboard");
   });
 }

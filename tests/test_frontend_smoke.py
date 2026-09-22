@@ -1016,18 +1016,30 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
         "IrisApi.getExecutionTraces" in dashboard_js,
         "dashboard.js calls IrisApi.getExecutionTraces() for its Recent Activity section",
     )
+    # The design-system pass added two "Insights" donuts (Operations
+    # Overview, API Coverage) reusing these two existing, already-used-
+    # elsewhere GET routes — both still read-only, no new backend surface.
+    check(
+        "IrisApi.getOperations" in dashboard_js,
+        "dashboard.js calls IrisApi.getOperations() for its Operations Overview insight",
+    )
+    check(
+        "IrisApi.getCapabilities" in dashboard_js,
+        "dashboard.js calls IrisApi.getCapabilities() for its API Coverage insight",
+    )
     check(
         re.search(r'from\s+["\']\./nav\.js["\']', dashboard_js) is not None
         and "navigateTo" in dashboard_js,
         "dashboard.js imports and uses navigateTo() for its quicklinks",
     )
     # Still true after this refinement: the Dashboard remains entirely
-    # read-only — no other IrisApi method, no raw fetch, no mutating verb.
+    # read-only — no mutating verb, no raw fetch, and no IrisApi method
+    # beyond the five it has always used plus the two Insights donuts above.
     other_methods = [
         "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
-        "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
+        "getJournalSettings", "queryAssistant", "executeJournalPurgeArchived",
         "getExtLangServers", "getFsAccessPurposes", "getWalletCollections",
-        "getAuditEnabled", "getAuditRecords", "getCapabilities",
+        "getAuditEnabled", "getAuditRecords",
     ]
     for method in other_methods:
         check(method not in dashboard_js, f"dashboard.js does NOT call IrisApi.{method}()")

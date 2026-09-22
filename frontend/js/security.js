@@ -31,6 +31,7 @@ const dom = {
   connectionDetail: document.getElementById("security-connection-detail"),
   oauthServerList: document.getElementById("security-oauth2-server-list"),
   oauthServerEmpty: document.getElementById("security-oauth2-server-empty"),
+  oauthServerStatusLine: document.getElementById("security-oauth2-server-status-line"),
   clientDefsWrapper: document.getElementById("security-client-defs-table-wrapper"),
   clientDefsThead: document.getElementById("security-client-defs-thead"),
   clientDefsBody: document.getElementById("security-client-defs-table-body"),
@@ -84,12 +85,27 @@ function makeCell(text) {
   return cell;
 }
 
+// A single, unambiguous status badge (reusing the same component every
+// other view uses) for whether this instance is configured as an OAuth2
+// Authorization Server at all — the one real, binary fact this card's
+// data actually supports; purely a visual addition to the existing
+// object-shaped rendering below it.
+function setOauthServerStatusBadge(configured) {
+  dom.oauthServerStatusLine.replaceChildren();
+  if (configured === null) return;
+  const badge = document.createElement("span");
+  badge.className = `status-badge ${configured ? "status-badge--ok" : "status-badge--neutral"}`;
+  badge.textContent = configured ? "Configured" : "Not configured";
+  dom.oauthServerStatusLine.append(badge);
+}
+
 function renderOauthServer(settled) {
   dom.oauthServerList.replaceChildren();
 
   if (settled.status !== "fulfilled") {
     dom.oauthServerEmpty.textContent = "Could not load OAuth 2.0 server configuration.";
     dom.oauthServerEmpty.hidden = false;
+    setOauthServerStatusBadge(null);
     return;
   }
 
@@ -113,10 +129,12 @@ function renderOauthServer(settled) {
         : "OAuth 2.0 server is not configured on this instance.";
     dom.oauthServerEmpty.textContent = message;
     dom.oauthServerEmpty.hidden = false;
+    setOauthServerStatusBadge(false);
     return;
   }
 
   dom.oauthServerEmpty.hidden = true;
+  setOauthServerStatusBadge(true);
   entries.sort(([a], [b]) => a.localeCompare(b));
   for (const [key, value] of entries) {
     const row = document.createElement("div");

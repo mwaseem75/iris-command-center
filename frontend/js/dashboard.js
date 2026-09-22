@@ -12,12 +12,14 @@
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
+import { countBy, renderDonut, renderStackedBar, topCategories } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
 const dom = {
   connectionStatus: document.getElementById("connection-status"),
   connectionStatusLabel: document.getElementById("connection-status-label"),
+  headerVersion: document.getElementById("header-version-meta"),
   loadingState: document.getElementById("loading-state"),
   errorBanner: document.getElementById("error-banner"),
   errorBannerText: document.getElementById("error-banner-text"),
@@ -29,6 +31,19 @@ const dom = {
   activityTableBody: document.getElementById("dashboard-activity-table-body"),
   viewObservabilityButton: document.getElementById("dashboard-view-observability-button"),
   quicklinks: document.getElementById("dashboard-quicklinks"),
+  databasesViz: document.getElementById("stat-databases-viz"),
+  processesViz: document.getElementById("stat-processes-viz"),
+  webAppsViz: document.getElementById("stat-web-apps-viz"),
+  tasksViz: document.getElementById("stat-tasks-viz"),
+  operationsViz: document.getElementById("dashboard-operations-viz"),
+  operationsEmpty: document.getElementById("dashboard-operations-empty"),
+  operationsSummary: document.getElementById("dashboard-operations-summary"),
+  tracesViz: document.getElementById("dashboard-traces-viz"),
+  tracesEmpty: document.getElementById("dashboard-traces-empty"),
+  tracesSummary: document.getElementById("dashboard-traces-summary"),
+  capabilitiesViz: document.getElementById("dashboard-capabilities-viz"),
+  capabilitiesEmpty: document.getElementById("dashboard-capabilities-empty"),
+  capabilitiesSummary: document.getElementById("dashboard-capabilities-summary"),
 };
 
 // How many of the most recent execution traces to show — this is a
@@ -177,22 +192,116 @@ function renderCountCard(key, result, extract) {
   }
 }
 
-function renderInfoCard(result) {
-  const versionNode = document.getElementById("stat-version");
-  const versionMetaNode = document.getElementById("stat-version-meta");
+/** Micro-bars beneath a stat card's big number — each is a REAL category
+ * breakdown computed from the SAME already-fetched response array that
+ * card's own count already came from (no extra network call this adds).
+ * Renders nothing (leaves the slot empty) on failure or an empty list,
+ * rather than drawing a placeholder shape for data that doesn't exist. */
+function renderDatabasesViz(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.result)) return;
+  const entries = topCategories(countBy(result.value.result, (db) => db.Status || "Unknown"), 5);
+  renderStackedBar(dom.databasesViz, entries, { compact: true });
+}
 
+function renderProcessesViz(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.result)) return;
+  const entries = topCategories(countBy(result.value.result, (p) => p.State || "Unknown"), 5);
+  renderStackedBar(dom.processesViz, entries, { compact: true });
+}
+
+function renderWebAppsViz(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.result)) return;
+  const entries = countBy(result.value.result, (app) => (app.Enabled ? "Enabled" : "Disabled"));
+  renderStackedBar(dom.webAppsViz, entries, { compact: true });
+}
+
+function renderTasksViz(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.result)) return;
+  const entries = countBy(result.value.result, (task) => (task.Suspended ? "Suspended" : "Active"));
+  renderStackedBar(dom.tasksViz, entries, { compact: true });
+}
+
+/** The three "Insights" cards — each a donut over data an existing view
+ * already exposes in full (Operations, Observability, API Explorer),
+ * reused here rather than duplicated: Operations' own risk_level, the
+ * execution trace store's own status, and the capability matrix's own
+ * verification_status. Two of these three (`operations`, `capabilities`)
+ * are new network calls added to loadDashboard()'s Promise.allSettled —
+ * both already-existing, already-used-elsewhere GET routes; the third
+ * (`executionTraces`) reuses the exact same fetch Recent Activity below
+ * already makes. */
+function renderOperationsInsight(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.operations)) {
+    dom.operationsEmpty.hidden = false;
+    dom.operationsSummary.textContent = "";
+    return;
+  }
+  const operations = result.value.operations;
+  if (operations.length === 0) {
+    dom.operationsEmpty.hidden = false;
+    dom.operationsSummary.textContent = "";
+    return;
+  }
+  dom.operationsEmpty.hidden = true;
+  const entries = countBy(operations, (op) => op.risk_level || "unknown");
+  renderDonut(dom.operationsViz, entries, { size: 62, centerValue: operations.length, centerLabel: "ops" });
+  const mutatingCount = operations.filter((op) => op.kind === "mutating").length;
+  dom.operationsSummary.textContent =
+    `${operations.length} operation${operations.length === 1 ? "" : "s"} registered · ${mutatingCount} mutating`;
+}
+
+function renderTracesInsight(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.traces)) {
+    dom.tracesEmpty.hidden = false;
+    dom.tracesSummary.textContent = "";
+    return;
+  }
+  const traces = result.value.traces;
+  if (traces.length === 0) {
+    dom.tracesEmpty.hidden = false;
+    dom.tracesSummary.textContent = "";
+    return;
+  }
+  dom.tracesEmpty.hidden = true;
+  const entries = countBy(traces, (t) => textOrPlaceholder(t.status).replace(/_/g, " "));
+  renderDonut(dom.tracesViz, entries, { size: 62, centerValue: traces.length, centerLabel: "traces" });
+  dom.tracesSummary.textContent =
+    `${traces.length} trace${traces.length === 1 ? "" : "s"} recorded this session`;
+}
+
+function renderCapabilitiesInsight(result) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value.capabilities)) {
+    dom.capabilitiesEmpty.hidden = false;
+    dom.capabilitiesSummary.textContent = "";
+    return;
+  }
+  const capabilities = result.value.capabilities;
+  if (capabilities.length === 0) {
+    dom.capabilitiesEmpty.hidden = false;
+    dom.capabilitiesSummary.textContent = "";
+    return;
+  }
+  dom.capabilitiesEmpty.hidden = true;
+  const entries = countBy(capabilities, (c) => c.verification_status || "Unknown");
+  renderDonut(dom.capabilitiesViz, entries, { size: 62, centerValue: capabilities.length, centerLabel: "tracked" });
+  const availableCount = capabilities.filter((c) => c.available).length;
+  dom.capabilitiesSummary.textContent =
+    `${capabilities.length} capabilities tracked · ${availableCount} available in this Command Center`;
+}
+
+/** IRIS version/build now renders as compact secondary text in the global
+ * header (moved out of the Dashboard's old "IRIS Version" KPI card — see
+ * `.header-status__version` in styles.css) rather than its own large stat
+ * card. Same `GET /api/iris/info` fields as before (serverVersion,
+ * product, apiVersion); nothing new is fetched or invented. */
+function renderInfoCard(result) {
   if (result.status === "fulfilled") {
     const info = result.value.result;
-    // Response shape verified against the backend's InfoResult model —
-    // apiVersion, serverVersion, product are the fields it actually returns.
-    versionNode.textContent = info.serverVersion || "Unknown";
-    versionMetaNode.textContent = `${info.product || "iris"} • API v${info.apiVersion ?? "?"}`;
-    versionNode.classList.remove("stat-card__value--unavailable");
+    dom.headerVersion.textContent =
+      `${info.serverVersion || "Unknown"} · ${info.product || "iris"} · API v${info.apiVersion ?? "?"}`;
     setConnectionStatus("connected", `Connected as ${info.username || "unknown user"}`);
   } else {
-    versionNode.textContent = "Unavailable";
-    versionNode.classList.add("stat-card__value--unavailable");
-    versionMetaNode.textContent = "";
+    dom.headerVersion.textContent = "";
     setConnectionStatus("error", "Could not reach IRIS");
   }
 }
@@ -219,7 +328,7 @@ export async function loadDashboard() {
   setErrorBanner(null);
   setConnectionStatus("checking", "Checking connection…");
 
-  const [info, namespaces, databases, processes, webApps, tasks, executionTraces] =
+  const [info, namespaces, databases, processes, webApps, tasks, executionTraces, operations, capabilities] =
     await Promise.allSettled([
       IrisApi.getInfo(),
       IrisApi.getNamespaces(),
@@ -228,6 +337,8 @@ export async function loadDashboard() {
       IrisApi.getWebApps(),
       IrisApi.getTasks(),
       IrisApi.getExecutionTraces(),
+      IrisApi.getOperations(),
+      IrisApi.getCapabilities(),
     ]);
 
   renderInfoCard(info);
@@ -236,9 +347,26 @@ export async function loadDashboard() {
   renderCountCard("processes", processes, (body) => body.result.length);
   renderCountCard("webApps", webApps, (body) => body.result.length);
   renderCountCard("tasks", tasks, (body) => body.result.length);
+  renderDatabasesViz(databases);
+  renderProcessesViz(processes);
+  renderWebAppsViz(webApps);
+  renderTasksViz(tasks);
   renderRecentActivity(executionTraces);
+  renderOperationsInsight(operations);
+  renderTracesInsight(executionTraces);
+  renderCapabilitiesInsight(capabilities);
 
-  const results = { info, namespaces, databases, processes, webApps, tasks, executionTraces };
+  const results = {
+    info,
+    namespaces,
+    databases,
+    processes,
+    webApps,
+    tasks,
+    executionTraces,
+    operations,
+    capabilities,
+  };
   setErrorBanner(describeFailures(results));
 
   dom.lastUpdated.textContent = `Last updated ${new Date().toLocaleTimeString()}`;
@@ -260,6 +388,26 @@ export function initDashboardControls() {
   dom.quicklinks.querySelectorAll("[data-quicklink]").forEach((button) => {
     button.addEventListener("click", () => {
       navigateTo(button.dataset.quicklink);
+    });
+  });
+
+  // The five KPI cards (Namespaces/Databases/Processes/Web Applications/
+  // Tasks) double as navigation shortcuts to their existing views — same
+  // navigateTo() as the quicklink cards above, no separate/duplicate
+  // navigation mechanism and no new fetch. Each card's own `data-card`
+  // value already matches its target view's `data-view` exactly (e.g.
+  // "web-apps"), so no separate lookup table is needed. Keyboard-
+  // activatable since these are <article role="button" tabindex="0">
+  // elements, not real <button>s — Enter/Space are wired manually to
+  // match native button activation.
+  dom.statGrid.querySelectorAll(".stat-card--interactive[data-card]").forEach((card) => {
+    card.addEventListener("click", () => {
+      navigateTo(card.dataset.card);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      navigateTo(card.dataset.card);
     });
   });
 }

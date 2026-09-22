@@ -20,6 +20,7 @@
 // Neither direction invents or assumes any IRIS-side link.
 
 import { IrisApi, ApiError } from "./api.js";
+import { countBy, renderStackedBar } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -31,6 +32,8 @@ const dom = {
   connectionStatus: document.getElementById("observability-connection-status"),
   connectionStatusLabel: document.getElementById("observability-connection-status-label"),
   countLabel: document.getElementById("observability-count"),
+  overview: document.getElementById("observability-overview"),
+  overviewViz: document.getElementById("observability-overview-viz"),
   filterForm: document.getElementById("observability-filter-form"),
   filterBegin: document.getElementById("observability-filter-begin"),
   filterEnd: document.getElementById("observability-filter-end"),
@@ -379,8 +382,24 @@ function applyFilters() {
   renderTable(allTraces.filter((trace) => matchesTimeWindow(trace, begin, end)));
 }
 
+/** A real status distribution over the currently-filtered `traces` list
+ * (the same set renderTable() below renders as rows) — no extra fetch, no
+ * invented category, and it reflects the active time filter exactly like
+ * the table and count label already do. Hidden entirely when there's
+ * nothing to show. */
+function renderOverview(traces) {
+  if (!Array.isArray(traces) || traces.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  const entries = countBy(traces, (t) => textOrPlaceholder(t.status).replace(/_/g, " "));
+  renderStackedBar(dom.overviewViz, entries);
+}
+
 function renderTable(traces) {
   dom.tableBody.replaceChildren();
+  renderOverview(traces);
 
   if (!Array.isArray(traces) || traces.length === 0) {
     dom.tableWrapper.hidden = true;

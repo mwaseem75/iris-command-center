@@ -18,6 +18,7 @@
 // button's own click handler.
 
 import { IrisApi, ApiError } from "./api.js";
+import { countBy, renderStackedBar } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 const JOURNAL_OPERATION_NAME = "journal.update_purge_archived";
@@ -33,6 +34,8 @@ const dom = {
   tableWrapper: document.getElementById("operations-table-wrapper"),
   tableBody: document.getElementById("operations-table-body"),
   empty: document.getElementById("operations-empty"),
+  overview: document.getElementById("operations-overview"),
+  overviewViz: document.getElementById("operations-overview-viz"),
   reviewGrid: document.getElementById("operations-review-grid"),
   reviewList: document.getElementById("operations-review-list"),
   executeLoadingState: document.getElementById("operations-execute-loading-state"),
@@ -145,8 +148,22 @@ function makeCell(content) {
   return cell;
 }
 
+/** A real risk_level distribution over the same `operations` array
+ * renderTable() below already renders as a table — no extra fetch, no
+ * invented category. Hidden entirely when there's nothing to show. */
+function renderOverview(operations) {
+  if (!Array.isArray(operations) || operations.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  const entries = countBy(operations, (op) => op.risk_level || "unknown");
+  renderStackedBar(dom.overviewViz, entries);
+}
+
 function renderTable(operations) {
   dom.tableBody.replaceChildren();
+  renderOverview(operations);
 
   if (!Array.isArray(operations) || operations.length === 0) {
     dom.tableWrapper.hidden = true;

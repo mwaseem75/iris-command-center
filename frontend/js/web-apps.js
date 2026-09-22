@@ -10,6 +10,8 @@
 // originally verified against a real IRIS instance.
 
 import { IrisApi, ApiError } from "./api.js";
+import { navigateTo } from "./nav.js";
+import { countBy, renderStackedBar } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -18,6 +20,7 @@ const dom = {
   errorBanner: document.getElementById("web-apps-error-banner"),
   errorBannerText: document.getElementById("web-apps-error-banner-text"),
   refreshButton: document.getElementById("web-apps-refresh-button"),
+  backButton: document.getElementById("web-apps-back-button"),
   connectionStatus: document.getElementById("web-apps-connection-status"),
   connectionStatusLabel: document.getElementById("web-apps-connection-status-label"),
   connectionDetail: document.getElementById("web-apps-connection-detail"),
@@ -25,7 +28,22 @@ const dom = {
   tableWrapper: document.getElementById("web-apps-table-wrapper"),
   tableBody: document.getElementById("web-apps-table-body"),
   empty: document.getElementById("web-apps-empty"),
+  overview: document.getElementById("web-apps-overview"),
+  overviewViz: document.getElementById("web-apps-overview-viz"),
 };
+
+/** A real Enabled/Disabled split over the same `webApps` array
+ * renderWebApps() below already renders as a table — no extra fetch, no
+ * invented category. Hidden entirely when there's nothing to show. */
+function renderOverview(webApps) {
+  if (!Array.isArray(webApps) || webApps.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  const entries = countBy(webApps, (app) => (app.Enabled ? "Enabled" : "Disabled"));
+  renderStackedBar(dom.overviewViz, entries);
+}
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -78,6 +96,7 @@ function makeCell(text, { mono = false } = {}) {
 
 function renderWebApps(webApps) {
   dom.tableBody.replaceChildren();
+  renderOverview(webApps);
 
   if (!Array.isArray(webApps) || webApps.length === 0) {
     dom.tableWrapper.hidden = true;
@@ -164,5 +183,8 @@ export async function loadWebApps() {
 export function initWebAppsControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadWebApps();
+  });
+  dom.backButton.addEventListener("click", () => {
+    navigateTo("dashboard");
   });
 }

@@ -62,6 +62,24 @@ function formatBoolean(value) {
   return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
 }
 
+// A boolean setting rendered as a status badge (same component already
+// used by Operations/Observability/API Explorer) instead of plain text —
+// a purely visual change, the underlying value is identical either way.
+function makeBooleanBadge(value) {
+  if (typeof value !== "boolean") {
+    const span = document.createElement("span");
+    span.textContent = PLACEHOLDER;
+    return span;
+  }
+  // Neutral on/off coloring (green = on, gray = off) — deliberately not
+  // warning/error, since a Yes/No value here carries no inherent
+  // good/bad judgment this view is in a position to make.
+  const badge = document.createElement("span");
+  badge.className = `status-badge ${value ? "status-badge--ok" : "status-badge--neutral"}`;
+  badge.textContent = value ? "Yes" : "No";
+  return badge;
+}
+
 function formatMegabytes(value) {
   return typeof value === "number" ? `${value} MB` : PLACEHOLDER;
 }
@@ -101,7 +119,14 @@ function renderSettings(settings) {
 
     const dd = document.createElement("dd");
     dd.className = "info-list__value info-list__value--mono";
-    dd.textContent = format(settings[key]);
+    // Boolean settings render as a status badge (visual only — the same
+    // real value formatBoolean() would have shown as text); every other
+    // field keeps its existing plain-text rendering unchanged.
+    if (format === formatBoolean) {
+      dd.append(makeBooleanBadge(settings[key]));
+    } else {
+      dd.textContent = format(settings[key]);
+    }
 
     row.append(dt, dd);
     dom.settingsList.append(row);

@@ -26,9 +26,12 @@
         </div>
       </div>
 
-      <div class="connection-status" id="connection-status" data-state="checking">
-        <span class="connection-status__dot" aria-hidden="true"></span>
-        <span class="connection-status__label" id="connection-status-label">Checking connection&hellip;</span>
+      <div class="header-status">
+        <span class="header-status__version" id="header-version-meta"></span>
+        <div class="connection-status" id="connection-status" data-state="checking">
+          <span class="connection-status__dot" aria-hidden="true"></span>
+          <span class="connection-status__label" id="connection-status-label">Checking connection&hellip;</span>
+        </div>
       </div>
     </header>
 
@@ -133,7 +136,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="dashboard-title">Dashboard</h2>
-              <p class="view__subtitle">Observe system health, review recent activity, and jump into investigation &mdash; a live snapshot of the connected IRIS instance.</p>
+              <p class="view__subtitle view__subtitle--wide">Observe system health, review recent activity, and jump into investigation &mdash; a live snapshot of the connected IRIS instance.</p>
             </div>
             <button class="btn btn--primary" type="button" id="refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -154,49 +157,81 @@
           <div class="dashboard-section dashboard-section--observe">
             <h3 class="section-heading section-heading--primary">Observe</h3>
             <div class="stat-grid" id="stat-grid">
-              <article class="stat-card" data-card="version">
-                <h3 class="stat-card__label">IRIS Version</h3>
-                <p class="stat-card__value stat-card__value--mono" id="stat-version">&mdash;</p>
-                <p class="stat-card__meta" id="stat-version-meta"></p>
-              </article>
-
-              <article class="stat-card" data-card="namespaces">
+              <article class="stat-card stat-card--interactive" data-card="namespaces" role="button" tabindex="0" aria-label="View Namespaces">
                 <h3 class="stat-card__label">Namespaces</h3>
                 <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
+                <span class="stat-card__link">View details &rarr;</span>
               </article>
 
-              <article class="stat-card" data-card="databases">
+              <article class="stat-card stat-card--interactive" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
                 <h3 class="stat-card__label">Databases</h3>
                 <p class="stat-card__value" id="stat-databases">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
+                <span class="stat-card__link">View details &rarr;</span>
               </article>
 
-              <article class="stat-card" data-card="processes">
+              <article class="stat-card stat-card--interactive" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
                 <h3 class="stat-card__label">Processes</h3>
                 <p class="stat-card__value" id="stat-processes">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
+                <span class="stat-card__link">View details &rarr;</span>
               </article>
 
-              <article class="stat-card" data-card="web-apps">
+              <article class="stat-card stat-card--interactive" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
                 <h3 class="stat-card__label">Web Applications</h3>
                 <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
+                <span class="stat-card__link">View details &rarr;</span>
               </article>
 
-              <article class="stat-card" data-card="tasks">
+              <article class="stat-card stat-card--interactive" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
                 <h3 class="stat-card__label">Tasks</h3>
                 <p class="stat-card__value" id="stat-tasks">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
+                <span class="stat-card__link">View details &rarr;</span>
               </article>
+            </div>
+          </div>
+
+          <div class="dashboard-section dashboard-section--insights">
+            <h3 class="section-heading section-heading--secondary">Insights</h3>
+            <div class="info-grid" id="dashboard-insights-grid">
+              <section class="info-card info-card--compact" aria-labelledby="dashboard-operations-title">
+                <h4 class="info-card__title" id="dashboard-operations-title">Operations Overview</h4>
+                <p class="info-card__hint">Risk-level distribution</p>
+                <div id="dashboard-operations-viz"></div>
+                <p class="info-card__empty" id="dashboard-operations-empty" hidden>Could not load the operations registry.</p>
+                <p class="stat-card__meta" id="dashboard-operations-summary"></p>
+              </section>
+
+              <section class="info-card info-card--compact" aria-labelledby="dashboard-traces-title">
+                <h4 class="info-card__title" id="dashboard-traces-title">Execution Health</h4>
+                <p class="info-card__hint">Outcome distribution, this session</p>
+                <div id="dashboard-traces-viz"></div>
+                <p class="info-card__empty info-card__empty--quiet" id="dashboard-traces-empty" hidden>No execution traces recorded yet.</p>
+                <p class="stat-card__meta" id="dashboard-traces-summary"></p>
+              </section>
+
+              <section class="info-card info-card--compact" aria-labelledby="dashboard-capabilities-title">
+                <h4 class="info-card__title" id="dashboard-capabilities-title">API Coverage</h4>
+                <p class="info-card__hint">Verification status</p>
+                <div id="dashboard-capabilities-viz"></div>
+                <p class="info-card__empty" id="dashboard-capabilities-empty" hidden>Could not load capability data.</p>
+                <p class="stat-card__meta" id="dashboard-capabilities-summary"></p>
+              </section>
             </div>
           </div>
 
           <div class="dashboard-section dashboard-section--activity">
             <h3 class="section-heading section-heading--secondary">Recent Activity</h3>
-            <section class="info-card info-card--wide" aria-labelledby="dashboard-activity-title">
+            <section class="info-card info-card--wide info-card--compact" aria-labelledby="dashboard-activity-title">
               <h4 class="info-card__title" id="dashboard-activity-title">Recent Executions</h4>
-              <p class="info-card__hint">The most recent operations run through this Command Center's authorization and execution framework.</p>
+              <p class="info-card__hint">Most recent operations run through this Command Center</p>
 
               <p class="info-card__empty info-card__empty--quiet" id="dashboard-activity-empty" hidden>No operations have been executed yet through this Command Center. Try the Operations view.</p>
 
               <div class="table-wrapper" id="dashboard-activity-table-wrapper" hidden>
-                <table class="data-table">
+                <table class="data-table data-table--compact">
                   <thead>
                     <tr>
                       <th scope="col">Operation</th>
@@ -375,6 +410,7 @@
         <section class="view" id="view-processes" data-view="processes" aria-labelledby="processes-title" hidden>
           <div class="view__header">
             <div>
+              <button class="back-link" type="button" id="processes-back-button">&larr; Dashboard</button>
               <h2 class="view__title" id="processes-title">Processes</h2>
               <p class="view__subtitle">Running processes and jobs on the connected IRIS instance.</p>
             </div>
@@ -401,6 +437,11 @@
             </div>
             <p class="info-panel__meta" id="processes-connection-detail"></p>
             <p class="info-panel__meta" id="processes-count"></p>
+          </div>
+
+          <div class="view-overview" id="processes-overview" hidden>
+            <p class="stat-card__label">State Distribution</p>
+            <div id="processes-overview-viz"></div>
           </div>
 
           <p class="empty-state" id="processes-empty" hidden>No processes reported.</p>
@@ -479,6 +520,7 @@
         <section class="view" id="view-web-apps" data-view="web-apps" aria-labelledby="web-apps-title" hidden>
           <div class="view__header">
             <div>
+              <button class="back-link" type="button" id="web-apps-back-button">&larr; Dashboard</button>
               <h2 class="view__title" id="web-apps-title">Web Apps</h2>
               <p class="view__subtitle">Configured web applications on the connected IRIS instance.</p>
             </div>
@@ -507,6 +549,11 @@
             <p class="info-panel__meta" id="web-apps-count"></p>
           </div>
 
+          <div class="view-overview" id="web-apps-overview" hidden>
+            <p class="stat-card__label">Enabled / Disabled</p>
+            <div id="web-apps-overview-viz"></div>
+          </div>
+
           <p class="empty-state" id="web-apps-empty" hidden>No web applications reported.</p>
 
           <div class="table-wrapper" id="web-apps-table-wrapper" hidden>
@@ -531,6 +578,7 @@
         <section class="view" id="view-tasks" data-view="tasks" aria-labelledby="tasks-title" hidden>
           <div class="view__header">
             <div>
+              <button class="back-link" type="button" id="tasks-back-button">&larr; Dashboard</button>
               <h2 class="view__title" id="tasks-title">Tasks</h2>
               <p class="view__subtitle">Scheduled tasks on the connected IRIS instance.</p>
             </div>
@@ -557,6 +605,11 @@
             </div>
             <p class="info-panel__meta" id="tasks-connection-detail"></p>
             <p class="info-panel__meta" id="tasks-count"></p>
+          </div>
+
+          <div class="view-overview" id="tasks-overview" hidden>
+            <p class="stat-card__label">Active / Suspended</p>
+            <div id="tasks-overview-viz"></div>
           </div>
 
           <p class="empty-state" id="tasks-empty" hidden>No tasks reported.</p>
@@ -612,6 +665,7 @@
           <div class="info-grid">
             <section class="info-card info-card--wide" aria-labelledby="security-oauth2-server-title">
               <h3 class="info-card__title" id="security-oauth2-server-title">OAuth 2.0 Authorization Server</h3>
+              <p class="info-card__hint" id="security-oauth2-server-status-line"></p>
               <dl class="info-list" id="security-oauth2-server-list"></dl>
               <p class="info-card__empty" id="security-oauth2-server-empty" hidden></p>
             </section>
@@ -711,6 +765,11 @@
               <span class="connection-status__label" id="operations-connection-status-label">Checking connection&hellip;</span>
             </div>
             <p class="info-panel__meta" id="operations-count"></p>
+          </div>
+
+          <div class="view-overview" id="operations-overview" hidden>
+            <p class="stat-card__label">Risk Level Distribution</p>
+            <div id="operations-overview-viz"></div>
           </div>
 
           <p class="empty-state" id="operations-empty" hidden>No operations registered.</p>
@@ -857,6 +916,11 @@
               </div>
             </form>
           </section>
+
+          <div class="view-overview" id="observability-overview" hidden>
+            <p class="stat-card__label">Outcome Distribution</p>
+            <div id="observability-overview-viz"></div>
+          </div>
 
           <p class="empty-state" id="observability-empty" hidden>No execution traces recorded yet. Traces appear here after an operation is attempted (e.g. from the Operations view).</p>
 
@@ -1020,6 +1084,11 @@
             </form>
           </section>
 
+          <div class="view-overview" id="investigation-overview" hidden>
+            <p class="stat-card__label">Event Type Distribution</p>
+            <div id="investigation-overview-viz"></div>
+          </div>
+
           <p class="empty-state" id="investigation-empty" hidden></p>
 
           <div class="table-wrapper" id="investigation-table-wrapper" hidden>
@@ -1094,6 +1163,19 @@
               </div>
             </form>
           </section>
+
+          <div class="view-overview" id="capabilities-overview" hidden>
+            <div class="viz-row">
+              <div>
+                <p class="stat-card__label">Verification Status</p>
+                <div id="capabilities-viz-verification"></div>
+              </div>
+              <div>
+                <p class="stat-card__label">Command Center Availability</p>
+                <div id="capabilities-viz-availability"></div>
+              </div>
+            </div>
+          </div>
 
           <p class="empty-state" id="capabilities-empty" hidden>No capabilities match these filters.</p>
 

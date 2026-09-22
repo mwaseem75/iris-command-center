@@ -10,6 +10,8 @@
 // against a real IRIS instance.
 
 import { IrisApi, ApiError } from "./api.js";
+import { navigateTo } from "./nav.js";
+import { countBy, renderStackedBar, topCategories } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -18,6 +20,7 @@ const dom = {
   errorBanner: document.getElementById("processes-error-banner"),
   errorBannerText: document.getElementById("processes-error-banner-text"),
   refreshButton: document.getElementById("processes-refresh-button"),
+  backButton: document.getElementById("processes-back-button"),
   connectionStatus: document.getElementById("processes-connection-status"),
   connectionStatusLabel: document.getElementById("processes-connection-status-label"),
   connectionDetail: document.getElementById("processes-connection-detail"),
@@ -25,7 +28,22 @@ const dom = {
   tableWrapper: document.getElementById("processes-table-wrapper"),
   tableBody: document.getElementById("processes-table-body"),
   empty: document.getElementById("processes-empty"),
+  overview: document.getElementById("processes-overview"),
+  overviewViz: document.getElementById("processes-overview-viz"),
 };
+
+/** A real State-value distribution over the same `processes` array
+ * renderProcesses() below already renders as a table — no extra fetch,
+ * no invented category. Hidden entirely when there's nothing to show. */
+function renderOverview(processes) {
+  if (!Array.isArray(processes) || processes.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  const entries = topCategories(countBy(processes, (p) => p.State || "Unknown"), 6);
+  renderStackedBar(dom.overviewViz, entries);
+}
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -77,6 +95,7 @@ function makeCell(text, { mono = false } = {}) {
 
 function renderProcesses(processes) {
   dom.tableBody.replaceChildren();
+  renderOverview(processes);
 
   if (!Array.isArray(processes) || processes.length === 0) {
     dom.tableWrapper.hidden = true;
@@ -164,5 +183,8 @@ export async function loadProcesses() {
 export function initProcessesControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadProcesses();
+  });
+  dom.backButton.addEventListener("click", () => {
+    navigateTo("dashboard");
   });
 }

@@ -32,6 +32,22 @@
   --color-error: #e0663e;
   --color-error-soft: rgba(224, 102, 62, 0.1);
 
+  /* Qualitative palette for distribution charts (viz.js) — reuses the
+     existing accent/success/warning/error hues plus two additions already
+     drawn from elsewhere in this file's own palette (the violet already
+     used in the header's brand-mark gradient, and a teal that sits
+     between accent and success on the wheel) so a 5th/6th category never
+     needs an invented color. --color-chart-neutral is reserved for a
+     real aggregate "Other" bucket (see viz.js's topCategories()), never
+     for missing/placeholder data. */
+  --color-chart-1: var(--color-accent);
+  --color-chart-2: #7c5cff;
+  --color-chart-3: var(--color-success);
+  --color-chart-4: var(--color-warning);
+  --color-chart-5: var(--color-error);
+  --color-chart-6: #2dd4bf;
+  --color-chart-neutral: var(--color-text-faint);
+
   --font-display: "Syne", "Segoe UI", sans-serif;
   --font-body: "Lato", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "Consolas", monospace;
@@ -196,6 +212,26 @@ input:focus-visible {
   font-size: 12.5px;
   color: var(--color-text-muted);
   letter-spacing: 0.01em;
+}
+
+/* Wraps the connection pill together with the compact IRIS version/build
+   line moved here from the Dashboard's old "IRIS Version" KPI card — kept
+   in the global header (not Dashboard-only markup) since it's connection
+   context relevant on every screen, not a Dashboard-specific metric. */
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.header-status__version {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46vw;
 }
 
 .connection-status {
@@ -374,6 +410,29 @@ input:focus-visible {
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
+/* Compact contextual return-to-Dashboard link, used by the five resource
+   views the Dashboard's KPI cards now link out to (Namespaces/Databases/
+   Processes/Web Apps/Tasks). A real <button>, not an <a href>, since this
+   app has no URL routing — it calls the exact same nav.js navigateTo()
+   every other cross-view link already uses, not a new mechanism. */
+.back-link {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  transition: color var(--transition-base);
+}
+
+.back-link:hover {
+  color: var(--color-accent);
+}
+
 .view__title {
   margin: 0;
   font-family: var(--font-display);
@@ -387,6 +446,18 @@ input:focus-visible {
   color: var(--color-text-muted);
   font-size: 14px;
   max-width: 62ch;
+}
+
+/* Dashboard-only: its subtitle sentence is short enough to fit one line
+   at normal desktop widths, but the shared 62ch cap above (sized for
+   other views' longer copy) was forcing it to wrap regardless. Dropping
+   the cap here only — every other view keeps the base .view__subtitle
+   rule unchanged. No fixed width is substituted, so on a narrow/mobile
+   viewport (where .view__header itself stacks to full-width, see the
+   @media rules below) the text still wraps naturally against whatever
+   width is actually available. */
+.view__subtitle--wide {
+  max-width: none;
 }
 
 .view--placeholder {
@@ -549,18 +620,18 @@ input:focus-visible {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
 }
 
 .stat-card {
-  padding: 20px 22px;
+  padding: 14px 16px;
   transition: border-color var(--transition-base);
 }
 
 .stat-card__label {
-  margin: 0 0 12px;
-  font-size: 11.5px;
+  margin: 0 0 6px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -571,7 +642,7 @@ input:focus-visible {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 29px;
+  font-size: 25px;
   line-height: 1.15;
   color: var(--color-text);
 }
@@ -601,8 +672,94 @@ input:focus-visible {
   border-color: rgba(224, 102, 62, 0.4);
 }
 
+/* KPI card enhancements: a small top accent bar (purely decorative, cycles
+   through the same qualitative palette viz.js uses for real distribution
+   charts elsewhere) and an optional compact micro-bar slot beneath the
+   value for a card that has a real, already-fetched category breakdown to
+   show (e.g. Web Apps enabled/disabled) — absent entirely on a card with
+   no such breakdown (e.g. Namespaces), never filled with placeholder data. */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--stat-card-accent, var(--color-accent));
+}
+
+.stat-card__micro-bar {
+  margin-top: 8px;
+}
+
+/* Dashboard KPI cards as navigation shortcuts (Namespaces/Databases/
+   Processes/Web Applications/Tasks -> their existing views). Purely a
+   new interaction layer over the existing .stat-card visuals — no change
+   to the card's background/border/padding/typography, live count, or
+   micro-bar. The affordance text is faintly visible at rest (so the card
+   reads as clickable without hovering) and brightens on hover/focus,
+   matching this app's existing subtle-transition convention. */
+.stat-card--interactive {
+  cursor: pointer;
+  transition: border-color var(--transition-base), background-color var(--transition-base);
+}
+
+.stat-card--interactive:hover {
+  border-color: var(--stat-card-accent, var(--color-accent));
+  background: var(--color-surface-hover);
+}
+
+.stat-card--interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.stat-card__link {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text-faint);
+  opacity: 0.65;
+  transition: opacity var(--transition-base), color var(--transition-base);
+}
+
+.stat-card--interactive:hover .stat-card__link,
+.stat-card--interactive:focus-visible .stat-card__link {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+.stat-card[data-card="version"] {
+  --stat-card-accent: var(--color-chart-1);
+}
+
+.stat-card[data-card="namespaces"] {
+  --stat-card-accent: var(--color-chart-2);
+}
+
+.stat-card[data-card="databases"] {
+  --stat-card-accent: var(--color-chart-3);
+}
+
+.stat-card[data-card="processes"] {
+  --stat-card-accent: var(--color-chart-4);
+}
+
+.stat-card[data-card="web-apps"] {
+  --stat-card-accent: var(--color-chart-5);
+}
+
+.stat-card[data-card="tasks"] {
+  --stat-card-accent: var(--color-chart-6);
+}
+
 .last-updated {
-  margin-top: 22px;
+  margin-top: 10px;
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--color-text-faint);
@@ -611,23 +768,25 @@ input:focus-visible {
 /* --- Dashboard section headings + quicklink cards --- */
 
 .section-heading {
-  margin: 0 0 14px;
+  margin: 0 0 8px;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
 }
 
-/* --- Dashboard: Observe -> Recent Activity -> Quick Access hierarchy ---
-   Each block gets its own vertical rhythm (more space above a block than
-   within it) and its heading's weight/contrast steps down from primary
-   (Observe, the reason this screen exists) to tertiary (Quick Access,
-   pure navigation) — so the eye lands on live system state first. */
+/* --- Dashboard: Observe -> Insights -> Recent Activity -> Quick Access
+   hierarchy — deliberately tight (the whole page is designed to fit
+   within ~2 desktop viewport screens without scrolling) rather than the
+   generous rhythm section headings get elsewhere; each heading's
+   weight/contrast still steps down from primary (Observe) to tertiary
+   (Quick Access, pure navigation) so the eye lands on live system state
+   first. */
 
 .dashboard-section + .dashboard-section {
-  margin-top: 36px;
+  margin-top: 18px;
 }
 
 .section-heading--primary {
@@ -648,14 +807,14 @@ input:focus-visible {
 .quicklink-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .quicklink-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 20px 22px;
+  gap: 6px;
+  padding: 14px 16px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -763,6 +922,63 @@ input:focus-visible {
   opacity: 0.85;
 }
 
+/* Reusable compact density modifier — introduced for the Dashboard's
+   tightened layout, deliberately generic (not Dashboard-scoped) so the
+   same modifier can be added to .info-card usages on other views (e.g.
+   Operations, Security, Databases, Processes) in a later pass without
+   needing new CSS at that point. Halves the card's padding and heading
+   margins and shrinks its hint text; nothing about .info-card's default
+   (non-compact) sizing changes. */
+.info-card--compact {
+  padding: 14px 16px;
+}
+
+.info-card--compact .info-card__title {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+}
+
+.info-card--compact .info-card__hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.info-card--compact .stat-card__meta {
+  margin-top: 6px;
+  font-size: 10.5px;
+}
+
+.info-card--compact .viz-row {
+  gap: 10px;
+}
+
+.info-card--compact .viz-legend {
+  gap: 3px 10px;
+  font-size: 10px;
+}
+
+.info-card--compact .viz-donut__center-value {
+  font-size: 15px;
+}
+
+.info-card--compact .viz-donut__center-label {
+  font-size: 8px;
+}
+
+/* Reusable compact density modifier for .data-table — same intent as
+   .info-card--compact above: introduced for the Dashboard's Recent
+   Executions table, generic enough to add to other views' tables later.
+   Default (non-compact) table row padding is unchanged. */
+.data-table--compact thead th,
+.data-table--compact .data-table__cell {
+  padding: 6px 14px;
+}
+
+.data-table--compact {
+  font-size: 12.5px;
+}
+
 .info-list {
   margin: 0;
 }
@@ -851,6 +1067,16 @@ input:focus-visible {
 .privilege-list__value--denied {
   color: var(--color-text-faint);
   font-weight: 400;
+}
+
+/* --- Compact per-view "Overview" distribution panel (Processes/
+   Databases/Web Apps/Tasks/Operations/Investigation) — sits between the
+   connection info-panel and the table, deliberately lighter than an
+   .info-card (no border/background) so it reads as a summary strip over
+   the table below it, not a competing panel. --- */
+
+.view-overview {
+  margin-bottom: 20px;
 }
 
 /* --- Empty state (Processes/Databases/Web Apps/Tasks/Security/Operations) --- */
@@ -1033,6 +1259,101 @@ input:focus-visible {
 .chat__input:focus {
   outline: none;
   border-color: var(--color-accent);
+}
+
+/* --- Visualization primitives (frontend/js/viz.js): shared design-system
+   components for real-data distributions — a CSS-only donut ring
+   (conic-gradient, no SVG/canvas/library) and a compact horizontal
+   stacked bar. Used across Dashboard/Processes/Databases/Web Apps/Tasks/
+   Operations/Observability/Investigation/API Explorer. --- */
+
+.viz-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.viz-donut {
+  position: relative;
+  border-radius: 50%;
+  flex: none;
+}
+
+.viz-donut__hole {
+  position: absolute;
+  inset: 16%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-surface);
+  text-align: center;
+}
+
+.viz-donut__center-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.1;
+  color: var(--color-text);
+}
+
+.viz-donut__center-label {
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+}
+
+.viz-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viz-bar-track {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.viz-bar-track--compact {
+  height: 5px;
+  border-radius: var(--radius-sm);
+}
+
+.viz-bar-segment {
+  min-width: 3px;
+}
+
+.viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.viz-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.viz-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
 }
 
 /* --- Observability view: status badges + expandable trace detail --- */

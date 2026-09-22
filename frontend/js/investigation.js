@@ -23,6 +23,7 @@
 // an invented or assumed IRIS-side link between the two systems.
 
 import { IrisApi, ApiError } from "./api.js";
+import { countBy, renderStackedBar, topCategories } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -35,6 +36,8 @@ const dom = {
   connectionStatusLabel: document.getElementById("investigation-connection-status-label"),
   auditEnabled: document.getElementById("investigation-audit-enabled"),
   countLabel: document.getElementById("investigation-count"),
+  overview: document.getElementById("investigation-overview"),
+  overviewViz: document.getElementById("investigation-overview-viz"),
   filterForm: document.getElementById("investigation-filter-form"),
   filterBegin: document.getElementById("investigation-filter-begin"),
   filterEnd: document.getElementById("investigation-filter-end"),
@@ -182,6 +185,21 @@ function renderAuditEnabled(settled) {
   return enabled;
 }
 
+/** A real EventType distribution over the currently-filtered `records`
+ * list (the same set rendered as rows below) — no extra fetch, no
+ * invented category. High-cardinality real values are folded into a real
+ * "Other" aggregate (see viz.js's topCategories()), never guessed. Hidden
+ * entirely when there's nothing to show. */
+function renderOverview(records) {
+  if (!Array.isArray(records) || records.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  const entries = topCategories(countBy(records, (r) => r.EventType || "Unknown"), 6);
+  renderStackedBar(dom.overviewViz, entries);
+}
+
 function renderRecords(settled, auditEnabled) {
   dom.tableBody.replaceChildren();
 
@@ -190,10 +208,12 @@ function renderRecords(settled, auditEnabled) {
     dom.empty.textContent = "Could not load audit records.";
     dom.empty.hidden = false;
     dom.countLabel.textContent = "";
+    renderOverview(null);
     return;
   }
 
   const records = Array.isArray(settled.value.result) ? settled.value.result : [];
+  renderOverview(records);
 
   if (records.length === 0) {
     dom.tableWrapper.hidden = true;

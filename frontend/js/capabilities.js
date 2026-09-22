@@ -10,6 +10,7 @@
 // list already cached in `allCapabilities` below.
 
 import { IrisApi, ApiError } from "./api.js";
+import { countBy, renderDonut } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -19,6 +20,9 @@ const dom = {
   errorBannerText: document.getElementById("capabilities-error-banner-text"),
   refreshButton: document.getElementById("capabilities-refresh-button"),
   summary: document.getElementById("capabilities-summary"),
+  overview: document.getElementById("capabilities-overview"),
+  vizVerification: document.getElementById("capabilities-viz-verification"),
+  vizAvailability: document.getElementById("capabilities-viz-availability"),
   countLabel: document.getElementById("capabilities-count"),
   filterForm: document.getElementById("capabilities-filter-form"),
   filterSearch: document.getElementById("capabilities-filter-search"),
@@ -143,12 +147,35 @@ function applyFilters() {
   renderRows(allCapabilities.filter((entry) => matchesFilters(entry, filters)));
 }
 
+/** Two donuts over the full, unfiltered `allCapabilities` list (matching
+ * the text summary above, which is also always computed from the full
+ * list, not the currently-filtered table rows) — no extra fetch, no
+ * invented category. Hidden entirely when there's nothing to show. */
+function renderOverview() {
+  if (allCapabilities.length === 0) {
+    dom.overview.hidden = true;
+    return;
+  }
+  dom.overview.hidden = false;
+  renderDonut(dom.vizVerification, countBy(allCapabilities, (c) => c.verification_status || "Unknown"), {
+    size: 76,
+    centerValue: allCapabilities.length,
+    centerLabel: "total",
+  });
+  renderDonut(
+    dom.vizAvailability,
+    countBy(allCapabilities, (c) => (c.available ? "Available" : "Not available")),
+    { size: 76, centerValue: allCapabilities.length, centerLabel: "total" },
+  );
+}
+
 function renderSummary() {
   const verifiedCount = allCapabilities.filter((c) => c.verification_status === "Verified").length;
   const availableCount = allCapabilities.filter((c) => c.available).length;
   dom.summary.textContent =
     `${allCapabilities.length} capabilities documented · ` +
     `${verifiedCount} verified · ${availableCount} available in this Command Center`;
+  renderOverview();
 }
 
 /**
@@ -171,6 +198,7 @@ export async function loadCapabilities() {
     setErrorBanner(message);
     allCapabilities = [];
     dom.summary.textContent = "";
+    dom.overview.hidden = true;
     renderRows([]);
     setLoading(false);
     return;
