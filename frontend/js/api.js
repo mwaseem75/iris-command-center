@@ -181,6 +181,18 @@ async function postDatabaseMount(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/databases/mount", fields, confirmed, dryRun);
 }
 
+/**
+ * POST /api/iris/web-apps/set-enabled — web_app.set_enabled
+ * (backend/app/routes/web_apps.py). Same body convention and helper as the
+ * database operations: only the caller's fields plus an explicit
+ * `confirmed` flag and `dry_run`; the backend alone authorizes (Manage,
+ * plus IRIS's own Secure), hard-denies protected apps, executes, and
+ * verifies. No force/bypass field exists.
+ */
+async function postWebAppSetEnabled(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/web-apps/set-enabled", fields, confirmed, dryRun);
+}
+
 async function postDatabaseOperation(path, fields, confirmed, dryRun) {
   let response;
   try {
@@ -302,6 +314,8 @@ export const IrisApi = {
   // dryRun=true for a real, non-mutating server-validated preview.
   mountDatabase: (fields, confirmed, dryRun = false) =>
     postDatabaseMount(fields, confirmed, dryRun),
+  setWebAppEnabled: (fields, confirmed, dryRun = false) =>
+    postWebAppSetEnabled(fields, confirmed, dryRun),
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),

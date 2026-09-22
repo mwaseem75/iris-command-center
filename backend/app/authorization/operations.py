@@ -237,6 +237,25 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.MEDIUM,
         confirmation_required=True,
     ),
+    "web_app.set_enabled": OperationDefinition(
+        name="web_app.set_enabled",
+        description=(
+            "Enable or disable an existing IRIS web application (PUT "
+            "/api/admin/v2/web-app?name=<Name> with the body {\"Enabled\": "
+            "<bool>} only). Requires Manage here; the handler additionally "
+            "requires Secure, because IRIS's own implementation "
+            "(%Api.Admin.Endpoints.WebApp.App) checks %Admin_Secure. "
+            "Hard-denied for the Command Center's own /api/admin and "
+            "/api/mgmnt apps and for every System-type app (IRIS's PUT always "
+            "resets Type to plain CSP, which would clear the System flag). "
+            "Verified afterwards via fresh GET /v2/web-app and GET "
+            "/v2/web-apps reads. See app/execution/web_app_set_enabled_handler.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
 }
 
 

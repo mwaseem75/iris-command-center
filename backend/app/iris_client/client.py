@@ -138,15 +138,18 @@ class IRISClient:
             raise ValueError("Refusing to send IRIS credentials outside /api/mgmnt/")
         return url
 
-    async def put(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
+    async def put(
+        self, path: str, json: dict[str, Any], params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Perform an authenticated PUT against the IRIS SysAdmin REST API.
 
         `path` is relative to /api/admin, e.g. "/v2/journal/settings". `json`
         is sent as the request body exactly as given — this method does not
-        add, remove, or infer any field. Returns the parsed JSON response
-        body verbatim.
+        add, remove, or infer any field. `params` are optional query
+        parameters (e.g. PUT /v2/web-app's required `name`). Returns the
+        parsed JSON response body verbatim.
         """
-        response = await self._request("PUT", path, json=json)
+        response = await self._request("PUT", path, params=params, json=json)
         return response.json()
 
     async def post(

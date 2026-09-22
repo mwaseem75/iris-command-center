@@ -12,8 +12,12 @@
 //   - GET /api/iris/web-sessions (active sessions, fetched alongside the
 //     list; IrisApi.getWebSessions()). The backend strips every session's
 //     IRIS ID before responding, and this module never reads or shows one.
-// No mutating HTTP method is used anywhere in this module, and there are
-// deliberately no web-app actions (enable/disable/edit/delete).
+// It also offers exactly one MUTATING action, web_app.set_enabled (Enabled
+// State section of the drawer), through POST /api/iris/web-apps/set-enabled
+// via IrisApi.setWebAppEnabled() — dry run, explicit confirmation,
+// execution and verification all happen in the backend's operation
+// framework (see "Enabled State" below). There are no other web-app actions
+// (edit/delete), and no session actions.
 //
 // Every value shown is a field IRIS actually returned: the table uses
 // backend/app/models/iris.py's WebAppEntry, the drawer's configuration
@@ -118,6 +122,17 @@ const dom = {
   sessionDrawerApp: document.getElementById("web-sessions-drawer-app"),
   sessionDrawerOpenApp: document.getElementById("web-sessions-drawer-open-app"),
   sessionDrawerClose: document.getElementById("web-sessions-drawer-close"),
+  enableCheckButton: document.getElementById("web-apps-enable-check-button"),
+  enableLoading: document.getElementById("web-apps-enable-loading"),
+  enableLoadingText: document.getElementById("web-apps-enable-loading-text"),
+  enableError: document.getElementById("web-apps-enable-error"),
+  enableErrorText: document.getElementById("web-apps-enable-error-text"),
+  enableConfirm: document.getElementById("web-apps-enable-confirm"),
+  enablePreviewText: document.getElementById("web-apps-enable-preview-text"),
+  enableAckCheckbox: document.getElementById("web-apps-enable-ack-checkbox"),
+  enableAckText: document.getElementById("web-apps-enable-ack-text"),
+  enableConfirmButton: document.getElementById("web-apps-enable-confirm-button"),
+  enableResult: document.getElementById("web-apps-enable-result"),
 };
 
 // [label, WebAppEntry field, value kind] — the list-endpoint facts shown at
@@ -634,6 +649,164 @@ async function loadDrawerDetail(name) {
   }
 }
 
+// --- Enabled State (web_app.set_enabled — the drawer's one MUTATING action) ---
+//
+// Flow, same as the Database drawer's mount: "Check" sends a dry run
+// (IrisApi.setWebAppEnabled(fields, true, true) — the executor's dry-run
+// branch is only reached with confirmed=true, and the handler's dry_run()
+// never sends the PUT). Only a successful preview offers the confirm
+// control, which is enabled only after the acknowledgment checkbox; the
+// real request is sent only from submitEnable(). The backend alone
+// authorizes, hard-denies protected apps, executes and verifies — this code
+// never decides any of that itself, it only shows what the backend returned.
+
+// The fields the operator previewed — set only by a successful dry run,
+// cleared whenever the drawer's app or its current state changes.
+let pendingEnableFields = null;
+
+function enableTargetFor(app) {
+  return typeof app.Enabled === "boolean" ? !app.Enabled : null;
+}
+
+function updateEnableConfirmEnabled() {
+  dom.enableConfirmButton.disabled = !(pendingEnableFields && dom.enableAckCheckbox.checked);
+}
+
+function clearEnablePreview() {
+  pendingEnableFields = null;
+  dom.enableConfirm.hidden = true;
+  dom.enableAckCheckbox.checked = false;
+  updateEnableConfirmEnabled();
+}
+
+function resetEnableControls() {
+  clearEnablePreview();
+  dom.enableLoading.hidden = true;
+  dom.enableError.hidden = true;
+  dom.enableResult.hidden = true;
+  dom.enableResult.replaceChildren();
+  dom.enableCheckButton.disabled = false;
+}
+
+/** Labels the controls for the app's real current state (from the list),
+ * and drops a preview that no longer matches it. */
+function syncEnableControls(app) {
+  const target = enableTargetFor(app);
+  dom.enableCheckButton.hidden = target === null;
+  const verb = target ? "Enable" : "Disable";
+  dom.enableCheckButton.textContent = `Check ${verb}`;
+  dom.enableConfirmButton.textContent = `Confirm & ${verb}`;
+  dom.enableAckText.textContent = `I understand this will ${verb.toLowerCase()} ${app.Name} on the IRIS instance.`;
+  if (pendingEnableFields && (pendingEnableFields.Name !== app.Name || pendingEnableFields.Enabled !== target)) {
+    clearEnablePreview();
+  }
+}
+
+function showEnableError(message) {
+  dom.enableErrorText.textContent = message;
+  dom.enableError.hidden = false;
+}
+
+async function handleEnableCheckClick() {
+  const app = allWebApps.find((entry) => entry.Name === currentDrawerName);
+  const target = app ? enableTargetFor(app) : null;
+  if (!app || target === null) return;
+
+  const fields = { Name: app.Name, Enabled: target };
+  clearEnablePreview();
+  dom.enableError.hidden = true;
+  dom.enableResult.hidden = true;
+  dom.enableCheckButton.disabled = true;
+  dom.enableLoadingText.textContent = "Checking with IRIS (dry run)…";
+  dom.enableLoading.hidden = false;
+
+  try {
+    const preview = await IrisApi.setWebAppEnabled(fields, true, true);
+    if (currentDrawerName !== fields.Name) return; // drawer moved to another app
+    const handlerResult = preview && preview.handler_result;
+    if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
+      pendingEnableFields = fields;
+      dom.enablePreviewText.textContent = handlerResult.detail;
+      dom.enableConfirm.hidden = false;
+      updateEnableConfirmEnabled();
+    } else {
+      // Unauthorized, protected, no-op, unknown app… shown exactly as the
+      // backend explained it.
+      showEnableError(
+        (handlerResult && handlerResult.detail) ||
+          preview.detail ||
+          "This change could not be validated against IRIS.",
+      );
+    }
+  } catch (err) {
+    showEnableError(
+      err instanceof ApiError
+        ? "Could not reach the Command Center backend to check this change."
+        : "An unexpected error occurred while checking this change.",
+    );
+  } finally {
+    dom.enableLoading.hidden = true;
+    dom.enableCheckButton.disabled = false;
+  }
+}
+
+/** Status, detail, execution detail and verification exactly as the
+ * backend returned them — same rendering as the Database drawer's mount. */
+function renderEnableResult(result) {
+  const rows = [
+    ["Status", textOrPlaceholder(result.status)],
+    ["Detail", textOrPlaceholder(result.detail)],
+  ];
+  if (result.handler_result) {
+    rows.push(["Execution Detail", textOrPlaceholder(result.handler_result.detail)]);
+  }
+  if (result.verification) {
+    rows.push(["Verification Status", textOrPlaceholder(result.verification.status)]);
+    rows.push(["Verification Detail", textOrPlaceholder(result.verification.detail)]);
+  }
+  dom.enableResult.replaceChildren(
+    ...rows.map(([label, value]) => makeInfoRow(label, null, value, "text")),
+  );
+  dom.enableResult.hidden = false;
+}
+
+/**
+ * The ONLY place in this file that sends a real (non-dry-run) change —
+ * reachable only via the confirm button, which is enabled only after a
+ * successful preview and the acknowledgment checkbox.
+ */
+async function submitEnable() {
+  const fields = pendingEnableFields;
+  if (!fields) return;
+
+  clearEnablePreview();
+  dom.enableCheckButton.disabled = true;
+  dom.enableLoadingText.textContent = fields.Enabled ? "Enabling web application…" : "Disabling web application…";
+  dom.enableLoading.hidden = false;
+
+  let result;
+  try {
+    result = await IrisApi.setWebAppEnabled(fields, true, false);
+  } catch (err) {
+    result = {
+      status: "request_failed",
+      detail:
+        err instanceof ApiError
+          ? "Could not reach the Command Center backend to change this web application."
+          : "An unexpected error occurred while changing this web application.",
+    };
+  }
+  dom.enableLoading.hidden = true;
+  dom.enableCheckButton.disabled = false;
+  if (currentDrawerName === fields.Name) renderEnableResult(result);
+
+  if (result.status === "success" || result.status === "verification_failed") {
+    // Re-read the real list rather than patching local state — the drawer
+    // re-renders from it (same app, so the result above stays visible).
+    await loadWebApps();
+  }
+}
+
 // --- REST Endpoints tab ---
 
 function trimmedOrNull(value) {
@@ -890,8 +1063,10 @@ function openDrawer(name) {
   dom.drawerTabs.hidden = kindOf(app) !== "REST";
   if (!isSameApp) {
     resetRestPanel();
+    resetEnableControls();
     activeDrawerTab = "config";
   }
+  syncEnableControls(app);
 
   const wasHidden = dom.drawer.hidden;
   dom.drawerBackdrop.hidden = false;
@@ -906,6 +1081,7 @@ function closeDrawer() {
   currentDrawerName = null;
   detailRequestSeq += 1; // discard any in-flight detail response
   resetRestPanel();
+  resetEnableControls();
   activeDrawerTab = "config";
   dom.drawer.classList.remove("ns-drawer--xwide");
   dom.drawerLoading.hidden = true;
@@ -1301,6 +1477,16 @@ export function initWebAppsControls() {
     showEndpointDetail(Number(item.dataset.index));
   });
   dom.restBack.addEventListener("click", backToEndpointList);
+
+  // Enabled State (web_app.set_enabled): dry-run check, acknowledgment,
+  // then the one real request.
+  dom.enableCheckButton.addEventListener("click", () => {
+    handleEnableCheckClick();
+  });
+  dom.enableAckCheckbox.addEventListener("change", updateEnableConfirmEnabled);
+  dom.enableConfirmButton.addEventListener("click", () => {
+    submitEnable();
+  });
 
   // Web Sessions: client-side filtering over the last fetched list, and a
   // read-only detail drawer (no session actions exist anywhere here).

@@ -474,6 +474,9 @@ def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
     check('id="web-sessions-section"' in html, "the Web Sessions section exists")
     check('id="web-sessions-filter-search"' in html, "the web sessions search input exists")
     check('id="web-sessions-drawer"' in html, "the web session detail drawer exists")
+    check('id="web-apps-enable-check-button"' in html, "the drawer's Enabled State dry-run check exists")
+    check('id="web-apps-enable-ack-checkbox"' in html, "the Enabled State acknowledgment checkbox exists")
+    check('id="web-apps-enable-confirm-button"' in html, "the Enabled State confirm button exists")
 
 
 def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
@@ -493,6 +496,14 @@ def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
         "IrisApi.getWebSessions" in web_apps_js,
         "web-apps.js calls IrisApi.getWebSessions() for the Web Sessions section",
     )
+    # Its one mutation goes through the sanctioned api.js wrapper, never a
+    # raw fetch or another operation's wrapper.
+    check(
+        "IrisApi.setWebAppEnabled" in web_apps_js,
+        "web-apps.js's only mutation is IrisApi.setWebAppEnabled() (web_app.set_enabled)",
+    )
+    for other_mutation in ("createNamespace", "createDatabase", "mountDatabase", "fetch("):
+        check(other_mutation not in web_apps_js, f"web-apps.js does not use {other_mutation}")
     # IRIS's web-session ID (what DELETE /v2/web-session?id= takes) is
     # stripped by the backend; the frontend must never try to read one.
     api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
@@ -1200,18 +1211,19 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except four sanctioned, scoped exceptions...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except five sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The four sanctioned mutating calls in the entire frontend, all in
+    # The five sanctioned mutating calls in the entire frontend, all in
     # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
     # archived, backend/app/routes/journal.py), postNamespaceCreate (POST
     # /api/iris/namespaces, backend/app/routes/namespaces.py),
     # postDatabaseCreate (POST /api/iris/databases) and postDatabaseMount
     # (POST /api/iris/databases/mount, both backend/app/routes/
-    # databases.py) — asserted below to be scoped to exactly those four
-    # paths, never a different/new one. PUT and PATCH
+    # databases.py), and postWebAppSetEnabled (POST /api/iris/web-apps/
+    # set-enabled, backend/app/routes/web_apps.py) — asserted below to be
+    # scoped to exactly those five paths, never a different/new one. PUT and PATCH
     # remain forbidden everywhere, including in api.js — this project has
     # no PUT or PATCH route at all, mutating or otherwise.
     allowed_post_file = "api.js"
@@ -1254,6 +1266,11 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         '"/api/iris/databases/mount"' in api_js and "mountDatabase:" in api_js,
         "api.js's fourth sanctioned POST (postDatabaseMount) is scoped to /api/iris/databases/mount "
         "and exposed as IrisApi.mountDatabase()",
+    )
+    check(
+        '"/api/iris/web-apps/set-enabled"' in api_js and "setWebAppEnabled:" in api_js,
+        "api.js's fifth sanctioned POST (postWebAppSetEnabled) is scoped to "
+        "/api/iris/web-apps/set-enabled and exposed as IrisApi.setWebAppEnabled()",
     )
 
     # operations.js (where the execute UI lives) must call the api.js

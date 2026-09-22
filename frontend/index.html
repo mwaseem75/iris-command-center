@@ -1088,6 +1088,35 @@
             </div>
             <div id="web-apps-panel-config" role="tabpanel" aria-labelledby="web-apps-tab-config">
               <dl class="info-list" id="web-apps-drawer-summary"></dl>
+              <div class="ns-drawer__section" id="web-apps-enable-section">
+                <div class="ns-section__header">
+                  <h4 class="ns-drawer__section-title">Enabled State</h4>
+                  <button class="btn" type="button" id="web-apps-enable-check-button">Check</button>
+                </div>
+                <p class="ns-hint">Enables or disables this web application through the authorization &rarr; confirmation &rarr; execution &rarr; verification framework. The check is a read-only dry run; nothing is sent to IRIS until you explicitly confirm, and only the Enabled setting is ever sent. Protected applications are refused by the backend.</p>
+                <div class="loading-state" id="web-apps-enable-loading" hidden>
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span id="web-apps-enable-loading-text">Checking&hellip;</span>
+                </div>
+                <div class="banner banner--error" id="web-apps-enable-error" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="web-apps-enable-error-text"></span>
+                </div>
+                <div id="web-apps-enable-confirm" hidden>
+                  <div class="banner banner--warning" role="alert">
+                    <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                    <span id="web-apps-enable-preview-text"></span>
+                  </div>
+                  <label class="ns-form-checkbox">
+                    <input type="checkbox" id="web-apps-enable-ack-checkbox" />
+                    <span id="web-apps-enable-ack-text">I understand this will change the web application on the IRIS instance.</span>
+                  </label>
+                  <div class="btn-row">
+                    <button class="btn btn--warning" type="button" id="web-apps-enable-confirm-button" disabled>Confirm</button>
+                  </div>
+                </div>
+                <dl class="info-list" id="web-apps-enable-result" hidden></dl>
+              </div>
               <div class="loading-state" id="web-apps-drawer-loading" hidden>
                 <span class="spinner" aria-hidden="true"></span>
                 <span>Loading full configuration&hellip;</span>

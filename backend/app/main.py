@@ -38,6 +38,7 @@ from app.routes.journal import router as journal_router
 from app.routes.namespaces import router as namespaces_router
 from app.routes.observability import router as observability_router
 from app.routes.operations import router as operations_router
+from app.routes.web_apps import router as web_apps_router
 
 
 @asynccontextmanager
@@ -74,6 +75,7 @@ app.include_router(iris_router)
 app.include_router(journal_router)
 app.include_router(namespaces_router)
 app.include_router(databases_router)
+app.include_router(web_apps_router)
 app.include_router(operations_router)
 app.include_router(assistant_router)
 app.include_router(observability_router)
