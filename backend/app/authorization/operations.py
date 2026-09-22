@@ -110,6 +110,40 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.NONE,
         confirmation_required=False,
     ),
+    "database.info": OperationDefinition(
+        name="database.info",
+        description=(
+            "View a database's non-configurable storage info — block size, "
+            "allocated size, available space, host disk free space, "
+            "mount/full/encrypted/mirrored status (GET /api/iris/databases/info"
+            "?dir=<Directory>, backed by IRIS's async-task POST "
+            "/api/admin/v2/database-dir/info — the same async-task pattern "
+            "the audit-records query uses). Read-only; changes nothing."
+        ),
+        kind=OperationKind.READ_ONLY,
+        required_privileges=frozenset({IRISPrivilege.MANAGE, IRISPrivilege.OPERATE}),
+        risk_level=RiskLevel.NONE,
+        confirmation_required=False,
+    ),
+    "database.integrity_check": OperationDefinition(
+        name="database.integrity_check",
+        description=(
+            "Run an integrity check on a database — GET /api/iris/databases/"
+            "integrity-check?dir=<Directory>, backed by IRIS's async-task "
+            "POST /api/admin/v2/database-dir/integrity-check (same "
+            "async-task pattern as database.info/audit-records). "
+            "Read-only: verifies existing data, changes nothing. This "
+            "operation has deliberately never been executed against a real "
+            "IRIS instance during implementation (a real scan is "
+            "resource-intensive); its result payload is therefore left "
+            "untyped rather than guessed — see "
+            "app/models/iris.py's DatabaseIntegrityCheckResult."
+        ),
+        kind=OperationKind.READ_ONLY,
+        required_privileges=frozenset({IRISPrivilege.OPERATE}),
+        risk_level=RiskLevel.NONE,
+        confirmation_required=False,
+    ),
     "delete_task": OperationDefinition(
         name="delete_task",
         description=(
@@ -170,6 +204,36 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         ),
         kind=OperationKind.MUTATING,
         required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
+    "database.create": OperationDefinition(
+        name="database.create",
+        description=(
+            "Create a new IRIS database (POST /api/admin/v2/database-dir) — this "
+            "project's first Database mutation. See "
+            "app/execution/database_create_handler.py for the full validation and "
+            "execution flow (directory-collision rejection, derived-name collision "
+            "rejection covering existing/system databases, and bounded-retry "
+            "post-action verification)."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
+    "database.mount": OperationDefinition(
+        name="database.mount",
+        description=(
+            "Mount an existing, currently dismounted IRIS database (POST "
+            "/api/admin/v2/database-dir/mount?dir=<Directory>, optional ReadOnly). "
+            "Rejected when IRIS already reports it mounted (pre-check via "
+            "database-dir/info, and IRIS's own 409); verified afterwards via a "
+            "fresh database-dir/info read reporting Mounted=true. See "
+            "app/execution/database_mount_handler.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.OPERATE}),
         risk_level=RiskLevel.MEDIUM,
         confirmation_required=True,
     ),

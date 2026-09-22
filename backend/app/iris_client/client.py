@@ -97,7 +97,35 @@ class IRISClient:
         response = await self._request("PUT", path, json=json)
         return response.json()
 
-    async def post_async_task(self, path: str, params: dict[str, Any] | None = None) -> str:
+    async def post(
+        self,
+        path: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Perform an authenticated, SYNCHRONOUS POST against the IRIS
+        SysAdmin REST API — for endpoints documented to return their result
+        directly (e.g. `POST /v2/database-dir`'s `201 Created` with the
+        created resource in `result`), unlike post_async_task()'s
+        202-plus-poll pattern used by IRIS's separate async-query endpoints.
+        `path` is relative to /api/admin, e.g. "/v2/database-dir". `json` is
+        sent as the request body exactly as given — this method does not
+        add, remove, or infer any field. Returns the parsed JSON response
+        body verbatim.
+
+        `params`: some synchronous endpoints (e.g. POST /v2/database-dir/
+        mount) are keyed by a documented query parameter (`dir`) rather
+        than a body field — sent exactly as given, same as post_async_task().
+        """
+        response = await self._request("POST", path, params=params, json=json)
+        return response.json()
+
+    async def post_async_task(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+    ) -> str:
         """Start an IRIS async-task-backed query (e.g. POST
         /v2/security/audit/records) and return its task id.
 
@@ -111,10 +139,16 @@ class IRISClient:
         the `id` query parameter is ever extracted; nothing else from the
         header is used or trusted.
 
+        `json`: some async-task-backed endpoints (e.g. POST /v2/database-dir/
+        integrity-check) take their real parameters as a JSON request body
+        rather than query params, unlike audit-records/database-dir/info —
+        added here, not guessed, once a caller with that real shape needed
+        it. Sent exactly as given, same discipline as put()/post().
+
         Raises IRISAsyncTaskError if no Location header (or no `id` within
         it) is present — this project never guesses a task id.
         """
-        response = await self._request("POST", path, params=params)
+        response = await self._request("POST", path, params=params, json=json)
         location = response.headers.get("Location")
         if not location:
             raise IRISAsyncTaskError(

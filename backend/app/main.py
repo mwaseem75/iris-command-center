@@ -31,6 +31,7 @@ from app.observability import store as observability_store
 from app.observability.iris_trace_writer import IRISTraceWriter
 from app.routes.assistant import router as assistant_router
 from app.routes.capabilities import router as capabilities_router
+from app.routes.databases import router as databases_router
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
 from app.routes.journal import router as journal_router
@@ -72,6 +73,7 @@ app.include_router(health_router)
 app.include_router(iris_router)
 app.include_router(journal_router)
 app.include_router(namespaces_router)
+app.include_router(databases_router)
 app.include_router(operations_router)
 app.include_router(assistant_router)
 app.include_router(observability_router)

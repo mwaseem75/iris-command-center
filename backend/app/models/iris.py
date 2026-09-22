@@ -102,6 +102,74 @@ class DatabaseEntry(BaseModel):
     Status: str
 
 
+# --- POST /v2/database-dir/info (async-task-backed; see
+#     app/iris_client/client.py's post_async_task/wait_for_async_task) —
+#     "View a variety of non-configurable info, such as block size and
+#     available free space" per mainspec_v2.json's own summary, which
+#     documents no result schema at all. All 19 fields below were directly
+#     observed, populated, in a real response from icc-iris-dev (database
+#     USER) — nothing here is guessed from the spec alone. Unlike
+#     DatabaseEntry above, there is no Name/Directory/Status field — the
+#     caller already knows the Directory it queried (it's the request's own
+#     `dir` parameter), and this endpoint reports storage facts, not
+#     identity/mount-summary ones.
+
+
+class DatabaseInfoResult(BaseModel):
+    Size: int
+    ExpansionSize: int
+    MaxSize: int
+    ReadOnlyReason: str
+    EncryptionKeyID: str
+    BlockSize: int
+    Blocks: int
+    AvailableSpace: float
+    DiskFree: str
+    EndFree: int
+    LastExpansionTime: str
+    MirrorSetName: str
+    MirrorDBName: str
+    SFN: int
+    Mirrored: bool
+    Encrypted: bool
+    Full: bool
+    Mounted: bool
+    MirrorFailoverDB: bool
+
+
+# --- POST /v2/database-dir/integrity-check (async-task-backed; see
+#     app/iris_client/client.py's post_async_task/wait_for_async_task) —
+#     "Run an integrity check on a local database" per mainspec_v2.json's
+#     own summary. UNLIKE DatabaseInfoResult above, this operation has
+#     deliberately NEVER been executed against a real IRIS instance (an
+#     integrity check is a real, resource-intensive scan of live data, not
+#     a quick metadata read — executing one was explicitly out of scope
+#     for this implementation pass). mainspec_v2.json documents no result
+#     schema for it either. `Result` below is therefore typed as `Any`
+#     rather than guessed — the same permissive-typing discipline this
+#     module's own docstring already establishes for endpoints whose
+#     populated shape has never been observed (see fs-access-purposes/
+#     OAuth2/wallet-collections above). Every OTHER field below (State,
+#     TaskName, Console, FailureReason, TimeQueued/TimeStarted/
+#     TimeFinished) is NOT guessed — it is IRIS's own generic async-task
+#     envelope, already independently confirmed live, populated, more than
+#     once (POST /v2/security/audit/records, POST /v2/database-dir/info —
+#     see AuditRecordEntry and DatabaseInfoResult above); only the
+#     `Result` payload's own internal shape is specific to this one
+#     endpoint and unconfirmed.
+
+
+class DatabaseIntegrityCheckResult(BaseModel):
+    State: str
+    TaskName: str
+    Console: list[Any]
+    FailureReason: str
+    Result: Any
+    TimeQueued: str
+    TimeStarted: str
+    TimeFinished: str
+
+
 # --- GET /v2/processes ---
 
 

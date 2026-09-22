@@ -145,10 +145,91 @@ async function postNamespaceCreate(fields, confirmed, dryRun = false) {
   return response.json();
 }
 
+/**
+ * POST /api/iris/databases — this project's third mutating request,
+ * alongside postJournalPurgeArchived and postNamespaceCreate above
+ * (database.create, backend/app/routes/databases.py). Same discipline:
+ * forwards exactly what the caller decided (the request's own fields plus
+ * an explicit, user-driven `confirmed` flag) to the existing,
+ * already-tested route, which alone decides whether anything is
+ * authorized to happen. No "force"/"bypass" field here either.
+ *
+ * `dryRun` forwards the route's own `dry_run` field (already supported by
+ * DatabaseCreateOperationRequest/DatabaseCreateHandler.dry_run() — never
+ * calls post(), so it can never mutate IRIS) — used by the "New Database"
+ * wizard's Review step to get a real, server-validated preview before the
+ * operator's explicit confirmation triggers an actual (dryRun=false)
+ * execution. Note: DatabaseCreateHandler's dry-run branch, like
+ * NamespaceCreateHandler's, is only reached once `confirmed: true` is
+ * also sent — see namespaces.js's module docstring for why (the
+ * executor's confirmation gate runs before the dry_run branch); the
+ * dry-run call itself still never mutates IRIS regardless.
+ */
+async function postDatabaseCreate(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/databases", fields, confirmed, dryRun);
+}
+
+/**
+ * database.mount (POST /api/iris/databases/mount,
+ * backend/app/routes/databases.py) — same request/response discipline as
+ * postDatabaseCreate: forwards the operator's fields plus explicit
+ * `confirmed`/`dry_run` flags; the backend alone authorizes. Dry-run
+ * (DatabaseMountHandler.dry_run()) only reads IRIS's database info and
+ * never sends the mount request.
+ */
+async function postDatabaseMount(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/databases/mount", fields, confirmed, dryRun);
+}
+
+async function postDatabaseOperation(path, fields, confirmed, dryRun) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...fields, confirmed, dry_run: dryRun }),
+    });
+  } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+
+  if (!response.ok) {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+
+  setHeaderConnectionStatus("connected", "Connected to backend");
+  return response.json();
+}
+
 export const IrisApi = {
   getInfo: () => fetchIris("/api/iris/info"),
   getNamespaces: () => fetchIris("/api/iris/namespaces"),
   getDatabases: () => fetchIris("/api/iris/databases"),
+  // Read-only — backed by IRIS's own async-task POST /v2/database-dir/info
+  // (the backend waits for that task to finish; see
+  // backend/app/routes/iris.py's get_database_info), the same pattern
+  // getAuditRecords() already uses. `directory` is the database's real
+  // Directory field, sent verbatim as the `dir` query parameter.
+  getDatabaseInfo: (directory) =>
+    fetchIris(`/api/iris/databases/info?dir=${encodeURIComponent(directory)}`),
+  // Read-only — backed by IRIS's own async-task POST /v2/database-dir/
+  // integrity-check (see backend/app/routes/iris.py's
+  // get_database_integrity_check), the same async-task pattern
+  // getDatabaseInfo()/getAuditRecords() already use. `directory` is the
+  // database's real Directory field, sent verbatim as the `dir` query
+  // parameter. Unlike getDatabaseInfo(), the response is NOT an
+  // IRISEnvelope — it's IRIS's own raw async-task envelope (State,
+  // TaskName, Console, FailureReason, Result, Time*), since this
+  // operation's actual outcome/Result shape has never been observed
+  // against a real IRIS instance (see that route's own docstring) and
+  // this project never invents a shape to unwrap it into.
+  checkDatabaseIntegrity: (directory) =>
+    fetchIris(`/api/iris/databases/integrity-check?dir=${encodeURIComponent(directory)}`),
   getProcesses: () => fetchIris("/api/iris/processes"),
   getWebApps: () => fetchIris("/api/iris/web-apps"),
   getTasks: () => fetchIris("/api/iris/tasks"),
@@ -195,6 +276,16 @@ export const IrisApi = {
   // dryRun=true for a real, non-mutating server-validated preview.
   createNamespace: (fields, confirmed, dryRun = false) =>
     postNamespaceCreate(fields, confirmed, dryRun),
+  // The response is a plain OperationResult, the same structured shape as
+  // createNamespace above — POST /api/iris/databases
+  // (backend/app/routes/databases.py) has always returned it. Pass
+  // dryRun=true for a real, non-mutating server-validated preview.
+  createDatabase: (fields, confirmed, dryRun = false) =>
+    postDatabaseCreate(fields, confirmed, dryRun),
+  // Same OperationResult shape — POST /api/iris/databases/mount. Pass
+  // dryRun=true for a real, non-mutating server-validated preview.
+  mountDatabase: (fields, confirmed, dryRun = false) =>
+    postDatabaseMount(fields, confirmed, dryRun),
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),

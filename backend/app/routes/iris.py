@@ -4,9 +4,9 @@ IRISClient (via the get_iris_client dependency) — no route here performs
 its own login or holds its own token.
 
 No route in this module ever changes IRIS state. GET /security/audit/records
-is the one exception to "only GET requests are made against IRIS": IRIS
-itself models a (potentially long-running) audit-record query as an async
-task, started via POST and polled via GET (see
+and GET /databases/info are the exceptions to "only GET requests are made
+against IRIS": IRIS itself models each as a (potentially long-running)
+async task, started via POST and polled via GET (see
 app/iris_client/client.py's post_async_task/wait_for_async_task and
 docs/api-capability-matrix.md) — that POST is IRIS's own read/query
 mechanism, not a mutation, and is not gated by this project's
@@ -31,6 +31,8 @@ from app.models.iris import (
     AuditEnabledResult,
     AuditRecordEntry,
     DatabaseEntry,
+    DatabaseInfoResult,
+    DatabaseIntegrityCheckResult,
     ExternalLanguageServerEntry,
     InfoResult,
     IRISEnvelope,
@@ -113,6 +115,99 @@ async def get_databases(
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[list[DatabaseEntry]].model_validate(raw)
+
+
+@router.get("/databases/info", response_model=IRISEnvelope[DatabaseInfoResult])
+async def get_database_info(
+    dir: str,
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[DatabaseInfoResult]:
+    """Non-configurable storage info (block size, allocated size, available
+    space, host disk free space, mount/full/encrypted/mirrored status) for
+    one database, keyed by its real Directory — the data behind the
+    Database Explorer's "View Info" drawer action.
+
+    `dir` is exactly mainspec_v2.json's own documented query parameter name
+    for `POST /v2/database-dir/info` (the `DBDirectory` component) — not
+    renamed, matching this file's existing discipline (see
+    get_audit_records' filter parameters).
+
+    Read-only: mainspec_v2.json documents this as a plain informational
+    view (no request body, nothing configurable is changed), even though
+    IRIS itself runs it as an async task (POST to start, then poll to
+    completion — same pattern get_audit_records above already uses). This
+    route is therefore, like every other route in this file, never gated
+    by this project's authorization/confirmation/execution framework.
+    """
+    try:
+        task_id = await client.post_async_task("/v2/database-dir/info", params={"dir": dir})
+        task = await client.wait_for_async_task(task_id)
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+
+    return IRISEnvelope[DatabaseInfoResult].model_validate(
+        {"status": {"errors": [], "summary": ""}, "console": [], "result": task.get("Result", {})}
+    )
+
+
+@router.get("/databases/integrity-check", response_model=DatabaseIntegrityCheckResult)
+async def get_database_integrity_check(
+    dir: str,
+    maxProcesses: int | None = None,
+    partialCheck: bool | None = None,
+    client: IRISClient = Depends(get_iris_client),
+) -> DatabaseIntegrityCheckResult:
+    """Run an integrity check on one database, keyed by its real Directory —
+    the data behind the Database Explorer's "Run Integrity Check" drawer
+    action.
+
+    `dir` is translated into mainspec_v2.json's own documented request body
+    for `POST /v2/database-dir/integrity-check` — `{"Databases": [{"Directory":
+    dir}], ...}` — a JSON body, unlike GET /databases/info's plain `dir` query
+    parameter, because that is genuinely this endpoint's real, documented
+    shape (an array of {Directory, Globals} entries, not a single query
+    param) — confirmed by reading spec/mainspec_v2.json directly, not
+    guessed. This route only ever checks the ONE database its own `dir`
+    names (a single-entry `Databases` array), matching every other
+    single-database action in this file (get_database_info); the spec's own
+    optional per-entry `Globals` filter and bulk multi-database checking are
+    not exposed here — a deliberately smaller, focused surface for this
+    first pass. `maxProcesses`/`partialCheck` map directly to the spec's own
+    optional `MaxProcesses`/`PartialCheck` body fields, forwarded only when
+    the caller actually supplies them.
+
+    Unlike get_database_info, this endpoint's response has NEVER been
+    observed against a real IRIS instance — an integrity check is a real,
+    resource-intensive scan of live data, not a quick metadata read, and
+    executing one was explicitly out of scope for this implementation (see
+    DatabaseIntegrityCheckResult's own docstring in app/models/iris.py).
+    This route therefore returns IRIS's own async-task envelope RAW — State,
+    TaskName, Console, FailureReason, Result, Time* — rather than unwrapping
+    just a `Result` the way get_database_info does, since this operation's
+    real outcome may be conveyed via Console/FailureReason as much as via
+    Result, and `Result`'s own shape is intentionally left untyped (`Any`)
+    rather than guessed.
+
+    Read-only: mainspec_v2.json documents this as verifying existing data,
+    never modifying it, even though IRIS itself runs it as an async task
+    (POST to start, then poll to completion — same pattern get_database_info
+    and get_audit_records above already use). This route is therefore, like
+    every other route in this file, never gated by this project's
+    authorization/confirmation/execution framework.
+    """
+    body: dict[str, Any] = {"Databases": [{"Directory": dir}]}
+    if maxProcesses is not None:
+        body["MaxProcesses"] = maxProcesses
+    if partialCheck is not None:
+        body["PartialCheck"] = partialCheck
+
+    try:
+        task_id = await client.post_async_task("/v2/database-dir/integrity-check", json=body)
+        task = await client.wait_for_async_task(task_id)
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+
+    return DatabaseIntegrityCheckResult.model_validate(task)
 
 
 @router.get("/processes", response_model=IRISEnvelope[list[ProcessEntry]])

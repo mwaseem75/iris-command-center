@@ -324,15 +324,90 @@ def test_databases_nav_and_view_exist_and_are_enabled() -> None:
     )
     check(view_match is not None, 'a <section id="view-databases" data-view="databases"> exists')
 
-    check('id="databases-table-body"' in html, "the databases table body element exists")
+    # Database Explorer redesign: the wide table was replaced by a card
+    # grid and a read-only detail drawer, same interaction pattern as the
+    # Namespace Explorer.
+    check('id="databases-card-grid"' in html, "the databases card grid element exists")
+    check('id="databases-drawer"' in html, "the databases detail drawer element exists")
+    # The "+ New Database" wizard: the button is now a real, enabled
+    # trigger for the wizard drawer (database.create), not a disabled
+    # placeholder.
+    nav_button_match = re.search(
+        r'<button class="btn btn--primary" type="button" id="databases-create-button">', html
+    )
+    check(nav_button_match is not None, "the '+ New Database' button exists and is enabled")
+    check(
+        'id="database-create-drawer"' in html,
+        "the 'New Database' wizard drawer element exists",
+    )
+    # database.info: the detail drawer's read-only "View Info" action.
+    check(
+        'id="databases-drawer-info-button"' in html,
+        "the database detail drawer's 'View Info' button exists",
+    )
+    check(
+        'id="databases-drawer-info-fields"' in html,
+        "the database detail drawer's storage-info fields element exists",
+    )
+    # database.integrity_check: the detail drawer's read-only "Run
+    # Integrity Check" action.
+    check(
+        'id="databases-drawer-integrity-button"' in html,
+        "the database detail drawer's 'Run Integrity Check' button exists",
+    )
+    check(
+        'id="databases-drawer-integrity-fields"' in html,
+        "the database detail drawer's integrity-check fields element exists",
+    )
 
 
-def test_databases_view_uses_only_get_databases() -> None:
-    print("Checking databases.js calls GET /api/iris/databases and nothing else...")
+def test_databases_view_uses_only_get_and_create_database_and_get_namespaces() -> None:
+    print(
+        "Checking databases.js calls only IrisApi.getDatabases()/getNamespaces()/"
+        "getDatabaseInfo()/checkDatabaseIntegrity()/createDatabase()..."
+    )
     databases_js = (FRONTEND_DIR / "js" / "databases.js").read_text(encoding="utf-8")
 
     check("IrisApi.getDatabases" in databases_js, "databases.js calls IrisApi.getDatabases()")
-    other_methods = ["getInfo", "getNamespaces", "getProcesses", "getWebApps", "getTasks"]
+    # getNamespaces() is read-only and only used to compute the drawer's
+    # "Namespace Usage" section — the same existing endpoint
+    # namespaces.js itself already uses, not a new/expensive call.
+    check(
+        "IrisApi.getNamespaces" in databases_js,
+        "databases.js calls IrisApi.getNamespaces() for the drawer's Namespace Usage section",
+    )
+    # database.info: read-only, drawer-only "View Info" action — never
+    # fetched automatically, only on the button's own click handler.
+    check(
+        "IrisApi.getDatabaseInfo" in databases_js,
+        "databases.js calls IrisApi.getDatabaseInfo() for the drawer's 'View Info' action",
+    )
+    # database.integrity_check: read-only, drawer-only "Run Integrity
+    # Check" action — same discipline, never fetched automatically.
+    check(
+        "IrisApi.checkDatabaseIntegrity" in databases_js,
+        "databases.js calls IrisApi.checkDatabaseIntegrity() for the drawer's "
+        "'Run Integrity Check' action",
+    )
+    # database.create (the "New Database" wizard) is this view's one
+    # sanctioned mutating capability — it must go through the IrisApi
+    # wrapper, never a raw fetch() (checked in
+    # test_no_mutating_http_method_anywhere_in_frontend_js below).
+    check(
+        "IrisApi.createDatabase" in databases_js,
+        "databases.js calls IrisApi.createDatabase() for its 'New Database' wizard",
+    )
+    # database.mount: drawer-only, dry-run preview then explicit
+    # confirmation — also only through the IrisApi wrapper.
+    check(
+        "IrisApi.mountDatabase" in databases_js,
+        "databases.js calls IrisApi.mountDatabase() for the drawer's mount action",
+    )
+    check(
+        "databases-drawer-mount" in databases_js,
+        "databases.js renders into the drawer's mount elements",
+    )
+    other_methods = ["getInfo", "getProcesses", "getWebApps", "getTasks"]
     for method in other_methods:
         check(method not in databases_js, f"databases.js does NOT call IrisApi.{method}()")
 
@@ -340,12 +415,29 @@ def test_databases_view_uses_only_get_databases() -> None:
     check(
         referenced_paths in ({"/api/iris/databases"}, set()),
         f"databases.js references only /api/iris/databases as a literal path "
-        f"(found: {referenced_paths or 'none, uses IrisApi.getDatabases()'})",
+        f"(found: {referenced_paths or 'none, uses the IrisApi wrapper only'})",
     )
     check(
-        "databases-table-body" in databases_js,
-        "databases.js renders into the databases table body element",
+        "databases-card-grid" in databases_js,
+        "databases.js renders into the databases card grid element",
     )
+    check(
+        "databases-drawer" in databases_js,
+        "databases.js renders into the database detail drawer element",
+    )
+    check(
+        "database-create-drawer" in databases_js,
+        "databases.js renders into the 'New Database' wizard drawer element",
+    )
+    check(
+        "databases-drawer-info" in databases_js,
+        "databases.js renders into the drawer's storage-info elements",
+    )
+    check(
+        "databases-drawer-integrity" in databases_js,
+        "databases.js renders into the drawer's integrity-check elements",
+    )
+    check("fetch(" not in databases_js, "databases.js makes no raw fetch() call (goes through IrisApi)")
 
 
 def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
@@ -1070,18 +1162,20 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except two sanctioned, scoped exceptions...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except four sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The two sanctioned mutating calls in the entire frontend, both in
+    # The four sanctioned mutating calls in the entire frontend, all in
     # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
-    # archived, backend/app/routes/journal.py) and postNamespaceCreate
-    # (POST /api/iris/namespaces, backend/app/routes/namespaces.py) —
-    # asserted below to be scoped to exactly those paths, never a
-    # different/new one. PUT and PATCH remain forbidden everywhere,
-    # including in api.js — this project has no PUT or PATCH route at
-    # all, mutating or otherwise.
+    # archived, backend/app/routes/journal.py), postNamespaceCreate (POST
+    # /api/iris/namespaces, backend/app/routes/namespaces.py),
+    # postDatabaseCreate (POST /api/iris/databases) and postDatabaseMount
+    # (POST /api/iris/databases/mount, both backend/app/routes/
+    # databases.py) — asserted below to be scoped to exactly those four
+    # paths, never a different/new one. PUT and PATCH
+    # remain forbidden everywhere, including in api.js — this project has
+    # no PUT or PATCH route at all, mutating or otherwise.
     allowed_post_file = "api.js"
 
     for js_file in sorted(js_dir.glob("*.js")):
@@ -1095,7 +1189,7 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
                 check(
                     found,
                     f"{js_file.relative_to(REPO_ROOT)} contains the sanctioned POST(s) "
-                    "(to the existing journal/purge-archived and namespaces routes)",
+                    "(to the existing journal/purge-archived, namespaces, and databases routes)",
                 )
                 continue
             check(
@@ -1113,6 +1207,15 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     check(
         "postNamespaceCreate" in api_js and "createNamespace:" in api_js,
         "api.js's second sanctioned POST (postNamespaceCreate) is exposed as IrisApi.createNamespace()",
+    )
+    check(
+        "postDatabaseCreate" in api_js and "createDatabase:" in api_js,
+        "api.js's third sanctioned POST (postDatabaseCreate) is exposed as IrisApi.createDatabase()",
+    )
+    check(
+        '"/api/iris/databases/mount"' in api_js and "mountDatabase:" in api_js,
+        "api.js's fourth sanctioned POST (postDatabaseMount) is scoped to /api/iris/databases/mount "
+        "and exposed as IrisApi.mountDatabase()",
     )
 
     # operations.js (where the execute UI lives) must call the api.js
@@ -1141,6 +1244,19 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         "namespaces.js calls IrisApi.createNamespace()",
     )
 
+    # databases.js (where the "New Database" wizard lives) must likewise
+    # call the api.js wrapper only, never a raw fetch() or its own
+    # authorization/confirmation logic.
+    databases_js = (js_dir / "databases.js").read_text(encoding="utf-8")
+    check(
+        "fetch(" not in databases_js,
+        "databases.js makes no raw fetch() call (goes through IrisApi)",
+    )
+    check(
+        "IrisApi.createDatabase" in databases_js,
+        "databases.js calls IrisApi.createDatabase()",
+    )
+
 
 def main() -> None:
     tests = [
@@ -1154,7 +1270,7 @@ def main() -> None:
         test_processes_nav_and_view_exist_and_are_enabled,
         test_processes_view_uses_only_get_processes,
         test_databases_nav_and_view_exist_and_are_enabled,
-        test_databases_view_uses_only_get_databases,
+        test_databases_view_uses_only_get_and_create_database_and_get_namespaces,
         test_web_apps_nav_and_view_exist_and_are_enabled,
         test_web_apps_view_uses_only_get_web_apps,
         test_tasks_nav_and_view_exist_and_are_enabled,

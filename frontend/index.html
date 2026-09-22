@@ -604,6 +604,7 @@
         <section class="view" id="view-databases" data-view="databases" aria-labelledby="databases-title" hidden>
           <div class="view__header">
             <div>
+              <button class="back-link" type="button" id="databases-back-button">&larr; Dashboard</button>
               <h2 class="view__title" id="databases-title">Databases</h2>
               <p class="view__subtitle">Configured databases on the connected IRIS instance.</p>
             </div>
@@ -634,22 +635,220 @@
 
           <p class="empty-state" id="databases-empty" hidden>No databases reported.</p>
 
-          <div class="table-wrapper" id="databases-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Directory</th>
-                  <th scope="col">Server</th>
-                  <th scope="col">Mount at Startup</th>
-                  <th scope="col">Mount Required</th>
-                  <th scope="col">Cluster Mount</th>
-                </tr>
-              </thead>
-              <tbody id="databases-table-body"></tbody>
-            </table>
+          <div id="databases-content" hidden>
+            <div class="stat-grid" id="databases-summary-grid">
+              <article class="stat-card" data-summary="count">
+                <h3 class="stat-card__label">Databases</h3>
+                <p class="stat-card__value" id="databases-summary-count">&mdash;</p>
+              </article>
+              <article class="stat-card" data-summary="mounted">
+                <h3 class="stat-card__label">Mounted</h3>
+                <p class="stat-card__value" id="databases-summary-mounted">&mdash;</p>
+              </article>
+              <article class="stat-card" data-summary="read-write">
+                <h3 class="stat-card__label">Read-Write</h3>
+                <p class="stat-card__value" id="databases-summary-read-write">&mdash;</p>
+              </article>
+            </div>
+
+            <div class="view-overview" id="databases-overview" hidden>
+              <p class="stat-card__label">Status Distribution</p>
+              <div id="databases-overview-viz"></div>
+            </div>
+
+            <div class="ns-section">
+              <div class="ns-section__header">
+                <h3 class="section-heading section-heading--secondary">Databases</h3>
+                <button class="btn btn--primary" type="button" id="databases-create-button">
+                  <span class="btn__icon" aria-hidden="true">+</span>
+                  New Database
+                </button>
+              </div>
+              <div class="ns-card-grid" id="databases-card-grid"></div>
+            </div>
           </div>
+
+          <div class="ns-drawer-backdrop" id="databases-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer" id="databases-drawer" hidden aria-labelledby="databases-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="databases-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="databases-drawer-status-badge"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="databases-drawer-close" aria-label="Close database details">&times;</button>
+            </div>
+            <dl class="info-list" id="databases-drawer-fields"></dl>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Namespace Usage</h4>
+              <p class="ns-hint">Namespaces whose Globals, Routines, or Temp Globals database is this one.</p>
+              <div id="databases-drawer-usage"></div>
+            </div>
+            <div class="ns-drawer__section">
+              <div class="ns-section__header">
+                <h4 class="ns-drawer__section-title">Storage Info</h4>
+                <button class="btn" type="button" id="databases-drawer-info-button">View Info</button>
+              </div>
+              <p class="ns-hint">Non-configurable storage facts read directly from IRIS (block size, allocated size, available space, host disk free space, mount/full/encrypted/mirrored status).</p>
+              <div class="loading-state" id="databases-drawer-info-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading storage info&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="databases-drawer-info-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="databases-drawer-info-error-text"></span>
+              </div>
+              <dl class="info-list" id="databases-drawer-info-fields" hidden></dl>
+            </div>
+            <div class="ns-drawer__section">
+              <div class="ns-section__header">
+                <h4 class="ns-drawer__section-title">Integrity Check</h4>
+                <div class="ns-drawer__title-group">
+                  <span class="status-badge status-badge--neutral" id="databases-drawer-integrity-state-badge" hidden></span>
+                  <button class="btn" type="button" id="databases-drawer-integrity-button">Run Integrity Check</button>
+                </div>
+              </div>
+              <p class="ns-hint">Runs IRIS's own integrity check against this database and reports exactly what it returns. Read-only — verifies existing data, changes nothing. May take a few seconds.</p>
+              <div class="loading-state" id="databases-drawer-integrity-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Running integrity check&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="databases-drawer-integrity-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="databases-drawer-integrity-error-text"></span>
+              </div>
+              <dl class="info-list" id="databases-drawer-integrity-fields" hidden></dl>
+              <p class="stat-card__label" id="databases-drawer-integrity-console-label" hidden>Console</p>
+              <pre class="integrity-console" id="databases-drawer-integrity-console" hidden></pre>
+            </div>
+            <div class="ns-drawer__section">
+              <div class="ns-section__header">
+                <h4 class="ns-drawer__section-title">Mount</h4>
+                <button class="btn" type="button" id="databases-drawer-mount-check-button">Check Mount</button>
+              </div>
+              <p class="ns-hint">Mounts this database if IRIS reports it dismounted, through the authorization &rarr; confirmation &rarr; execution &rarr; verification framework. Check Mount is a read-only preview; nothing is sent to IRIS until you explicitly confirm.</p>
+              <label class="ns-form-checkbox">
+                <input type="checkbox" id="databases-drawer-mount-read-only" />
+                Mount read-only
+              </label>
+              <div class="loading-state" id="databases-drawer-mount-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span id="databases-drawer-mount-loading-text">Checking mount state&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="databases-drawer-mount-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="databases-drawer-mount-error-text"></span>
+              </div>
+              <div id="databases-drawer-mount-confirm" hidden>
+                <div class="banner banner--warning" role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="databases-drawer-mount-preview-text"></span>
+                </div>
+                <label class="ns-form-checkbox">
+                  <input type="checkbox" id="databases-drawer-mount-ack-checkbox" />
+                  I understand this will mount the database on the IRIS instance.
+                </label>
+                <div class="btn-row">
+                  <button class="btn btn--warning" type="button" id="databases-drawer-mount-confirm-button" disabled>Confirm &amp; Mount</button>
+                </div>
+              </div>
+              <dl class="info-list" id="databases-drawer-mount-result" hidden></dl>
+            </div>
+          </aside>
+
+          <div class="ns-drawer-backdrop" id="database-create-backdrop" hidden></div>
+          <aside class="ns-drawer" id="database-create-drawer" hidden aria-labelledby="database-create-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="database-create-title">New Database</h3>
+                <span class="ns-wizard-step" id="database-create-step-label">Step 1 of 2 &middot; Configure</span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="database-create-close" aria-label="Close">&times;</button>
+            </div>
+
+            <!-- Step 1: Configure -->
+            <form id="database-create-form">
+              <p class="ns-hint">Creates a real database on the connected IRIS instance through the existing authorization &rarr; confirmation &rarr; execution &rarr; verification framework. Nothing is sent to IRIS until you review and explicitly confirm.</p>
+
+              <div class="filter-field">
+                <label for="database-create-directory">Directory</label>
+                <input type="text" id="database-create-directory" placeholder="/usr/irissys/mgr/mydb/" autocomplete="off" required />
+              </div>
+              <div class="filter-field">
+                <label for="database-create-resource-name">Resource Name <span class="ns-form-optional">(optional)</span></label>
+                <input type="text" id="database-create-resource-name" placeholder="%DB_MYDB" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="database-create-size">Size <span class="ns-form-optional">(optional)</span></label>
+                <input type="number" id="database-create-size" placeholder="0" min="0" step="1" autocomplete="off" />
+              </div>
+              <label class="ns-form-checkbox">
+                <input type="checkbox" id="database-create-global-journal-state" />
+                Enable global journal state
+              </label>
+              <label class="ns-form-checkbox">
+                <input type="checkbox" id="database-create-encrypted" />
+                Encryption
+              </label>
+
+              <div class="banner banner--error" id="database-create-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="database-create-error-text"></span>
+              </div>
+
+              <div class="btn-row" id="database-create-review-actions">
+                <button class="btn btn--primary" type="submit">Next: Review &rarr;</button>
+              </div>
+            </form>
+
+            <!-- Step 2: Review -->
+            <div id="database-create-review" hidden>
+              <div class="loading-state" id="database-create-preview-loading">
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Validating against IRIS&hellip;</span>
+              </div>
+
+              <div class="ns-wizard-panel" id="database-create-review-content" hidden>
+                <h4 class="ns-drawer__section-title">Create Database</h4>
+                <dl class="info-list" id="database-create-summary-list"></dl>
+
+                <div class="banner banner--error" id="database-create-preview-error" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="database-create-preview-error-text"></span>
+                </div>
+
+                <div class="banner banner--warning" id="database-create-warning" role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span>This action will modify the IRIS configuration.</span>
+                </div>
+
+                <label class="ns-form-checkbox">
+                  <input type="checkbox" id="database-create-ack-checkbox" />
+                  I understand this will modify the IRIS configuration.
+                </label>
+
+                <div class="btn-row">
+                  <button class="btn btn--warning" type="button" id="database-create-confirm-button" disabled>Confirm &amp; Create</button>
+                  <button class="btn" type="button" id="database-create-back-button">&larr; Back</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3: Executing -->
+            <div class="loading-state" id="database-create-executing-state" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Creating&hellip;</span>
+            </div>
+
+            <!-- Step 4: Result -->
+            <div class="ns-wizard-panel" id="database-create-result" hidden>
+              <h4 class="ns-drawer__section-title">Result</h4>
+              <dl class="info-list" id="database-create-result-list"></dl>
+              <div class="btn-row">
+                <button class="btn" type="button" id="database-create-retry-button" hidden>&larr; Edit and Retry</button>
+                <button class="btn btn--primary" type="button" id="database-create-done-button">Done</button>
+              </div>
+            </div>
+          </aside>
         </section>
 
         <section class="view" id="view-web-apps" data-view="web-apps" aria-labelledby="web-apps-title" hidden>
