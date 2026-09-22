@@ -359,6 +359,7 @@
         <section class="view" id="view-namespaces" data-view="namespaces" aria-labelledby="namespaces-title" hidden>
           <div class="view__header">
             <div>
+              <button class="back-link" type="button" id="namespaces-back-button">&larr; Dashboard</button>
               <h2 class="view__title" id="namespaces-title">Namespaces</h2>
               <p class="view__subtitle">Configured namespaces on the connected IRIS instance.</p>
             </div>
@@ -389,22 +390,156 @@
 
           <p class="empty-state" id="namespaces-empty" hidden>No namespaces reported.</p>
 
-          <div class="table-wrapper" id="namespaces-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Globals</th>
-                  <th scope="col">Routines</th>
-                  <th scope="col">Sys Globals</th>
-                  <th scope="col">Sys Routines</th>
-                  <th scope="col">Library</th>
-                  <th scope="col">Temp Globals</th>
-                </tr>
-              </thead>
-              <tbody id="namespaces-table-body"></tbody>
-            </table>
+          <div id="namespaces-content" hidden>
+            <div class="stat-grid" id="namespaces-summary-grid">
+              <article class="stat-card" data-summary="count">
+                <h3 class="stat-card__label">Namespaces</h3>
+                <p class="stat-card__value" id="namespaces-summary-count">&mdash;</p>
+              </article>
+              <article class="stat-card" data-summary="globals-dbs">
+                <h3 class="stat-card__label">Globals Databases</h3>
+                <p class="stat-card__value" id="namespaces-summary-globals">&mdash;</p>
+              </article>
+              <article class="stat-card" data-summary="routines-dbs">
+                <h3 class="stat-card__label">Routines Databases</h3>
+                <p class="stat-card__value" id="namespaces-summary-routines">&mdash;</p>
+              </article>
+            </div>
+
+            <div class="ns-section">
+              <div class="ns-section__header">
+                <h3 class="section-heading section-heading--secondary">Namespaces</h3>
+                <button class="btn btn--primary" type="button" id="namespaces-create-button">
+                  <span class="btn__icon" aria-hidden="true">+</span>
+                  New Namespace
+                </button>
+              </div>
+              <div class="ns-card-grid" id="namespaces-card-grid"></div>
+            </div>
+
+            <div class="ns-section">
+              <h3 class="section-heading section-heading--secondary">Database Topology</h3>
+              <p class="ns-hint">Each namespace&rsquo;s configured Globals, Routines, and Temp Globals database &mdash; matching colors mark a shared database.</p>
+              <div class="ns-topology" id="namespaces-topology"></div>
+            </div>
           </div>
+
+          <div class="ns-drawer-backdrop" id="namespaces-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer" id="namespaces-drawer" hidden aria-labelledby="namespaces-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="namespaces-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="namespaces-drawer-badge" hidden>System</span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="namespaces-drawer-close" aria-label="Close namespace details">&times;</button>
+            </div>
+            <dl class="info-list" id="namespaces-drawer-fields"></dl>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Database Relationships</h4>
+              <div id="namespaces-drawer-topology"></div>
+            </div>
+          </aside>
+
+          <div class="ns-drawer-backdrop" id="namespace-create-backdrop" hidden></div>
+          <aside class="ns-drawer" id="namespace-create-drawer" hidden aria-labelledby="namespace-create-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="namespace-create-title">New Namespace</h3>
+                <span class="ns-wizard-step" id="namespace-create-step-label">Step 1 of 2 &middot; Configure</span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="namespace-create-close" aria-label="Close">&times;</button>
+            </div>
+
+            <!-- Step 1: Configure -->
+            <form id="namespace-create-form">
+              <p class="ns-hint">Creates a real namespace on the connected IRIS instance through the existing authorization &rarr; confirmation &rarr; execution &rarr; verification framework. Nothing is sent to IRIS until you review and explicitly confirm.</p>
+
+              <div class="filter-field">
+                <label for="namespace-create-name">Name</label>
+                <input type="text" id="namespace-create-name" placeholder="MYAPP" autocomplete="off" required />
+              </div>
+              <div class="filter-field">
+                <label for="namespace-create-globals">Globals Database</label>
+                <select id="namespace-create-globals" required>
+                  <option value="" selected disabled>Loading databases&hellip;</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="namespace-create-routines">Routines Database</label>
+                <select id="namespace-create-routines" required>
+                  <option value="" selected disabled>Loading databases&hellip;</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="namespace-create-temp-globals">Temp Globals Database <span class="ns-form-optional">(optional)</span></label>
+                <select id="namespace-create-temp-globals">
+                  <option value="">Loading databases&hellip;</option>
+                </select>
+              </div>
+              <label class="ns-form-checkbox">
+                <input type="checkbox" id="namespace-create-interop" />
+                Enable interoperability after creation
+              </label>
+
+              <div class="banner banner--error" id="namespace-create-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="namespace-create-error-text"></span>
+              </div>
+
+              <div class="btn-row" id="namespace-create-review-actions">
+                <button class="btn btn--primary" type="submit">Next: Review &rarr;</button>
+              </div>
+            </form>
+
+            <!-- Step 2: Review -->
+            <div id="namespace-create-review" hidden>
+              <div class="loading-state" id="namespace-create-preview-loading">
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Validating against IRIS&hellip;</span>
+              </div>
+
+              <div class="ns-wizard-panel" id="namespace-create-review-content" hidden>
+                <h4 class="ns-drawer__section-title">Create Namespace</h4>
+                <dl class="info-list" id="namespace-create-summary-list"></dl>
+
+                <div class="banner banner--error" id="namespace-create-preview-error" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="namespace-create-preview-error-text"></span>
+                </div>
+
+                <div class="banner banner--warning" id="namespace-create-warning" role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span>This action will modify the IRIS configuration.</span>
+                </div>
+
+                <label class="ns-form-checkbox">
+                  <input type="checkbox" id="namespace-create-ack-checkbox" />
+                  I understand this will modify the IRIS configuration.
+                </label>
+
+                <div class="btn-row">
+                  <button class="btn btn--warning" type="button" id="namespace-create-confirm-button" disabled>Confirm &amp; Create</button>
+                  <button class="btn" type="button" id="namespace-create-back-button">&larr; Back</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3: Executing -->
+            <div class="loading-state" id="namespace-create-executing-state" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Creating&hellip;</span>
+            </div>
+
+            <!-- Step 4: Result -->
+            <div class="ns-wizard-panel" id="namespace-create-result" hidden>
+              <h4 class="ns-drawer__section-title">Result</h4>
+              <dl class="info-list" id="namespace-create-result-list"></dl>
+              <div class="btn-row">
+                <button class="btn" type="button" id="namespace-create-retry-button" hidden>&larr; Edit and Retry</button>
+                <button class="btn btn--primary" type="button" id="namespace-create-done-button">Done</button>
+              </div>
+            </div>
+          </aside>
         </section>
 
         <section class="view" id="view-processes" data-view="processes" aria-labelledby="processes-title" hidden>

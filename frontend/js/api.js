@@ -103,6 +103,48 @@ async function postJournalPurgeArchived(purgeArchived, confirmed) {
   return response.json();
 }
 
+/**
+ * POST /api/iris/namespaces — this project's second mutating request,
+ * alongside postJournalPurgeArchived above (namespace.create, backend/app/
+ * routes/namespaces.py). Same discipline: forwards exactly what the
+ * caller decided (the five request fields plus an explicit, user-driven
+ * `confirmed` flag) to the existing, already-tested route, which alone
+ * decides whether anything is authorized to happen. No "force"/"bypass"
+ * field here either.
+ *
+ * `dryRun` forwards the route's own `dry_run` field (already supported by
+ * NamespaceCreateOperationRequest/NamespaceCreateHandler.dry_run() — never
+ * calls put()/post_async_task(), so it can never mutate IRIS) — used by
+ * the "New Namespace" wizard's Review step to get a real, server-
+ * validated preview before the operator's explicit confirmation triggers
+ * an actual (dryRun=false) execution.
+ */
+async function postNamespaceCreate(fields, confirmed, dryRun = false) {
+  const path = "/api/iris/namespaces";
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...fields, confirmed, dry_run: dryRun }),
+    });
+  } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+
+  if (!response.ok) {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+
+  setHeaderConnectionStatus("connected", "Connected to backend");
+  return response.json();
+}
+
 export const IrisApi = {
   getInfo: () => fetchIris("/api/iris/info"),
   getNamespaces: () => fetchIris("/api/iris/namespaces"),
@@ -147,6 +189,12 @@ export const IrisApi = {
   // POST /api/iris/journal/purge-archived has always returned.
   executeJournalPurgeArchived: (purgeArchived, confirmed) =>
     postJournalPurgeArchived(purgeArchived, confirmed),
+  // The response is a plain OperationResult, the same structured shape as
+  // executeJournalPurgeArchived above — POST /api/iris/namespaces
+  // (backend/app/routes/namespaces.py) has always returned it. Pass
+  // dryRun=true for a real, non-mutating server-validated preview.
+  createNamespace: (fields, confirmed, dryRun = false) =>
+    postNamespaceCreate(fields, confirmed, dryRun),
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),

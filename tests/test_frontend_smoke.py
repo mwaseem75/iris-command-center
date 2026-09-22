@@ -223,15 +223,34 @@ def test_namespaces_nav_and_view_exist_and_are_enabled() -> None:
     )
     check(view_match is not None, 'a <section id="view-namespaces" data-view="namespaces"> exists')
 
-    check('id="namespaces-table-body"' in html, "the namespaces table body element exists")
+    # Namespace Explorer redesign: the wide table was replaced by a card
+    # grid, a database-sharing topology section, and a detail drawer.
+    check('id="namespaces-card-grid"' in html, "the namespaces card grid element exists")
+    check('id="namespaces-topology"' in html, "the namespaces topology element exists")
+    check('id="namespaces-drawer"' in html, "the namespaces detail drawer element exists")
 
 
-def test_namespaces_view_uses_only_get_namespaces() -> None:
-    print("Checking namespaces.js calls GET /api/iris/namespaces and nothing else...")
+def test_namespaces_view_uses_only_get_and_create_namespace() -> None:
+    print("Checking namespaces.js calls only IrisApi.getNamespaces()/getDatabases()/createNamespace()...")
     namespaces_js = (FRONTEND_DIR / "js" / "namespaces.js").read_text(encoding="utf-8")
 
     check("IrisApi.getNamespaces" in namespaces_js, "namespaces.js calls IrisApi.getNamespaces()")
-    other_methods = ["getInfo", "getProcesses", "getDatabases", "getWebApps", "getTasks"]
+    # The "New Namespace" wizard's Configure step populates its database
+    # selectors from the existing, already-tested read-only databases API
+    # — never a hardcoded list of names.
+    check(
+        "IrisApi.getDatabases" in namespaces_js,
+        "namespaces.js calls IrisApi.getDatabases() to populate the wizard's database selectors",
+    )
+    # namespace.create (the "New Namespace" wizard) is this view's one
+    # sanctioned mutating capability — it must go through the IrisApi
+    # wrapper, never a raw fetch() (checked in
+    # test_no_mutating_http_method_anywhere_in_frontend_js below).
+    check(
+        "IrisApi.createNamespace" in namespaces_js,
+        "namespaces.js calls IrisApi.createNamespace() for its 'New Namespace' wizard",
+    )
+    other_methods = ["getInfo", "getProcesses", "getWebApps", "getTasks"]
     for method in other_methods:
         check(method not in namespaces_js, f"namespaces.js does NOT call IrisApi.{method}()")
 
@@ -239,11 +258,15 @@ def test_namespaces_view_uses_only_get_namespaces() -> None:
     check(
         referenced_paths in ({"/api/iris/namespaces"}, set()),
         f"namespaces.js references only /api/iris/namespaces as a literal path "
-        f"(found: {referenced_paths or 'none, uses IrisApi.getNamespaces()'})",
+        f"(found: {referenced_paths or 'none, uses the IrisApi wrapper only'})",
     )
     check(
-        "namespaces-table-body" in namespaces_js,
-        "namespaces.js renders into the namespaces table body element",
+        "namespaces-card-grid" in namespaces_js,
+        "namespaces.js renders into the namespaces card grid element",
+    )
+    check(
+        "namespace-create-drawer" in namespaces_js,
+        "namespaces.js renders into the 'New Namespace' wizard drawer element",
     )
 
 
@@ -1047,17 +1070,18 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except one sanctioned, scoped exception...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except two sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The ONLY sanctioned mutating call in the entire frontend:
-    # api.js's postJournalPurgeArchived, which forwards to the existing,
-    # already-tested POST /api/iris/journal/purge-archived route (see
-    # backend/app/routes/journal.py) — asserted below to be scoped to
-    # exactly that path, never a different/new one. PUT and PATCH remain
-    # forbidden everywhere, including in api.js — this project has no PUT
-    # or PATCH route at all, mutating or otherwise.
+    # The two sanctioned mutating calls in the entire frontend, both in
+    # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
+    # archived, backend/app/routes/journal.py) and postNamespaceCreate
+    # (POST /api/iris/namespaces, backend/app/routes/namespaces.py) —
+    # asserted below to be scoped to exactly those paths, never a
+    # different/new one. PUT and PATCH remain forbidden everywhere,
+    # including in api.js — this project has no PUT or PATCH route at
+    # all, mutating or otherwise.
     allowed_post_file = "api.js"
 
     for js_file in sorted(js_dir.glob("*.js")):
@@ -1070,8 +1094,8 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
             if method == "POST" and js_file.name == allowed_post_file:
                 check(
                     found,
-                    f"{js_file.relative_to(REPO_ROOT)} contains the one sanctioned POST "
-                    "(to the existing journal/purge-archived route)",
+                    f"{js_file.relative_to(REPO_ROOT)} contains the sanctioned POST(s) "
+                    "(to the existing journal/purge-archived and namespaces routes)",
                 )
                 continue
             check(
@@ -1079,12 +1103,16 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
                 f"{js_file.relative_to(REPO_ROOT)} does not reference HTTP method {method!r}",
             )
 
-    # The sanctioned POST must be tied to exactly the existing,
+    # Each sanctioned POST must be tied to exactly its existing,
     # already-tested mutating route — never a different/new one.
     api_js = (js_dir / "api.js").read_text(encoding="utf-8")
     check(
         '"/api/iris/journal/purge-archived"' in api_js,
-        "api.js's sanctioned POST is scoped to the existing /api/iris/journal/purge-archived route",
+        "api.js's first sanctioned POST is scoped to the existing /api/iris/journal/purge-archived route",
+    )
+    check(
+        "postNamespaceCreate" in api_js and "createNamespace:" in api_js,
+        "api.js's second sanctioned POST (postNamespaceCreate) is exposed as IrisApi.createNamespace()",
     )
 
     # operations.js (where the execute UI lives) must call the api.js
@@ -1100,6 +1128,19 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         "operations.js calls IrisApi.executeJournalPurgeArchived()",
     )
 
+    # namespaces.js (where the "New Namespace" wizard lives) must likewise
+    # call the api.js wrapper only, never a raw fetch() or its own
+    # authorization/confirmation logic.
+    namespaces_js = (js_dir / "namespaces.js").read_text(encoding="utf-8")
+    check(
+        "fetch(" not in namespaces_js,
+        "namespaces.js makes no raw fetch() call (goes through IrisApi)",
+    )
+    check(
+        "IrisApi.createNamespace" in namespaces_js,
+        "namespaces.js calls IrisApi.createNamespace()",
+    )
+
 
 def main() -> None:
     tests = [
@@ -1109,7 +1150,7 @@ def main() -> None:
         test_system_nav_and_view_exist_and_are_enabled,
         test_system_view_uses_only_get_info,
         test_namespaces_nav_and_view_exist_and_are_enabled,
-        test_namespaces_view_uses_only_get_namespaces,
+        test_namespaces_view_uses_only_get_and_create_namespace,
         test_processes_nav_and_view_exist_and_are_enabled,
         test_processes_view_uses_only_get_processes,
         test_databases_nav_and_view_exist_and_are_enabled,

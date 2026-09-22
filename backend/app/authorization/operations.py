@@ -158,6 +158,21 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.LOW,
         confirmation_required=True,
     ),
+    "namespace.create": OperationDefinition(
+        name="namespace.create",
+        description=(
+            "Create a new IRIS namespace (PUT /api/admin/v2/namespace, plus an optional "
+            "POST /api/admin/v2/namespace/enable-interop follow-up when the request's "
+            "Interop flag is set) — this project's first Namespace mutation. See "
+            "app/execution/namespace_create_handler.py for the full validation and "
+            "execution flow (existing-namespace rejection, referenced-database "
+            "validation, %-prefixed system-namespace rejection)."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
 }
 
 

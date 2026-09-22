@@ -574,6 +574,12 @@ input:focus-visible {
   color: #f0a583;
 }
 
+.banner--warning {
+  background: var(--color-warning-soft);
+  border: 1px solid rgba(224, 163, 62, 0.35);
+  color: var(--color-warning);
+}
+
 .banner__icon {
   font-size: 15px;
   flex-shrink: 0;
@@ -1559,6 +1565,340 @@ input:focus-visible {
 .filter-form__actions {
   display: flex;
   align-items: flex-end;
+}
+
+/* --- Namespace Explorer (Namespaces view): card grid, database-sharing
+   topology, and a detail drawer — replaces the former wide table. Reuses
+   this file's existing tokens/patterns throughout (.stat-grid/.stat-card
+   for the summary row, .quicklink-card's padding/shadow rhythm for the
+   namespace cards, .stat-card__link for the "View details" affordance,
+   .info-list for the drawer's field list) rather than inventing a
+   parallel design language. --- */
+
+.ns-section {
+  margin-top: 20px;
+}
+
+.ns-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ns-section__header .section-heading {
+  margin-bottom: 0;
+}
+
+.ns-hint {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.ns-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.namespace-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-base), background-color var(--transition-base);
+}
+
+.namespace-card:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-hover);
+}
+
+.namespace-card:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.namespace-card:hover .stat-card__link,
+.namespace-card:focus-visible .stat-card__link {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+.namespace-card__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.namespace-card__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.namespace-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Database Explorer cards only: the real filesystem Directory path, in
+   the same compact single-line-with-tooltip style as a .db-chip's label,
+   just full-width instead of a pill (a path is often longer than a
+   database/namespace name). */
+.db-card__directory {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A small colored pill naming one real database, used identically on
+   namespace cards and in the topology section below — the SAME database
+   name always gets the SAME color (see namespaces.js's buildDbColorMap()),
+   so a shared database is visually obvious just from matching chip colors
+   without needing an explicit connecting line between every occurrence. */
+.db-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.db-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* --- Database Topology: one compact row per namespace, chip-chained in
+   the fixed order Namespace -> Globals -> Routines -> Temp Globals. This
+   is a reading-order layout, not a claim that one database "flows into"
+   the next — the three database fields are independent per-namespace
+   configuration values; the arrows exist to keep four related facts
+   scannable in one row, not to assert a pipeline between them. --- */
+
+.ns-topology {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topology-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.topology-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 14px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+}
+
+.topology-row__name {
+  flex: none;
+  min-width: 68px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.topology-arrow {
+  flex: none;
+  color: var(--color-text-faint);
+  font-size: 13px;
+}
+
+/* --- Namespace detail drawer --- */
+
+.ns-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 10, 0.55);
+  z-index: 49;
+}
+
+.ns-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 92vw);
+  background: var(--color-surface-raised);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  padding: 22px;
+  overflow-y: auto;
+}
+
+.ns-drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.ns-drawer__title-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ns-drawer__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+}
+
+/* The "New Namespace" wizard's Step 1/2 indicator — same small-caps
+   muted-text language as .ns-drawer__section-title, just inline next to
+   the drawer title instead of above a section. */
+.ns-wizard-step {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+}
+
+/* Step 2 (Review) and the final result panel share the same stacked,
+   gapped layout as .ns-drawer form above, just for a plain <div> instead
+   of a <form>. */
+.ns-wizard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ns-drawer__close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--transition-base), color var(--transition-base);
+}
+
+.ns-drawer__close:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ns-drawer__close:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* The drawer's "Database Relationships" mini-topology — reuses
+   .topology-header/.topology-row/.db-chip verbatim (see the Namespace
+   Explorer section above), just scoped to the one namespace the drawer
+   is open for, with a small section heading above it. */
+.ns-drawer__section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.ns-drawer__section-title {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+/* The "New Namespace" form inside .ns-drawer — reuses .filter-field
+   verbatim for each labeled text input (same look as the Investigation/
+   API Explorer filter fields) rather than a new input style; only the
+   stacked (not grid) layout and the checkbox row below are new. */
+.ns-drawer form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ns-form-optional {
+  font-weight: 400;
+  color: var(--color-text-faint);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ns-form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.ns-form-checkbox input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
 }
 
 /* --- Responsive --- */
