@@ -993,7 +993,83 @@
                 <tbody id="web-apps-table-body"></tbody>
               </table>
             </div>
+
+            <div class="ns-section" id="web-sessions-section">
+              <div class="ns-section__header">
+                <h3 class="section-heading section-heading--secondary">Web Sessions</h3>
+              </div>
+              <p class="ns-hint">Active web sessions as IRIS reports them. Read-only &mdash; session IDs are withheld by the Command Center backend and never sent to the browser.</p>
+              <div class="loading-state" id="web-sessions-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading web sessions&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="web-sessions-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="web-sessions-error-text"></span>
+              </div>
+              <p class="empty-state" id="web-sessions-empty" hidden>IRIS reports no active web sessions.</p>
+              <div id="web-sessions-content" hidden>
+                <div class="stat-grid stat-grid--compact" id="web-sessions-summary-grid" aria-label="Web session counts"></div>
+                <form class="filter-form filter-form--toolbar" id="web-sessions-filter-form" role="search" aria-label="Filter web sessions">
+                  <div class="filter-field filter-field--wide">
+                    <label for="web-sessions-filter-search">Search</label>
+                    <input type="search" id="web-sessions-filter-search" placeholder="User, application, license ID&hellip;" autocomplete="off" />
+                  </div>
+                  <div class="filter-field">
+                    <label for="web-sessions-filter-app">Application</label>
+                    <select id="web-sessions-filter-app">
+                      <option value="">All applications</option>
+                    </select>
+                  </div>
+                  <div class="filter-field">
+                    <label for="web-sessions-filter-user">Username</label>
+                    <select id="web-sessions-filter-user">
+                      <option value="">All users</option>
+                    </select>
+                  </div>
+                  <div class="filter-field filter-form__actions">
+                    <button class="btn" type="button" id="web-sessions-filter-clear-button">Clear</button>
+                  </div>
+                </form>
+                <p class="info-panel__meta filter-count" id="web-sessions-filter-count" aria-live="polite"></p>
+                <p class="empty-state" id="web-sessions-filter-empty" hidden>No web sessions match the current filters.</p>
+                <div class="table-wrapper" id="web-sessions-table-wrapper">
+                  <table class="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th scope="col">Username</th>
+                        <th scope="col">Application</th>
+                        <th scope="col">Web App</th>
+                        <th scope="col">Timeout</th>
+                        <th scope="col">License ID</th>
+                        <th scope="col">Process ID</th>
+                        <th scope="col">Preserve</th>
+                      </tr>
+                    </thead>
+                    <tbody id="web-sessions-table-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
+
+          <div class="ns-drawer-backdrop" id="web-sessions-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="web-sessions-drawer" hidden aria-labelledby="web-sessions-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="web-sessions-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="web-sessions-drawer-app-badge"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="web-sessions-drawer-close" aria-label="Close web session details">&times;</button>
+            </div>
+            <p class="ns-hint">Every field IRIS reports for this session except its session ID, which the Command Center backend withholds. Read-only &mdash; no session actions are available here.</p>
+            <dl class="info-list" id="web-sessions-drawer-fields"></dl>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Web Application</h4>
+              <dl class="info-list" id="web-sessions-drawer-app"></dl>
+              <button class="btn" type="button" id="web-sessions-drawer-open-app" hidden>View web app details</button>
+            </div>
+          </aside>
 
           <div class="ns-drawer-backdrop" id="web-apps-drawer-backdrop" hidden></div>
           <aside class="ns-drawer ns-drawer--wide" id="web-apps-drawer" hidden aria-labelledby="web-apps-drawer-title">

@@ -279,6 +279,29 @@ class WebAppDetail(BaseModel):
     WSGIType: str
 
 
+# --- GET /v2/web-sessions — "View a list of web sessions" per
+#     mainspec_v2.json (field types only; the spec gives no descriptions).
+#     Observed live on icc-iris-dev with the same types: Timeout is a
+#     "YYYY-MM-DD HH:MM:SS" timestamp string, SesProcessId a string (""
+#     when no process is currently serving the session), and LicenseId
+#     "<username>@<client address>".
+#
+#     The IRIS `ID` field is deliberately NOT modelled: it is the CSP
+#     session identifier — the value DELETE /v2/web-session?id= takes to
+#     end a session — so it must never leave this backend. Pydantic drops
+#     unmodelled fields during validation, so `ID` can't reach a response.
+
+
+class WebSessionEntry(BaseModel):
+    Username: str
+    Preserve: int
+    Application: str
+    Timeout: str
+    LicenseId: str
+    SesProcessId: str
+    AllowEndSession: bool
+
+
 # --- GET /api/mgmnt/v1/{namespace}/spec{webApplication} — IRIS's API
 #     Management API (not part of mainspec_v2.json) generates a Swagger 2.0
 #     document from a REST web app's dispatch-class route map. Observed

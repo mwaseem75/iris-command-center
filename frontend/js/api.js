@@ -244,6 +244,10 @@ export const IrisApi = {
   // this app (not a REST app, or IRIS could not generate one).
   getWebAppRestEndpoints: (name) =>
     fetchIris(`/api/iris/web-apps/rest-endpoints?name=${encodeURIComponent(name)}`),
+  // Read-only — active web sessions (GET /v2/web-sessions). The backend
+  // strips each session's IRIS ID before responding, so it never reaches
+  // the browser (see backend/app/routes/iris.py's get_web_sessions).
+  getWebSessions: () => fetchIris("/api/iris/web-sessions"),
   getTasks: () => fetchIris("/api/iris/tasks"),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>

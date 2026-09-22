@@ -34,8 +34,9 @@ for the Security view:
     nav item is enabled (not `disabled`).
 11. (Step 5) web-apps.js calls only GET /api/iris/web-apps and the
     read-only GET /api/iris/web-apps/detail (detail drawer) and
-    GET /api/iris/web-apps/rest-endpoints (REST Endpoints tab), and
-    renders into the web apps table body.
+    GET /api/iris/web-apps/rest-endpoints (REST Endpoints tab) and
+    GET /api/iris/web-sessions (Web Sessions section, never a session ID),
+    and renders into the web apps table body.
 12. (Step 6) The Tasks nav item and view exist in the markup and the nav
     item is enabled (not `disabled`).
 13. (Step 6) tasks.js calls GET /api/iris/tasks and no other endpoint, and
@@ -470,6 +471,9 @@ def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
     check('id="web-apps-tab-rest"' in html, "the web apps drawer has a REST Endpoints tab")
     check('id="web-apps-rest-search"' in html, "the REST endpoints search input exists")
     check('id="web-apps-rest-detail-view"' in html, "the REST endpoint detail view exists")
+    check('id="web-sessions-section"' in html, "the Web Sessions section exists")
+    check('id="web-sessions-filter-search"' in html, "the web sessions search input exists")
+    check('id="web-sessions-drawer"' in html, "the web session detail drawer exists")
 
 
 def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
@@ -485,6 +489,18 @@ def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
         "IrisApi.getWebAppRestEndpoints" in web_apps_js,
         "web-apps.js calls IrisApi.getWebAppRestEndpoints() for the REST Endpoints tab",
     )
+    check(
+        "IrisApi.getWebSessions" in web_apps_js,
+        "web-apps.js calls IrisApi.getWebSessions() for the Web Sessions section",
+    )
+    # IRIS's web-session ID (what DELETE /v2/web-session?id= takes) is
+    # stripped by the backend; the frontend must never try to read one.
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for name, source in (("web-apps.js", web_apps_js), ("api.js", api_js)):
+        check(
+            re.search(r"\.ID\b|[\"']ID[\"']", source) is None,
+            f"{name} never references a session ID field",
+        )
     other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getTasks"]
     for method in other_methods:
         check(method not in web_apps_js, f"web-apps.js does NOT call IrisApi.{method}()")

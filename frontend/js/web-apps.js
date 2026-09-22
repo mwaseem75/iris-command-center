@@ -1,13 +1,17 @@
 // Web Apps view: a read-only Web Apps Explorer — KPI cards, the Enabled/
 // Disabled strip, a client-side search/filter toolbar, a compact table,
 // and a detail drawer with Configuration and (REST apps only) REST
-// Endpoints tabs. It calls exactly three read-only endpoints:
+// Endpoints tabs, plus a read-only Web Sessions section. It calls exactly
+// four read-only endpoints:
 //   - GET /api/iris/web-apps (the list; IrisApi.getWebApps()),
 //   - GET /api/iris/web-apps/detail?name= (one app's full configuration,
-//     fetched only when its drawer opens; IrisApi.getWebAppDetail()), and
+//     fetched only when its drawer opens; IrisApi.getWebAppDetail()),
 //   - GET /api/iris/web-apps/rest-endpoints?name= (a REST app's route map,
 //     fetched only when its REST Endpoints tab is first opened;
-//     IrisApi.getWebAppRestEndpoints()).
+//     IrisApi.getWebAppRestEndpoints()), and
+//   - GET /api/iris/web-sessions (active sessions, fetched alongside the
+//     list; IrisApi.getWebSessions()). The backend strips every session's
+//     IRIS ID before responding, and this module never reads or shows one.
 // No mutating HTTP method is used anywhere in this module, and there are
 // deliberately no web-app actions (enable/disable/edit/delete).
 //
@@ -91,6 +95,29 @@ const dom = {
   restDetailParams: document.getElementById("web-apps-rest-detail-params"),
   restDetailDescriptionSection: document.getElementById("web-apps-rest-detail-description-section"),
   restDetailDescription: document.getElementById("web-apps-rest-detail-description"),
+  sessionsLoading: document.getElementById("web-sessions-loading"),
+  sessionsError: document.getElementById("web-sessions-error"),
+  sessionsErrorText: document.getElementById("web-sessions-error-text"),
+  sessionsEmpty: document.getElementById("web-sessions-empty"),
+  sessionsContent: document.getElementById("web-sessions-content"),
+  sessionsSummaryGrid: document.getElementById("web-sessions-summary-grid"),
+  sessionsFilterForm: document.getElementById("web-sessions-filter-form"),
+  sessionsFilterSearch: document.getElementById("web-sessions-filter-search"),
+  sessionsFilterApp: document.getElementById("web-sessions-filter-app"),
+  sessionsFilterUser: document.getElementById("web-sessions-filter-user"),
+  sessionsFilterClear: document.getElementById("web-sessions-filter-clear-button"),
+  sessionsFilterCount: document.getElementById("web-sessions-filter-count"),
+  sessionsFilterEmpty: document.getElementById("web-sessions-filter-empty"),
+  sessionsTableWrapper: document.getElementById("web-sessions-table-wrapper"),
+  sessionsTableBody: document.getElementById("web-sessions-table-body"),
+  sessionDrawerBackdrop: document.getElementById("web-sessions-drawer-backdrop"),
+  sessionDrawer: document.getElementById("web-sessions-drawer"),
+  sessionDrawerTitle: document.getElementById("web-sessions-drawer-title"),
+  sessionDrawerAppBadge: document.getElementById("web-sessions-drawer-app-badge"),
+  sessionDrawerFields: document.getElementById("web-sessions-drawer-fields"),
+  sessionDrawerApp: document.getElementById("web-sessions-drawer-app"),
+  sessionDrawerOpenApp: document.getElementById("web-sessions-drawer-open-app"),
+  sessionDrawerClose: document.getElementById("web-sessions-drawer-close"),
 };
 
 // [label, WebAppEntry field, value kind] — the list-endpoint facts shown at
@@ -235,6 +262,26 @@ let restCache = new Map();
 let restRequestSeq = 0;
 let currentRouteMap = null;
 let currentEndpointIndex = null;
+
+// Web Sessions state. `allSessions` is null when the last sessions fetch
+// failed (a distinct "unknown" state from a real empty list). Sessions are
+// identified in the UI only by their position in the last fetched list —
+// never by IRIS's session ID, which the backend withholds.
+let allSessions = null;
+let sessionsLoadSeq = 0;
+let currentSessionIndex = null;
+
+// [label, WebSessionEntry field, value kind] — every field the backend
+// returns for a session (all of GET /v2/web-sessions except ID).
+const SESSION_FIELDS = [
+  ["Username", "Username", "text"],
+  ["Application", "Application", "mono"],
+  ["Timeout", "Timeout", "mono"],
+  ["License ID", "LicenseId", "mono"],
+  ["Process ID", "SesProcessId", "mono"],
+  ["Preserve", "Preserve", "mono"],
+  ["Allow End Session", "AllowEndSession", "bool"],
+];
 
 function kindOf(app) {
   return typeof app.DispatchClass === "string" && app.DispatchClass !== "" ? "REST" : "CSP";
@@ -522,9 +569,16 @@ function renderDrawerSummary(app) {
   dom.drawerStatusBadge.className = `status-badge ${statusVariant}`;
   dom.drawerStatusBadge.textContent = statusText;
 
+  const sessions = sessionsForApp(app);
   dom.drawerSummary.replaceChildren(
     ...SUMMARY_FIELDS.map(([label, field, kindOfValue]) =>
       makeInfoRow(label, null, formatValue(app[field], kindOfValue), kindOfValue),
+    ),
+    makeInfoRow(
+      "Active Sessions",
+      null,
+      sessions === null ? "Unavailable" : String(sessions.length),
+      "text",
     ),
   );
 }
@@ -892,6 +946,213 @@ function renderWebApps(webApps) {
   }
 }
 
+// --- Web Sessions (read-only) ---
+
+/** IRIS reports a session's Application with a trailing slash (observed
+ * live: "/csp/sys/") while GET /v2/web-apps names have none ("/csp/sys"),
+ * so both sides are compared without it. */
+function normalizeAppName(name) {
+  if (typeof name !== "string") return "";
+  return name.length > 1 ? name.replace(/\/+$/, "") : name;
+}
+
+/** The configured web app a session belongs to, or null when no app in
+ * the last fetched list has that name. */
+function webAppForSession(session) {
+  const target = normalizeAppName(session.Application);
+  if (!target) return null;
+  return allWebApps.find((app) => normalizeAppName(app.Name) === target) || null;
+}
+
+function sessionsForApp(app) {
+  if (!Array.isArray(allSessions)) return null;
+  const target = normalizeAppName(app.Name);
+  return allSessions.filter((session) => normalizeAppName(session.Application) === target);
+}
+
+/** Fetches GET /api/iris/web-sessions. Never throws — returns either
+ * { sessions } or { error } so a sessions failure never breaks the app list. */
+async function fetchWebSessions() {
+  try {
+    const response = await IrisApi.getWebSessions();
+    if (response && Array.isArray(response.result)) return { sessions: response.result };
+    return { error: "IRIS did not return the expected web session information." };
+  } catch (err) {
+    return {
+      error:
+        err instanceof ApiError
+          ? "Could not load web sessions."
+          : "An unexpected error occurred while loading web sessions.",
+    };
+  }
+}
+
+function renderSessionsResult(result) {
+  dom.sessionsLoading.hidden = true;
+  if (result.error) {
+    allSessions = null;
+    dom.sessionsErrorText.textContent = result.error;
+    dom.sessionsError.hidden = false;
+    dom.sessionsContent.hidden = true;
+    dom.sessionsEmpty.hidden = true;
+    closeSessionDrawer();
+  } else {
+    allSessions = result.sessions;
+    dom.sessionsError.hidden = true;
+    dom.sessionsEmpty.hidden = allSessions.length !== 0;
+    dom.sessionsContent.hidden = allSessions.length === 0;
+    if (allSessions.length > 0) {
+      renderSessionsSummary();
+      populateSessionFilters();
+      renderSessionsTable();
+    }
+    // A position-identified session can't be matched across a refresh, so
+    // an open session drawer is closed rather than showing another session.
+    closeSessionDrawer();
+  }
+  // The open app drawer's "Active Sessions" count depends on this list.
+  if (currentDrawerName !== null) {
+    const app = allWebApps.find((entry) => entry.Name === currentDrawerName);
+    if (app) renderDrawerSummary(app);
+  }
+}
+
+function makeStatCard(label, value, accent) {
+  const card = document.createElement("article");
+  card.className = "stat-card";
+  card.style.setProperty("--stat-card-accent", accent);
+  const labelEl = document.createElement("h3");
+  labelEl.className = "stat-card__label";
+  labelEl.textContent = label;
+  const valueEl = document.createElement("p");
+  valueEl.className = "stat-card__value";
+  valueEl.textContent = String(value);
+  card.append(labelEl, valueEl);
+  return card;
+}
+
+/** Aggregate counts, each computed from the fetched list — nothing invented. */
+function renderSessionsSummary() {
+  const distinct = (field) => new Set(allSessions.map((s) => s[field])).size;
+  dom.sessionsSummaryGrid.replaceChildren(
+    makeStatCard("Sessions", allSessions.length, "var(--color-accent)"),
+    makeStatCard("Users", distinct("Username"), "var(--color-chart-2)"),
+    makeStatCard("Applications", distinct("Application"), "var(--color-chart-6)"),
+    makeStatCard(
+      "Preserved",
+      allSessions.filter((s) => typeof s.Preserve === "number" && s.Preserve !== 0).length,
+      "var(--color-chart-4)",
+    ),
+  );
+}
+
+function populateSessionFilters() {
+  const values = (field) =>
+    [...new Set(allSessions.map((s) => s[field]).filter((v) => typeof v === "string" && v !== ""))].sort();
+  populateSelect(dom.sessionsFilterApp, "All applications", values("Application"));
+  populateSelect(dom.sessionsFilterUser, "All users", values("Username"));
+}
+
+// Fields the free-text session search matches — never an ID (none exists here).
+const SESSION_SEARCH_FIELDS = ["Username", "Application", "LicenseId", "SesProcessId", "Timeout"];
+
+function renderSessionsTable() {
+  if (!Array.isArray(allSessions)) return;
+  const query = dom.sessionsFilterSearch.value.trim().toLowerCase();
+  const appFilter = dom.sessionsFilterApp.value;
+  const userFilter = dom.sessionsFilterUser.value;
+
+  dom.sessionsTableBody.replaceChildren();
+  let shown = 0;
+  allSessions.forEach((session, index) => {
+    if (appFilter && session.Application !== appFilter) return;
+    if (userFilter && session.Username !== userFilter) return;
+    if (
+      query &&
+      !SESSION_SEARCH_FIELDS.some((field) => String(session[field] ?? "").toLowerCase().includes(query))
+    ) {
+      return;
+    }
+    shown += 1;
+
+    const row = document.createElement("tr");
+    row.className = "data-table__row--clickable";
+    row.dataset.sessionIndex = String(index);
+    row.tabIndex = 0;
+    row.setAttribute(
+      "aria-label",
+      `View details for the web session of ${textOrPlaceholder(session.Username)} on ${textOrPlaceholder(session.Application)}`,
+    );
+
+    const app = webAppForSession(session);
+    row.append(
+      makeCell(textOrPlaceholder(session.Username)),
+      makeCell(textOrPlaceholder(session.Application), { mono: true }),
+      makeCell(app ? app.Name : "Not listed", { mono: Boolean(app) }),
+      makeCell(textOrPlaceholder(session.Timeout), { mono: true }),
+      makeCell(textOrPlaceholder(session.LicenseId), { mono: true }),
+      makeCell(textOrPlaceholder(session.SesProcessId), { mono: true }),
+      makeCell(textOrPlaceholder(session.Preserve), { mono: true }),
+    );
+    dom.sessionsTableBody.append(row);
+  });
+
+  const filtered = query !== "" || appFilter !== "" || userFilter !== "";
+  dom.sessionsTableWrapper.hidden = shown === 0;
+  dom.sessionsFilterEmpty.hidden = shown !== 0;
+  dom.sessionsFilterClear.disabled = !filtered;
+  dom.sessionsFilterCount.textContent = filtered
+    ? `Showing ${shown} of ${allSessions.length}`
+    : `Showing all ${allSessions.length}`;
+}
+
+function openSessionDrawer(index) {
+  const session = Array.isArray(allSessions) ? allSessions[index] : null;
+  if (!session) return;
+  currentSessionIndex = index;
+
+  dom.sessionDrawerTitle.textContent = session.Username ? session.Username : "(no username)";
+  dom.sessionDrawerAppBadge.textContent = textOrPlaceholder(session.Application);
+  dom.sessionDrawerFields.replaceChildren(
+    ...SESSION_FIELDS.map(([label, field, kind]) =>
+      makeInfoRow(label, field, formatValue(session[field], kind), kind),
+    ),
+  );
+
+  const app = webAppForSession(session);
+  if (app) {
+    const [statusText] = statusBadge(app.Enabled);
+    dom.sessionDrawerApp.replaceChildren(
+      makeInfoRow("Name", null, textOrPlaceholder(app.Name), "mono"),
+      makeInfoRow("Kind", null, kindOf(app), "text"),
+      makeInfoRow("Status", null, statusText, "text"),
+      makeInfoRow("Namespace", null, textOrPlaceholder(app.Namespace), "text"),
+    );
+  } else {
+    dom.sessionDrawerApp.replaceChildren(
+      makeInfoRow(
+        "Name",
+        null,
+        "No web app with this name in the current web app list",
+        "text",
+      ),
+    );
+  }
+  dom.sessionDrawerOpenApp.hidden = !app;
+  dom.sessionDrawerOpenApp.dataset.appName = app ? app.Name : "";
+
+  const wasHidden = dom.sessionDrawer.hidden;
+  dom.sessionDrawerBackdrop.hidden = false;
+  dom.sessionDrawer.hidden = false;
+  if (wasHidden) dom.sessionDrawerClose.focus();
+}
+
+function closeSessionDrawer() {
+  currentSessionIndex = null;
+  dom.sessionDrawerBackdrop.hidden = true;
+  dom.sessionDrawer.hidden = true;
+}
+
 /**
  * Fetches GET /api/iris/web-apps and renders it. No mutating request exists
  * anywhere in this file.
@@ -900,6 +1161,13 @@ export async function loadWebApps() {
   setLoading(true);
   setErrorBanner(null);
   setConnectionState("checking", "Checking connection…", "");
+
+  // Sessions load in parallel but render after the list, since each is
+  // matched to a web app by name. A newer load supersedes an older one.
+  const sessionsSeq = ++sessionsLoadSeq;
+  dom.sessionsLoading.hidden = false;
+  dom.sessionsError.hidden = true;
+  const sessionsPromise = fetchWebSessions();
 
   let response;
   try {
@@ -944,6 +1212,8 @@ export async function loadWebApps() {
   }
 
   renderWebApps(webApps);
+  const sessionsResult = await sessionsPromise;
+  if (sessionsSeq === sessionsLoadSeq) renderSessionsResult(sessionsResult);
   setLoading(false);
 }
 
@@ -999,7 +1269,9 @@ export function initWebAppsControls() {
   dom.drawerClose.addEventListener("click", closeDrawer);
   dom.drawerBackdrop.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !dom.drawer.hidden) closeDrawer();
+    if (event.key !== "Escape") return;
+    if (!dom.sessionDrawer.hidden) closeSessionDrawer();
+    else if (!dom.drawer.hidden) closeDrawer();
   });
 
   // Drawer tabs (REST apps only), with arrow-key switching per the WAI-ARIA
@@ -1029,4 +1301,35 @@ export function initWebAppsControls() {
     showEndpointDetail(Number(item.dataset.index));
   });
   dom.restBack.addEventListener("click", backToEndpointList);
+
+  // Web Sessions: client-side filtering over the last fetched list, and a
+  // read-only detail drawer (no session actions exist anywhere here).
+  dom.sessionsFilterForm.addEventListener("submit", (event) => event.preventDefault());
+  dom.sessionsFilterSearch.addEventListener("input", renderSessionsTable);
+  dom.sessionsFilterApp.addEventListener("change", renderSessionsTable);
+  dom.sessionsFilterUser.addEventListener("change", renderSessionsTable);
+  dom.sessionsFilterClear.addEventListener("click", () => {
+    dom.sessionsFilterSearch.value = "";
+    dom.sessionsFilterApp.value = "";
+    dom.sessionsFilterUser.value = "";
+    renderSessionsTable();
+  });
+  dom.sessionsTableBody.addEventListener("click", (event) => {
+    const row = event.target.closest("tr[data-session-index]");
+    if (row) openSessionDrawer(Number(row.dataset.sessionIndex));
+  });
+  dom.sessionsTableBody.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("tr[data-session-index]");
+    if (!row) return;
+    event.preventDefault();
+    openSessionDrawer(Number(row.dataset.sessionIndex));
+  });
+  dom.sessionDrawerClose.addEventListener("click", closeSessionDrawer);
+  dom.sessionDrawerBackdrop.addEventListener("click", closeSessionDrawer);
+  dom.sessionDrawerOpenApp.addEventListener("click", () => {
+    const name = dom.sessionDrawerOpenApp.dataset.appName;
+    closeSessionDrawer();
+    if (name) openDrawer(name);
+  });
 }

@@ -46,6 +46,7 @@ from app.models.iris import (
     TaskEntry,
     WebAppDetail,
     WebAppEntry,
+    WebSessionEntry,
 )
 
 router = APIRouter(prefix="/api/iris", tags=["iris"])
@@ -258,6 +259,27 @@ async def get_web_app_detail(
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[WebAppDetail].model_validate(raw)
 
+
+
+@router.get("/web-sessions", response_model=IRISEnvelope[list[WebSessionEntry]])
+async def get_web_sessions(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[WebSessionEntry]]:
+    """Active CSP/REST web sessions (GET /v2/web-sessions) — the data behind
+    the Web Apps Explorer's read-only Sessions section.
+
+    Every session's IRIS `ID` (the CSP session identifier, and the exact
+    value DELETE /v2/web-session?id= takes) is removed here, server-side:
+    WebSessionEntry does not model it, so validation drops it and neither
+    the browser nor any response ever sees it. Read-only; never gated by
+    the authorization/confirmation/execution framework, like every other
+    route in this file.
+    """
+    try:
+        raw = await client.get("/v2/web-sessions")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[WebSessionEntry]].model_validate(raw)
 
 # Swagger 2.0 path-item keys that are HTTP operations (everything else in a
 # path item, e.g. "parameters", is not an endpoint).
