@@ -1327,7 +1327,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="security-title">Security</h2>
-              <p class="view__subtitle">OAuth 2.0 authorization server configuration and registered clients.</p>
+              <p class="view__subtitle">Identity &amp; access and OAuth 2.0 configuration on the connected IRIS instance.</p>
             </div>
             <button class="btn btn--primary" type="button" id="security-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -1351,6 +1351,190 @@
               <span class="connection-status__label" id="security-connection-status-label">Checking connection&hellip;</span>
             </div>
             <p class="info-panel__meta" id="security-connection-detail"></p>
+          </div>
+
+          <div class="ns-section" id="security-access-section">
+            <div class="ns-section__header">
+              <h3 class="section-heading">Identity &amp; Access</h3>
+            </div>
+            <p class="ns-hint">Users, roles and resources exactly as IRIS reports them. Read-only &mdash; personal user fields (email address, phone number and provider, and the free-text comment) are withheld by the Command Center backend, and IRIS returns no passwords or hashes.</p>
+
+            <div class="banner banner--error" id="security-access-error-banner" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="security-access-error-banner-text"></span>
+            </div>
+
+            <div class="loading-state" id="security-access-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Loading users, roles and resources&hellip;</span>
+            </div>
+
+            <div id="security-access-content" hidden>
+              <div class="stat-grid stat-grid--compact" id="security-access-summary-grid" aria-label="Identity and access counts"></div>
+
+              <div class="ns-section" id="security-privileged-section">
+                <div class="ns-section__header">
+                  <h4 class="section-heading section-heading--secondary">Privileged Access</h4>
+                </div>
+                <p class="ns-hint" id="security-privileged-hint">Holders of <code>%All</code> (&ldquo;The Super-User Role&rdquo;), with each row&rsquo;s Type exactly as IRIS&rsquo;s role owners report it, and the roles that grant <code>%Admin_Secure</code>.</p>
+                <p class="empty-state" id="security-privileged-error" hidden></p>
+                <div class="table-wrapper" id="security-privileged-table-wrapper" hidden>
+                  <table class="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th scope="col">Holder of %All</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Admin Option</th>
+                      </tr>
+                    </thead>
+                    <tbody id="security-privileged-table-body"></tbody>
+                  </table>
+                </div>
+                <dl class="info-list" id="security-admin-secure-list"></dl>
+              </div>
+
+              <div class="drawer-tabs" id="security-access-tabs" role="tablist" aria-label="Identity and access">
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-users" data-tab="users" aria-controls="security-panel-users" aria-selected="true">Users</button>
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-roles" data-tab="roles" aria-controls="security-panel-roles" aria-selected="false" tabindex="-1">Roles</button>
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-resources" data-tab="resources" aria-controls="security-panel-resources" aria-selected="false" tabindex="-1">Resources</button>
+              </div>
+
+              <div id="security-panel-users" role="tabpanel" aria-labelledby="security-tab-users">
+                <form class="filter-form filter-form--toolbar" id="security-users-filter-form" role="search" aria-label="Filter users">
+                  <div class="filter-field filter-field--wide">
+                    <label for="security-users-search">Search</label>
+                    <input type="search" id="security-users-search" placeholder="Name, full name, namespace, routine&hellip;" autocomplete="off" />
+                  </div>
+                  <div class="filter-field">
+                    <label for="security-users-status">Status</label>
+                    <select id="security-users-status">
+                      <option value="">All</option>
+                      <option value="enabled">Enabled</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </div>
+                  <div class="filter-field">
+                    <label for="security-users-type">Type</label>
+                    <select id="security-users-type">
+                      <option value="">All types</option>
+                    </select>
+                  </div>
+                  <div class="filter-field filter-form__actions">
+                    <button class="btn" type="button" id="security-users-clear">Clear</button>
+                  </div>
+                </form>
+                <p class="info-panel__meta filter-count" id="security-users-count" aria-live="polite"></p>
+                <p class="empty-state" id="security-users-empty" hidden>No users match the current filters.</p>
+                <div class="table-wrapper" id="security-users-table-wrapper">
+                  <table class="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Full Name</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Namespace</th>
+                        <th scope="col">Routine</th>
+                      </tr>
+                    </thead>
+                    <tbody id="security-users-table-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="security-panel-roles" role="tabpanel" aria-labelledby="security-tab-roles" hidden>
+                <form class="filter-form filter-form--toolbar" id="security-roles-filter-form" role="search" aria-label="Filter roles">
+                  <div class="filter-field filter-field--wide">
+                    <label for="security-roles-search">Search</label>
+                    <input type="search" id="security-roles-search" placeholder="Role name, description&hellip;" autocomplete="off" />
+                  </div>
+                  <div class="filter-field">
+                    <label for="security-roles-escalation">Escalation</label>
+                    <select id="security-roles-escalation">
+                      <option value="">All roles</option>
+                      <option value="yes">Escalation only</option>
+                      <option value="no">Not escalation only</option>
+                    </select>
+                  </div>
+                  <div class="filter-field">
+                    <label for="security-roles-resource">Grants Resource</label>
+                    <select id="security-roles-resource">
+                      <option value="">Any resource</option>
+                    </select>
+                  </div>
+                  <div class="filter-field filter-form__actions">
+                    <button class="btn" type="button" id="security-roles-clear">Clear</button>
+                  </div>
+                </form>
+                <p class="info-panel__meta filter-count" id="security-roles-count" aria-live="polite"></p>
+                <p class="ns-hint" id="security-roles-unlisted-hint" hidden></p>
+                <p class="empty-state" id="security-roles-empty" hidden>No roles match the current filters.</p>
+                <div class="table-wrapper" id="security-roles-table-wrapper">
+                  <table class="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Resources</th>
+                        <th scope="col">Granted Roles</th>
+                        <th scope="col">Escalation Only</th>
+                        <th scope="col">Created By</th>
+                      </tr>
+                    </thead>
+                    <tbody id="security-roles-table-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="security-panel-resources" role="tabpanel" aria-labelledby="security-tab-resources" hidden>
+                <form class="filter-form filter-form--toolbar" id="security-resources-filter-form" role="search" aria-label="Filter resources">
+                  <div class="filter-field filter-field--wide">
+                    <label for="security-resources-search">Search</label>
+                    <input type="search" id="security-resources-search" placeholder="Resource name, description&hellip;" autocomplete="off" />
+                  </div>
+                  <div class="filter-field">
+                    <label for="security-resources-type">Type</label>
+                    <select id="security-resources-type">
+                      <option value="">All types</option>
+                    </select>
+                  </div>
+                  <div class="filter-field">
+                    <label for="security-resources-public">Public Permission</label>
+                    <select id="security-resources-public">
+                      <option value="">All</option>
+                      <option value="public">Has public permission</option>
+                      <option value="none">No public permission</option>
+                    </select>
+                  </div>
+                  <div class="filter-field filter-form__actions">
+                    <button class="btn" type="button" id="security-resources-clear">Clear</button>
+                  </div>
+                </form>
+                <p class="info-panel__meta filter-count" id="security-resources-count" aria-live="polite"></p>
+                <p class="empty-state" id="security-resources-empty" hidden>No resources match the current filters.</p>
+                <div class="table-wrapper" id="security-resources-table-wrapper">
+                  <table class="data-table data-table--compact">
+                    <thead>
+                      <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Public Permission</th>
+                        <th scope="col">Granted By</th>
+                        <th scope="col">Allow Delete</th>
+                      </tr>
+                    </thead>
+                    <tbody id="security-resources-table-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ns-section">
+            <div class="ns-section__header">
+              <h3 class="section-heading">OAuth 2.0</h3>
+            </div>
           </div>
 
           <div class="info-grid">
@@ -1384,6 +1568,28 @@
               <p class="empty-state" id="security-server-clients-empty" hidden>No registered clients reported.</p>
             </section>
           </div>
+          <div class="ns-drawer-backdrop" id="security-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="security-drawer" hidden aria-labelledby="security-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <button class="back-link" type="button" id="security-drawer-back" hidden>&larr; Back</button>
+                <h3 class="ns-drawer__title" id="security-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--accent" id="security-drawer-kind-badge"></span>
+                <span class="status-badge status-badge--neutral" id="security-drawer-status-badge" hidden></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="security-drawer-close" aria-label="Close details">&times;</button>
+            </div>
+            <p class="ns-hint" id="security-drawer-hint"></p>
+            <div class="loading-state" id="security-drawer-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Loading from IRIS&hellip;</span>
+            </div>
+            <div class="banner banner--error" id="security-drawer-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="security-drawer-error-text"></span>
+            </div>
+            <div id="security-drawer-body"></div>
+          </aside>
         </section>
 
         <section class="view" id="view-journal" data-view="journal" aria-labelledby="journal-title" hidden>

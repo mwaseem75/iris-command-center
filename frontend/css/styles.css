@@ -1059,6 +1059,19 @@ input:focus-visible {
   color: var(--color-text);
 }
 
+/* A tag that opens another entity (e.g. a user's roles in the Security
+   drawer) — same pill, plus button reset and the accent on hover/focus. */
+.tag-list__item--link {
+  cursor: pointer;
+  transition: border-color var(--transition-base), color var(--transition-base);
+}
+
+.tag-list__item--link:hover,
+.tag-list__item--link:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .privilege-list {
   list-style: none;
   margin: 0;

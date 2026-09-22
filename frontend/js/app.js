@@ -17,6 +17,7 @@ import { loadDatabases, initDatabasesControls } from "./databases.js";
 import { loadWebApps, initWebAppsControls } from "./web-apps.js";
 import { loadTasks, initTasksControls } from "./tasks.js";
 import { loadSecurity, initSecurityControls } from "./security.js";
+import { loadSecurityAccess, initSecurityAccessControls } from "./security-access.js";
 import { loadJournal, initJournalControls } from "./journal.js";
 import { loadOperations, initOperationsControls } from "./operations.js";
 import { initAiAssistantControls } from "./ai-assistant.js";
@@ -42,6 +43,7 @@ function init() {
   initWebAppsControls();
   initTasksControls();
   initSecurityControls();
+  initSecurityAccessControls();
   initJournalControls();
   initOperationsControls();
   initAiAssistantControls();
@@ -81,6 +83,7 @@ function init() {
       loadTasks();
     } else if (view === "security") {
       loadSecurity();
+      loadSecurityAccess();
     } else if (view === "journal") {
       loadJournal();
     } else if (view === "operations") {

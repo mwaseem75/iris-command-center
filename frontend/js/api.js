@@ -269,6 +269,21 @@ export const IrisApi = {
   // sensitive Settings values before responding.
   getTaskDetail: (id) => fetchIris(`/api/iris/tasks/detail?id=${encodeURIComponent(id)}`),
   getTaskManager: () => fetchIris("/api/iris/tasks/manager"),
+  // Read-only Identity & Access (backend/app/routes/security_access.py).
+  // User detail arrives with personal fields already withheld by the
+  // backend; no endpoint here returns a password, hash or secret.
+  getSecurityUsers: () => fetchIris("/api/iris/security/users"),
+  getSecurityUserDetail: (name) =>
+    fetchIris(`/api/iris/security/users/detail?name=${encodeURIComponent(name)}`),
+  getSecurityRoles: () => fetchIris("/api/iris/security/roles"),
+  getSecurityRoleDetail: (name) =>
+    fetchIris(`/api/iris/security/roles/detail?name=${encodeURIComponent(name)}`),
+  getSecurityRoleOwners: (name) =>
+    fetchIris(`/api/iris/security/roles/owners?name=${encodeURIComponent(name)}`),
+  getSecurityRoleAccessMap: () => fetchIris("/api/iris/security/roles/access-map"),
+  getSecurityResources: () => fetchIris("/api/iris/security/resources"),
+  getSecurityResourceDetail: (name) =>
+    fetchIris(`/api/iris/security/resources/detail?name=${encodeURIComponent(name)}`),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),

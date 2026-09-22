@@ -127,6 +127,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "web-apps.js",
         FRONTEND_DIR / "js" / "tasks.js",
         FRONTEND_DIR / "js" / "security.js",
+        FRONTEND_DIR / "js" / "security-access.js",
         FRONTEND_DIR / "js" / "journal.js",
         FRONTEND_DIR / "js" / "operations.js",
         FRONTEND_DIR / "js" / "ai-assistant.js",
@@ -647,6 +648,53 @@ def test_security_view_uses_only_security_endpoints() -> None:
         "security-client-defs-table-body" in security_js
         and "security-server-clients-table-body" in security_js,
         "security.js renders into both OAuth2 list table body elements",
+    )
+
+
+def test_security_identity_access_is_read_only_and_withholds_personal_data() -> None:
+    print("Checking the Security view's Identity & Access section and security-access.js...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    for element_id in (
+        "security-access-summary-grid",
+        "security-privileged-table-body",
+        "security-access-tabs",
+        "security-users-table-body",
+        "security-roles-table-body",
+        "security-resources-table-body",
+        "security-users-search",
+        "security-roles-search",
+        "security-resources-search",
+        "security-roles-unlisted-hint",
+        "security-drawer",
+        "security-drawer-back",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} element exists")
+
+    access_js = (FRONTEND_DIR / "js" / "security-access.js").read_text(encoding="utf-8")
+    used = set(re.findall(r"IrisApi\.(\w+)", access_js))
+    expected = {
+        "getSecurityUsers", "getSecurityUserDetail", "getSecurityRoles", "getSecurityRoleDetail",
+        "getSecurityRoleOwners", "getSecurityRoleAccessMap", "getSecurityResources", "getSecurityResourceDetail",
+    }
+    check(used == expected, f"security-access.js uses exactly the eight read-only Identity & Access methods (found: {sorted(used)})")
+    check("fetch(" not in access_js, "security-access.js makes no raw fetch() call (goes through IrisApi)")
+    check(
+        re.search(r'"(/api/iris/[a-z0-9\-/]*)"', access_js) is None,
+        "security-access.js references no /api/iris/* path other than via IrisApi",
+    )
+    # Personal fields are withheld by the backend; the frontend never reads
+    # them, nor any password/hash field (IRIS returns none).
+    for field in ("EmailAddress", "PhoneNumber", "PhoneProvider", "Comment", "Password", "Hash"):
+        check(
+            re.search(rf"\.{field}\b|[\"']{field}[\"']", access_js) is None,
+            f"security-access.js never reads a {field} field",
+        )
+    check(re.search(r"\.innerHTML\s*=", access_js) is None, "security-access.js never assigns innerHTML")
+
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    check(
+        "loadSecurityAccess()" in app_js and "initSecurityAccessControls()" in app_js,
+        "app.js loads and initializes the Identity & Access section with the Security view",
     )
 
 
@@ -1364,6 +1412,7 @@ def main() -> None:
         test_tasks_view_uses_only_task_read_endpoints,
         test_security_nav_and_view_exist_and_are_enabled,
         test_security_view_uses_only_security_endpoints,
+        test_security_identity_access_is_read_only_and_withholds_personal_data,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_operations_nav_and_view_exist_and_use_only_expected_endpoints,
         test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,

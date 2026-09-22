@@ -477,6 +477,103 @@ class TaskManagerStatus(BaseModel):
     Status: str
 
 
+# --- Security: Identity & Access (GET /v2/security/users|user|roles|role|
+#     role/owners|resources|resource). Every field below was observed live
+#     on icc-iris-dev, with these types, for all 9 users, all 38 roles and
+#     the resources read; see routes/security_access.py for the routes. ---
+
+
+class SecurityUserEntry(BaseModel):
+    Name: str
+    FullName: str
+    Enabled: bool
+    Type: str
+    Namespace: str
+    Routine: str
+
+
+# GET /v2/security/user also returns EmailAddress, PhoneNumber,
+# PhoneProvider and a free-text Comment. They may hold personal data and are
+# deliberately NOT modelled,
+# so validation drops them and no response ever carries them; the route
+# lists which of them IRIS sent in `WithheldFields` (this backend's own
+# field). The model is an allowlist: any field IRIS adds later is dropped
+# the same way. No password or hash field exists in IRIS's response.
+# `AutheEnabled` is the spec's two-factor bitmask (2**20 SMS, 2**21 TOTP).
+
+
+class SecurityUserDetail(BaseModel):
+    FullName: str
+    Enabled: bool
+    Roles: list[str]
+    EscalationRoles: list[str]
+    NameSpace: str
+    Routine: str
+    AutheEnabled: int
+    ChangePassword: bool
+    PasswordNeverExpires: bool
+    AccountNeverExpires: bool
+    ExpirationDate: str
+    HOTPKeyDisplay: bool
+    WithheldFields: list[str] = Field(default_factory=list)
+
+
+class SecurityRoleEntry(BaseModel):
+    Name: str
+    Description: str
+    CreatedBy: str
+    EscalationOnly: bool
+
+
+class RoleResourceGrant(BaseModel):
+    Name: str
+    Permissions: str
+
+
+class SecurityRoleDetail(BaseModel):
+    Description: str
+    GrantedRoles: list[str]
+    EscalationOnly: bool
+    Resources: list[RoleResourceGrant]
+
+
+# `AdminOption` is documented as boolean but observed as the string "0" on
+# "User" and "Role" rows and as `false` on "User (escalation)" rows — both
+# are passed through unchanged.
+
+
+class RoleOwnerEntry(BaseModel):
+    Name: str
+    Type: str
+    AdminOption: bool | str
+
+
+# GET /api/iris/security/roles/access-map — this backend's merge of the
+# role list with each role's GET /v2/security/role detail. `Listed` is False
+# for a role that exists (its detail returned 200) but that GET
+# /v2/security/roles does not list — observed for %SQLTuneTable. `Detail`
+# is None when that role's detail call failed.
+
+
+class RoleAccessEntry(BaseModel):
+    Name: str
+    Listed: bool
+    Detail: SecurityRoleDetail | None
+
+
+class SecurityResourceEntry(BaseModel):
+    Name: str
+    Description: str
+    PublicPermission: str
+    ResourceType: str
+    AllowDelete: bool
+
+
+class SecurityResourceDetail(BaseModel):
+    Description: str
+    PublicPermission: str
+
+
 # --- GET /v2/journal/settings ---
 
 

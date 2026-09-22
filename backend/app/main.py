@@ -34,6 +34,7 @@ from app.routes.capabilities import router as capabilities_router
 from app.routes.databases import router as databases_router
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
+from app.routes.security_access import router as security_access_router
 from app.routes.journal import router as journal_router
 from app.routes.namespaces import router as namespaces_router
 from app.routes.observability import router as observability_router
@@ -72,6 +73,7 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(iris_router)
+app.include_router(security_access_router)
 app.include_router(journal_router)
 app.include_router(namespaces_router)
 app.include_router(databases_router)
