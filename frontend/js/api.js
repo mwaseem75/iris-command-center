@@ -232,6 +232,12 @@ export const IrisApi = {
     fetchIris(`/api/iris/databases/integrity-check?dir=${encodeURIComponent(directory)}`),
   getProcesses: () => fetchIris("/api/iris/processes"),
   getWebApps: () => fetchIris("/api/iris/web-apps"),
+  // Read-only — full configuration of one web app via GET /v2/web-app
+  // (see backend/app/routes/iris.py's get_web_app_detail). `name` is the
+  // app's real Name (e.g. "/api/admin"), sent verbatim as the `name` query
+  // parameter — a query parameter because names contain slashes.
+  getWebAppDetail: (name) =>
+    fetchIris(`/api/iris/web-apps/detail?name=${encodeURIComponent(name)}`),
   getTasks: () => fetchIris("/api/iris/tasks"),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>

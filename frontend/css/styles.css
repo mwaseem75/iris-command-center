@@ -1923,7 +1923,7 @@ input:focus-visible {
   cursor: pointer;
 }
 
-/* --- Explorer toolkit (Processes): compact KPI cards (which
+/* --- Explorer toolkit (Processes/Web Apps): compact KPI cards (which
    double as filter toggles), an inline search/filter toolbar, clickable
    compact table rows, and a wider .ns-drawer for detail. Reuses
    .stat-card/.filter-form/.data-table--compact/.ns-drawer verbatim; only
@@ -2000,15 +2000,30 @@ input:focus-visible {
   font-size: 10.5px;
 }
 
-/* Detail drawers that list many fields (e.g. Processes) — a touch wider
-   than the Namespace/Database drawers so long values (EXE names,
-   routines) fit. */
+/* Process/Web App detail drawers list many fields — a touch wider than
+   the Namespace/Database drawers so long values (EXE names, routines,
+   class names, paths) fit. */
 .ns-drawer--wide {
   width: min(460px, 92vw);
 }
 
 .ns-drawer--wide .info-list__value {
   word-break: break-all;
+}
+
+/* A non-status classification badge (e.g. Web App kind REST/CSP) — the
+   accent color, so it never reads as ok/warning/error. */
+.status-badge--accent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* The raw field name under a friendly drawer label, e.g. "AutheEnabled". */
+.info-list__field {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-text-faint);
 }
 
 /* --- Responsive --- */

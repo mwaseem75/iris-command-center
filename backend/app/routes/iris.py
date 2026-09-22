@@ -40,6 +40,7 @@ from app.models.iris import (
     NamespaceEntry,
     ProcessEntry,
     TaskEntry,
+    WebAppDetail,
     WebAppEntry,
 )
 
@@ -230,6 +231,28 @@ async def get_web_apps(
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[list[WebAppEntry]].model_validate(raw)
+
+
+@router.get("/web-apps/detail", response_model=IRISEnvelope[WebAppDetail])
+async def get_web_app_detail(
+    name: str,
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[WebAppDetail]:
+    """Full configuration of one web application, keyed by its real Name
+    (e.g. "/api/admin") — the data behind the Web Apps Explorer's detail
+    drawer.
+
+    `name` is exactly mainspec_v2.json's own documented query parameter for
+    `GET /v2/web-app`, not renamed. A query parameter (not a path segment)
+    because web app names themselves contain slashes. Read-only: a plain
+    GET, never gated by the authorization/confirmation/execution framework,
+    like every other route in this file.
+    """
+    try:
+        raw = await client.get("/v2/web-app", params={"name": name})
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[WebAppDetail].model_validate(raw)
 
 
 @router.get("/ext-lang-servers", response_model=IRISEnvelope[list[ExternalLanguageServerEntry]])

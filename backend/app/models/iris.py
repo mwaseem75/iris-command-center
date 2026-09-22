@@ -212,6 +212,73 @@ class WebAppEntry(BaseModel):
     DispatchClass: str
 
 
+# --- GET /v2/web-app?name=<Name> — "View details of a web application"
+#     per mainspec_v2.json. The spec says these fields mirror the class
+#     Security.Applications. All 46 fields below were directly observed,
+#     with these exact types, in real responses for all 22 web apps on
+#     icc-iris-dev. Two discrepancies from the spec were observed and are
+#     modelled as observed, not as documented:
+#       - the spec lists `Type` (integer bitmap), but the live response
+#         omits it entirely, so it is NOT a field here (the list endpoint's
+#         string `Type` on WebAppEntry is the only Type we have);
+#       - the spec documents `WSGIType` as an integer, but it is returned
+#         as a string (e.g. "WSGI").
+
+
+class WebAppMatchRole(BaseModel):
+    MatchRole: str
+    TargetRoles: list[str]
+
+
+class WebAppDetail(BaseModel):
+    AutheEnabled: int
+    AutoCompile: bool
+    ChangePasswordPage: str
+    CookiePath: str
+    CorsAllowlist: list[str]
+    CorsCredentialsAllowed: bool
+    CorsHeadersList: list[str]
+    CSPZENEnabled: bool
+    CSRFToken: bool
+    DeepSeeEnabled: bool
+    Description: str
+    DispatchClass: str
+    Enabled: bool
+    ErrorPage: str
+    EventClass: str
+    GroupById: str
+    iKnowEnabled: bool
+    InbndWebServicesEnabled: bool
+    IsNameSpaceDefault: bool
+    JWTAuthEnabled: bool
+    JWTAccessTokenTimeout: int
+    JWTRefreshTokenTimeout: int
+    LockCSPName: bool
+    LoginPage: str
+    MatchRoles: list[WebAppMatchRole]
+    NameSpace: str
+    Package: str
+    Path: str
+    PermittedClasses: str
+    Recurse: bool
+    RedirectEmptyPath: bool
+    Resource: str
+    ServeFiles: str
+    ServeFilesTimeout: int
+    SuperClass: str
+    Timeout: int
+    TraceEnabled: bool
+    TwoFactorEnabled: bool
+    UseCookies: str
+    SessionScope: str
+    UserCookieScope: str
+    WSGIAppLocation: str
+    WSGIAppName: str
+    WSGICallable: str
+    WSGIDebug: bool
+    WSGIType: str
+
+
 # --- GET /v2/ext-lang-servers ---
 
 

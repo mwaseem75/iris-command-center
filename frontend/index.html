@@ -925,30 +925,98 @@
             <p class="info-panel__meta" id="web-apps-count"></p>
           </div>
 
-          <div class="view-overview" id="web-apps-overview" hidden>
-            <p class="stat-card__label">Enabled / Disabled</p>
-            <div id="web-apps-overview-viz"></div>
-          </div>
-
           <p class="empty-state" id="web-apps-empty" hidden>No web applications reported.</p>
 
-          <div class="table-wrapper" id="web-apps-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Namespace</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Enabled</th>
-                  <th scope="col">Auth Methods</th>
-                  <th scope="col">Resource</th>
-                  <th scope="col">System App</th>
-                  <th scope="col">Dispatch Class</th>
-                </tr>
-              </thead>
-              <tbody id="web-apps-table-body"></tbody>
-            </table>
+          <div id="web-apps-content" hidden>
+            <div class="stat-grid stat-grid--compact" id="web-apps-summary-grid" aria-label="Web application counts"></div>
+
+            <div class="view-overview" id="web-apps-overview" hidden>
+              <p class="stat-card__label">Enabled / Disabled</p>
+              <div id="web-apps-overview-viz"></div>
+            </div>
+
+            <form class="filter-form filter-form--toolbar" id="web-apps-filter-form" role="search" aria-label="Filter web applications">
+              <div class="filter-field filter-field--wide">
+                <label for="web-apps-filter-search">Search</label>
+                <input type="search" id="web-apps-filter-search" placeholder="Name, namespace, dispatch class, resource&hellip;" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="web-apps-filter-kind">Kind</label>
+                <select id="web-apps-filter-kind">
+                  <option value="">All kinds</option>
+                  <option value="REST">REST</option>
+                  <option value="CSP">CSP</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="web-apps-filter-status">Status</label>
+                <select id="web-apps-filter-status">
+                  <option value="">All</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="web-apps-filter-namespace">Namespace</label>
+                <select id="web-apps-filter-namespace">
+                  <option value="">All namespaces</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="web-apps-filter-auth">Auth Method</label>
+                <select id="web-apps-filter-auth">
+                  <option value="">All methods</option>
+                </select>
+              </div>
+              <div class="filter-field filter-form__actions">
+                <button class="btn" type="button" id="web-apps-filter-clear-button">Clear</button>
+              </div>
+            </form>
+            <p class="info-panel__meta filter-count" id="web-apps-filter-count" aria-live="polite"></p>
+
+            <p class="empty-state" id="web-apps-filter-empty" hidden>No web applications match the current filters.</p>
+
+            <div class="table-wrapper" id="web-apps-table-wrapper">
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Kind</th>
+                    <th scope="col">Namespace</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Auth Methods</th>
+                    <th scope="col">Resource</th>
+                    <th scope="col">Dispatch Class</th>
+                    <th scope="col">Type</th>
+                  </tr>
+                </thead>
+                <tbody id="web-apps-table-body"></tbody>
+              </table>
+            </div>
           </div>
+
+          <div class="ns-drawer-backdrop" id="web-apps-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="web-apps-drawer" hidden aria-labelledby="web-apps-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="web-apps-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="web-apps-drawer-kind-badge"></span>
+                <span class="status-badge status-badge--neutral" id="web-apps-drawer-status-badge"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="web-apps-drawer-close" aria-label="Close web application details">&times;</button>
+            </div>
+            <p class="ns-hint">Read-only. Kind is derived from Dispatch Class: an app with a dispatch class is REST, otherwise CSP.</p>
+            <dl class="info-list" id="web-apps-drawer-summary"></dl>
+            <div class="loading-state" id="web-apps-drawer-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Loading full configuration&hellip;</span>
+            </div>
+            <div class="banner banner--error" id="web-apps-drawer-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="web-apps-drawer-error-text"></span>
+            </div>
+            <div id="web-apps-drawer-config"></div>
+          </aside>
         </section>
 
         <section class="view" id="view-tasks" data-view="tasks" aria-labelledby="tasks-title" hidden>

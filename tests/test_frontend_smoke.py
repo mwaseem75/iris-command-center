@@ -32,8 +32,9 @@ for the Security view:
    endpoint, and renders into the databases table body.
 10. (Step 5) The Web Apps nav item and view exist in the markup and the
     nav item is enabled (not `disabled`).
-11. (Step 5) web-apps.js calls GET /api/iris/web-apps and no other
-    endpoint, and renders into the web apps table body.
+11. (Step 5) web-apps.js calls only GET /api/iris/web-apps and the
+    read-only GET /api/iris/web-apps/detail (detail drawer), and renders
+    into the web apps table body.
 12. (Step 6) The Tasks nav item and view exist in the markup and the nav
     item is enabled (not `disabled`).
 13. (Step 6) tasks.js calls GET /api/iris/tasks and no other endpoint, and
@@ -461,13 +462,21 @@ def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
     check(view_match is not None, 'a <section id="view-web-apps" data-view="web-apps"> exists')
 
     check('id="web-apps-table-body"' in html, "the web apps table body element exists")
+    check('id="web-apps-summary-grid"' in html, "the web apps KPI grid exists")
+    check('id="web-apps-filter-search"' in html, "the web apps search input exists")
+    check('id="web-apps-filter-kind"' in html, "the web apps REST/CSP kind filter exists")
+    check('id="web-apps-drawer"' in html, "the web apps detail drawer element exists")
 
 
-def test_web_apps_view_uses_only_get_web_apps() -> None:
-    print("Checking web-apps.js calls GET /api/iris/web-apps and nothing else...")
+def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
+    print("Checking web-apps.js calls only the read-only web-app list/detail endpoints...")
     web_apps_js = (FRONTEND_DIR / "js" / "web-apps.js").read_text(encoding="utf-8")
 
     check("IrisApi.getWebApps" in web_apps_js, "web-apps.js calls IrisApi.getWebApps()")
+    check(
+        "IrisApi.getWebAppDetail" in web_apps_js,
+        "web-apps.js calls IrisApi.getWebAppDetail() for the detail drawer",
+    )
     other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getTasks"]
     for method in other_methods:
         check(method not in web_apps_js, f"web-apps.js does NOT call IrisApi.{method}()")
@@ -475,7 +484,7 @@ def test_web_apps_view_uses_only_get_web_apps() -> None:
     referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', web_apps_js))
     check(
         referenced_paths in ({"/api/iris/web-apps"}, set()),
-        f"web-apps.js references only /api/iris/web-apps as a literal path "
+        f"web-apps.js references no /api/iris/* path other than via IrisApi "
         f"(found: {referenced_paths or 'none, uses IrisApi.getWebApps()'})",
     )
     check(
@@ -1277,7 +1286,7 @@ def main() -> None:
         test_databases_nav_and_view_exist_and_are_enabled,
         test_databases_view_uses_only_get_and_create_database_and_get_namespaces,
         test_web_apps_nav_and_view_exist_and_are_enabled,
-        test_web_apps_view_uses_only_get_web_apps,
+        test_web_apps_view_uses_only_web_app_read_endpoints,
         test_tasks_nav_and_view_exist_and_are_enabled,
         test_tasks_view_uses_only_get_tasks,
         test_security_nav_and_view_exist_and_are_enabled,
