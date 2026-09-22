@@ -1224,29 +1224,103 @@
             <p class="info-panel__meta" id="tasks-count"></p>
           </div>
 
-          <div class="view-overview" id="tasks-overview" hidden>
-            <p class="stat-card__label">Active / Suspended</p>
-            <div id="tasks-overview-viz"></div>
-          </div>
-
           <p class="empty-state" id="tasks-empty" hidden>No tasks reported.</p>
 
-          <div class="table-wrapper" id="tasks-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Namespace</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Description</th>
-                  <th scope="col">Suspended</th>
-                  <th scope="col">Last Finished</th>
-                  <th scope="col">Next Scheduled</th>
-                </tr>
-              </thead>
-              <tbody id="tasks-table-body"></tbody>
-            </table>
+          <div id="tasks-content" hidden>
+            <div class="stat-grid stat-grid--compact" id="tasks-summary-grid" aria-label="Task counts"></div>
+
+            <div class="view-overview" id="tasks-overview" hidden>
+              <p class="stat-card__label">Run State</p>
+              <div id="tasks-overview-viz"></div>
+            </div>
+
+            <form class="filter-form filter-form--toolbar" id="tasks-filter-form" role="search" aria-label="Filter tasks">
+              <div class="filter-field filter-field--wide">
+                <label for="tasks-filter-search">Search</label>
+                <input type="search" id="tasks-filter-search" placeholder="Name, description, ID&hellip;" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="tasks-filter-state">State</label>
+                <select id="tasks-filter-state">
+                  <option value="">All states</option>
+                  <option value="Running">Running</option>
+                  <option value="Not Running">Not Running</option>
+                  <option value="Suspended">Suspended</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="tasks-filter-type">Type</label>
+                <select id="tasks-filter-type">
+                  <option value="">All types</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="tasks-filter-namespace">Namespace</label>
+                <select id="tasks-filter-namespace">
+                  <option value="">All namespaces</option>
+                </select>
+              </div>
+              <div class="filter-field filter-form__actions">
+                <button class="btn" type="button" id="tasks-filter-clear-button">Clear</button>
+              </div>
+            </form>
+            <p class="info-panel__meta filter-count" id="tasks-filter-count" aria-live="polite"></p>
+
+            <p class="empty-state" id="tasks-filter-empty" hidden>No tasks match the current filters.</p>
+
+            <div class="table-wrapper" id="tasks-table-wrapper">
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">ID</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Namespace</th>
+                    <th scope="col">Last Finished</th>
+                    <th scope="col">Next Scheduled</th>
+                    <th scope="col">Last Result</th>
+                  </tr>
+                </thead>
+                <tbody id="tasks-table-body"></tbody>
+              </table>
+            </div>
           </div>
+
+          <div class="ns-drawer-backdrop" id="tasks-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="tasks-drawer" hidden aria-labelledby="tasks-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="tasks-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="tasks-drawer-state-badge"></span>
+                <span class="status-badge status-badge--neutral" id="tasks-drawer-type-badge"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="tasks-drawer-close" aria-label="Close task details">&times;</button>
+            </div>
+            <p class="ns-hint">Read-only. State comes from IRIS&rsquo;s per-task info: Running when its Status is -1 (JobRunning), otherwise Suspended or Not Running.</p>
+            <div class="drawer-tabs" id="tasks-drawer-tabs" role="tablist" aria-label="Task details">
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-tab-overview" data-tab="overview" aria-controls="tasks-panel-overview" aria-selected="true">Overview</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-tab-schedule" data-tab="schedule" aria-controls="tasks-panel-schedule" aria-selected="false" tabindex="-1">Schedule</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-tab-execution" data-tab="execution" aria-controls="tasks-panel-execution" aria-selected="false" tabindex="-1">Execution</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-tab-settings" data-tab="settings" aria-controls="tasks-panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+            </div>
+            <div class="loading-state" id="tasks-drawer-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Loading task configuration&hellip;</span>
+            </div>
+            <div class="banner banner--error" id="tasks-drawer-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="tasks-drawer-error-text"></span>
+            </div>
+            <div id="tasks-panel-overview" role="tabpanel" aria-labelledby="tasks-tab-overview"></div>
+            <div id="tasks-panel-schedule" role="tabpanel" aria-labelledby="tasks-tab-schedule" hidden></div>
+            <div id="tasks-panel-execution" role="tabpanel" aria-labelledby="tasks-tab-execution" hidden></div>
+            <div id="tasks-panel-settings" role="tabpanel" aria-labelledby="tasks-tab-settings" hidden>
+              <p class="ns-hint">Settings specific to this task&rsquo;s TaskClass, as IRIS reports them. Values of sensitive keys (passwords, secrets, tokens) are withheld by the Command Center backend and never sent to the browser.</p>
+              <dl class="info-list" id="tasks-settings-list"></dl>
+            </div>
+          </aside>
         </section>
 
         <section class="view" id="view-security" data-view="security" aria-labelledby="security-title" hidden>

@@ -14,10 +14,12 @@ authorization/confirmation/execution framework, the same way every other
 route here isn't.
 """
 
+import asyncio
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 
 from app.dependencies import get_iris_client
 from app.iris_client.client import IRISClient
@@ -43,7 +45,11 @@ from app.models.iris import (
     RestEndpoint,
     RestEndpointParameter,
     RestRouteMap,
+    TaskDetail,
     TaskEntry,
+    TaskInfo,
+    TaskManagerStatus,
+    TaskOverviewEntry,
     WebAppDetail,
     WebAppEntry,
     WebSessionEntry,
@@ -437,6 +443,167 @@ async def get_tasks(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelo
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[list[TaskEntry]].model_validate(raw)
+
+
+# At most this many GET /v2/task/info calls are in flight at once for one
+# overview request (16 tasks on icc-iris-dev).
+_TASK_INFO_CONCURRENCY = 8
+
+
+def _task_state(info: TaskInfo | None) -> str | None:
+    """A task's run state, derived from GET /v2/task/info only — never from
+    the list's `Suspended`, which was observed reporting `false` for
+    suspended tasks. "Running" is mainspec_v2.json's documented Status -1
+    (JobRunning) and wins over Suspended, because a suspended task's job can
+    still be executing. None when the info call failed: unknown, not guessed."""
+    if info is None:
+        return None
+    if info.Status == "-1":
+        return "Running"
+    if info.Suspended:
+        return "Suspended"
+    return "Not Running"
+
+
+@router.get("/tasks/overview", response_model=IRISEnvelope[list[TaskOverviewEntry]])
+async def get_tasks_overview(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[TaskOverviewEntry]]:
+    """Every task from GET /v2/tasks, each merged with its own GET
+    /v2/task/info (run status, last result, reliable Suspended flag) and a
+    derived State — the data behind the Tasks view's table and KPI cards.
+
+    The list call failing fails the request. A single task's info call
+    failing does not: that task's Info/State are None and a warning is
+    added to status.errors (naming only the task id), so the rest of the
+    page still renders. Read-only: only GETs are sent.
+    """
+    try:
+        raw = await client.get("/v2/tasks")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    listing = IRISEnvelope[list[TaskEntry]].model_validate(raw)
+
+    semaphore = asyncio.Semaphore(_TASK_INFO_CONCURRENCY)
+
+    async def read_info(task_id: int) -> TaskInfo | None:
+        async with semaphore:
+            try:
+                body = await client.get("/v2/task/info", params={"id": task_id})
+                return TaskInfo.model_validate(body.get("result") if isinstance(body, dict) else None)
+            except (*_IRIS_CLIENT_ERRORS, ValidationError):
+                return None
+
+    infos = await asyncio.gather(*(read_info(task.Id) for task in listing.result))
+
+    errors = list(listing.status.errors)
+    entries: list[TaskOverviewEntry] = []
+    for task, info in zip(listing.result, infos):
+        if info is None:
+            errors.append({"error": f"Run state unavailable for task {task.Id}", "taskId": task.Id})
+        entries.append(
+            TaskOverviewEntry(
+                Id=task.Id,
+                Name=task.Name,
+                Type=task.Type,
+                Namespace=task.Namespace,
+                Description=task.Description,
+                LastFinished=task.LastFinished,
+                NextScheduled=task.NextScheduled,
+                Info=info,
+                State=_task_state(info),
+            )
+        )
+
+    missing = sum(1 for info in infos if info is None)
+    summary = listing.status.summary
+    if missing and not summary:
+        summary = f"Run state unavailable for {missing} task{'' if missing == 1 else 's'}"
+    return IRISEnvelope[list[TaskOverviewEntry]](
+        status={"errors": errors, "summary": summary}, console=listing.console, result=entries
+    )
+
+
+# Settings keys (case-insensitive substrings) whose values never leave this
+# backend. Settings is TaskClass-specific and arbitrary; e.g. the built-in
+# Diagnostic Report task's Settings include SMTPPass.
+_SENSITIVE_SETTING_MARKERS = (
+    "pass",
+    "pwd",
+    "secret",
+    "token",
+    "credential",
+    "apikey",
+    "api_key",
+    "privatekey",
+    "private_key",
+)
+
+
+def _is_sensitive_setting(key: str) -> bool:
+    lowered = key.lower()
+    return any(marker in lowered for marker in _SENSITIVE_SETTING_MARKERS)
+
+
+def _redact_settings(value: Any, path: str, redacted: list[str]) -> Any:
+    """Returns a copy of `value` with every sensitive key's value replaced by
+    None, recursing into nested objects/arrays; each redacted key path is
+    appended to `redacted`. The value is redacted whether or not it is
+    empty, so a response never reveals whether a secret is set."""
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            key_path = f"{path}.{key}" if path else str(key)
+            if _is_sensitive_setting(str(key)):
+                result[key] = None
+                redacted.append(key_path)
+            else:
+                result[key] = _redact_settings(item, key_path, redacted)
+        return result
+    if isinstance(value, list):
+        return [_redact_settings(item, f"{path}[{i}]", redacted) for i, item in enumerate(value)]
+    return value
+
+
+@router.get("/tasks/detail", response_model=IRISEnvelope[TaskDetail])
+async def get_task_detail(
+    id: int,
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[TaskDetail]:
+    """Full configuration of one task (GET /v2/task?id=), the data behind
+    the Tasks view's detail drawer. `id` is mainspec_v2.json's own query
+    parameter name. Sensitive Settings keys are redacted here, server-side,
+    before the response is built (see _redact_settings). IRIS's documented
+    404 for an unknown id is surfaced as a 404. Read-only: a plain GET.
+    """
+    try:
+        raw = await client.get("/v2/task", params={"id": id})
+    except IRISResponseError as exc:
+        if exc.status_code == 404:
+            raise HTTPException(status_code=404, detail="IRIS reports no task with this id") from exc
+        raise _as_http_exception(exc) from exc
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+
+    result = raw.get("result") if isinstance(raw, dict) else None
+    if isinstance(result, dict):
+        redacted: list[str] = []
+        result = {**result, "Settings": _redact_settings(result.get("Settings"), "", redacted)}
+        result["RedactedSettings"] = redacted
+        raw = {**raw, "result": result}
+    return IRISEnvelope[TaskDetail].model_validate(raw)
+
+
+@router.get("/tasks/manager", response_model=IRISEnvelope[TaskManagerStatus])
+async def get_task_manager(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[TaskManagerStatus]:
+    """The Task Manager's own status (GET /v2/task/manager). Read-only."""
+    try:
+        raw = await client.get("/v2/task/manager")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[TaskManagerStatus].model_validate(raw)
 
 
 @router.get("/fs-access-purposes", response_model=IRISEnvelope[list[Any]])

@@ -39,8 +39,9 @@ for the Security view:
     and renders into the web apps table body.
 12. (Step 6) The Tasks nav item and view exist in the markup and the nav
     item is enabled (not `disabled`).
-13. (Step 6) tasks.js calls GET /api/iris/tasks and no other endpoint, and
-    renders into the tasks table body.
+13. (Step 6) tasks.js calls only the read-only GET /api/iris/tasks/overview,
+    /tasks/manager and /tasks/detail endpoints, and renders into the tasks
+    table body.
 14. (Step 7) The Security nav item and view exist in the markup and the
     nav item is enabled (not `disabled`).
 15. (Step 7) security.js calls only the three OAuth2 endpoints (server,
@@ -544,22 +545,40 @@ def test_tasks_nav_and_view_exist_and_are_enabled() -> None:
     check(view_match is not None, 'a <section id="view-tasks" data-view="tasks"> exists')
 
     check('id="tasks-table-body"' in html, "the tasks table body element exists")
+    check('id="tasks-summary-grid"' in html, "the tasks KPI grid exists")
+    check('id="tasks-filter-search"' in html, "the tasks search input exists")
+    check('id="tasks-filter-state"' in html, "the tasks State filter exists")
+    check('id="tasks-drawer"' in html, "the tasks detail drawer element exists")
+    for tab in ("overview", "schedule", "execution", "settings"):
+        check(f'id="tasks-tab-{tab}"' in html, f"the tasks drawer has a {tab} tab")
 
 
-def test_tasks_view_uses_only_get_tasks() -> None:
-    print("Checking tasks.js calls GET /api/iris/tasks and nothing else...")
+def test_tasks_view_uses_only_task_read_endpoints() -> None:
+    print("Checking tasks.js calls only the read-only task overview/manager/detail endpoints...")
     tasks_js = (FRONTEND_DIR / "js" / "tasks.js").read_text(encoding="utf-8")
 
-    check("IrisApi.getTasks" in tasks_js, "tasks.js calls IrisApi.getTasks()")
-    other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps"]
+    check("IrisApi.getTaskOverview" in tasks_js, "tasks.js calls IrisApi.getTaskOverview()")
+    check("IrisApi.getTaskManager" in tasks_js, "tasks.js calls IrisApi.getTaskManager()")
+    check(
+        "IrisApi.getTaskDetail" in tasks_js,
+        "tasks.js calls IrisApi.getTaskDetail() for the detail drawer",
+    )
+    other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks"]
     for method in other_methods:
         check(method not in tasks_js, f"tasks.js does NOT call IrisApi.{method}()")
+    for mutation in ("createNamespace", "createDatabase", "mountDatabase", "setWebAppEnabled", "fetch("):
+        check(mutation not in tasks_js, f"tasks.js does not use {mutation}")
+    # Run state comes from the backend-derived State (GET /v2/task/info),
+    # never from GET /v2/tasks' own Suspended flag, which was observed wrong.
+    check(
+        re.search(r"task\.Suspended\b", tasks_js) is None,
+        "tasks.js never reads the task list's own Suspended flag",
+    )
 
     referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', tasks_js))
     check(
-        referenced_paths in ({"/api/iris/tasks"}, set()),
-        f"tasks.js references only /api/iris/tasks as a literal path "
-        f"(found: {referenced_paths or 'none, uses IrisApi.getTasks()'})",
+        referenced_paths == set(),
+        f"tasks.js references no /api/iris/* path other than via IrisApi (found: {referenced_paths or 'none'})",
     )
     check(
         "tasks-table-body" in tasks_js,
@@ -1191,6 +1210,19 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
         "IrisApi.getCapabilities" in dashboard_js,
         "dashboard.js calls IrisApi.getCapabilities() for its API Coverage insight",
     )
+    # The Tasks card/micro-bar use the same backend-derived run State as the
+    # Tasks view (GET /api/iris/tasks/overview), never the task list's own
+    # Suspended flag, which was observed reporting false for suspended tasks.
+    check(
+        "IrisApi.getTaskOverview" in dashboard_js,
+        "dashboard.js calls IrisApi.getTaskOverview() for its Tasks card",
+    )
+    check("IrisApi.getTasks(" not in dashboard_js, "dashboard.js no longer calls IrisApi.getTasks()")
+    check(
+        re.search(r"task\.State\b", dashboard_js) is not None
+        and re.search(r"task\.Suspended\b", dashboard_js) is None,
+        "dashboard.js groups tasks by the overview's State, never the list's Suspended flag",
+    )
     check(
         re.search(r'from\s+["\']\./nav\.js["\']', dashboard_js) is not None
         and "navigateTo" in dashboard_js,
@@ -1329,7 +1361,7 @@ def main() -> None:
         test_web_apps_nav_and_view_exist_and_are_enabled,
         test_web_apps_view_uses_only_web_app_read_endpoints,
         test_tasks_nav_and_view_exist_and_are_enabled,
-        test_tasks_view_uses_only_get_tasks,
+        test_tasks_view_uses_only_task_read_endpoints,
         test_security_nav_and_view_exist_and_are_enabled,
         test_security_view_uses_only_security_endpoints,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,

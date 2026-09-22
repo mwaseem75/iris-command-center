@@ -36,7 +36,7 @@ Known, deliberate divergence from mainspec_v2.json's schemas:
     from the response even though the spec's schema lists it.
 """
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -371,6 +371,110 @@ class TaskEntry(BaseModel):
     Suspended: bool
     LastFinished: str
     NextScheduled: str
+
+
+# --- GET /v2/task/info?id=<Id> — mainspec_v2.json's TaskExtraInfo. All 8
+#     fields observed live, with these types, for every task on
+#     icc-iris-dev. `Status` is a string ("1"); the spec documents "-1" as
+#     "the job is currently running" and -2..-5 as error codes whose text is
+#     in `Error`. `Suspended` here is the reliable flag: the list endpoint
+#     reported `false` for two tasks whose %SYS.Task.Suspended was 2, while
+#     this endpoint (and /v2/task/upcoming) reported `true`. ---
+
+
+class TaskInfo(BaseModel):
+    Type: str
+    Status: str
+    Error: str
+    LastSchedule: str
+    LastStarted: str
+    LastFinished: str
+    NextScheduled: str
+    Suspended: bool
+
+
+# --- GET /api/iris/tasks/overview — this backend's own merge of
+#     GET /v2/tasks with GET /v2/task/info for each task. The list's own
+#     `Suspended` is deliberately NOT carried over (see TaskInfo above).
+#     `Info` is None, and `State` with it, when that task's info call
+#     failed; `State` is derived from Info only (see routes/iris.py's
+#     _task_state). `NextScheduled` is the list's raw string — observed as
+#     a "YYYY-MM-DD HH:MM:SS" datetime, "" (on-demand tasks) or free text
+#     such as "Runs After #1:00" — and is never parsed here. ---
+
+
+class TaskOverviewEntry(BaseModel):
+    Id: int
+    Name: str
+    Type: str
+    Namespace: str
+    Description: str
+    LastFinished: str
+    NextScheduled: str
+    Info: TaskInfo | None
+    State: Literal["Running", "Not Running", "Suspended"] | None
+
+
+# --- GET /v2/task?id=<Id> — mainspec_v2.json's Task schema. Every field
+#     was present, with no extras, for all 7 tasks read on icc-iris-dev.
+#     Where the observed type differs from the spec it is modelled as
+#     observed: TimePeriodEvery/TimePeriodDay came back as integers or ""
+#     (spec: string), ExpiresDays/Hours/Minutes as "" (spec: integer), so
+#     these — and DailyIncrement, the same kind of "" -or-count field — are
+#     `int | str` and passed through unchanged.
+#
+#     `Settings` is TaskClass-specific and can hold credentials (Diagnostic
+#     Report's includes SMTPPass). routes/iris.py redacts sensitive keys
+#     before this model is returned: their values become None and their
+#     key paths are listed in `RedactedSettings`, which is this backend's
+#     own field, not IRIS's. ---
+
+
+class TaskDetail(BaseModel):
+    Name: str
+    Description: str
+    TaskClass: str
+    NameSpace: str
+    RunAsUser: str
+    Priority: str
+    IsBatch: bool
+    MirrorStatus: str
+    RescheduleOnStart: bool
+    SuspendOnError: bool
+    SuspendTerminated: bool
+    TimePeriod: str
+    TimePeriodEvery: int | str
+    TimePeriodDay: int | str
+    DailyFrequency: str
+    DailyFrequencyTime: str
+    DailyIncrement: int | str
+    DailyStartTime: str
+    DailyEndTime: str
+    StartDate: str
+    EndDate: str
+    RunAfterGUID: str
+    Expires: bool
+    ExpiresDays: int | str
+    ExpiresHours: int | str
+    ExpiresMinutes: int | str
+    OpenOutputFile: bool
+    OutputDirectory: str
+    OutputFilename: str
+    OutputFileIsBinary: bool
+    EmailOutput: bool
+    EmailOnCompletion: list[str]
+    EmailOnError: list[str]
+    EmailOnExpiration: list[str]
+    Settings: dict[str, Any]
+    RedactedSettings: list[str] = Field(default_factory=list)
+
+
+# --- GET /v2/task/manager — observed live as {"Status": "Running"}; the
+#     spec's enum is "Running" / "Not running" / "Suspended". ---
+
+
+class TaskManagerStatus(BaseModel):
+    Status: str
 
 
 # --- GET /v2/journal/settings ---

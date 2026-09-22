@@ -215,9 +215,14 @@ function renderWebAppsViz(result) {
   renderStackedBar(dom.webAppsViz, entries, { compact: true });
 }
 
+/** Run State split from GET /api/iris/tasks/overview's backend-derived
+ * `State` — the same grouping (and "Unknown" for a task whose info could
+ * not be read) the Tasks view uses, so the two always agree. Never the task
+ * list's own Suspended flag, which was observed reporting false for
+ * suspended tasks. */
 function renderTasksViz(result) {
   if (result.status !== "fulfilled" || !Array.isArray(result.value.result)) return;
-  const entries = countBy(result.value.result, (task) => (task.Suspended ? "Suspended" : "Active"));
+  const entries = countBy(result.value.result, (task) => task.State || "Unknown");
   renderStackedBar(dom.tasksViz, entries, { compact: true });
 }
 
@@ -335,7 +340,7 @@ export async function loadDashboard() {
       IrisApi.getDatabases(),
       IrisApi.getProcesses(),
       IrisApi.getWebApps(),
-      IrisApi.getTasks(),
+      IrisApi.getTaskOverview(),
       IrisApi.getExecutionTraces(),
       IrisApi.getOperations(),
       IrisApi.getCapabilities(),

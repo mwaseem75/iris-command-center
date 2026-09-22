@@ -261,6 +261,14 @@ export const IrisApi = {
   // the browser (see backend/app/routes/iris.py's get_web_sessions).
   getWebSessions: () => fetchIris("/api/iris/web-sessions"),
   getTasks: () => fetchIris("/api/iris/tasks"),
+  // Read-only — every task merged with its GET /v2/task/info and a derived
+  // State (see backend/app/routes/iris.py's get_tasks_overview). The list's
+  // own Suspended flag is not included; it was observed to be wrong.
+  getTaskOverview: () => fetchIris("/api/iris/tasks/overview"),
+  // Read-only — one task's full configuration; the backend redacts
+  // sensitive Settings values before responding.
+  getTaskDetail: (id) => fetchIris(`/api/iris/tasks/detail?id=${encodeURIComponent(id)}`),
+  getTaskManager: () => fetchIris("/api/iris/tasks/manager"),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),
