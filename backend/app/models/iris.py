@@ -279,6 +279,54 @@ class WebAppDetail(BaseModel):
     WSGIType: str
 
 
+# --- GET /api/mgmnt/v1/{namespace}/spec{webApplication} — IRIS's API
+#     Management API (not part of mainspec_v2.json) generates a Swagger 2.0
+#     document from a REST web app's dispatch-class route map. Observed
+#     against all 9 REST apps on icc-iris-dev: every operation has
+#     operationId + x-ISC_ServiceMethod (the dispatch-class method that
+#     implements the route); summary/description/parameters are optional;
+#     parameters are {name, in, required, type?, description?, pattern?,
+#     schema?} or a {"$ref": "#/parameters/<name>"} to the spec's own
+#     top-level `parameters` (resolved by the route — an unresolvable $ref
+#     is kept as `ref` rather than guessed). The generated `responses` are
+#     always the same two placeholders ("(Expected Result)"/"(Unexpected
+#     Error)"), so they carry no information and are not modelled.
+#     RestEndpoint/RestRouteMap are this backend's flattened view of that
+#     document — every value is copied from it, nothing is derived except
+#     the upper-casing of the HTTP method key.
+
+
+class RestEndpointParameter(BaseModel):
+    name: str | None = None
+    location: str | None = None  # Swagger's `in`
+    required: bool | None = None
+    type: str | None = None
+    description: str | None = None
+    pattern: str | None = None
+    bodySchema: dict[str, Any] | None = None  # Swagger's `schema` (body parameters)
+    ref: str | None = None  # an unresolvable "$ref", kept verbatim
+
+
+class RestEndpoint(BaseModel):
+    method: str
+    path: str
+    operationId: str | None = None
+    serviceMethod: str | None = None  # Swagger's x-ISC_ServiceMethod
+    summary: str | None = None
+    description: str | None = None
+    parameters: list[RestEndpointParameter]
+
+
+class RestRouteMap(BaseModel):
+    name: str
+    namespace: str
+    dispatchClass: str
+    enabled: bool | None = None
+    basePath: str | None = None
+    swagger: str | None = None
+    endpoints: list[RestEndpoint]
+
+
 # --- GET /v2/ext-lang-servers ---
 
 

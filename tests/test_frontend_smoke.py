@@ -33,8 +33,9 @@ for the Security view:
 10. (Step 5) The Web Apps nav item and view exist in the markup and the
     nav item is enabled (not `disabled`).
 11. (Step 5) web-apps.js calls only GET /api/iris/web-apps and the
-    read-only GET /api/iris/web-apps/detail (detail drawer), and renders
-    into the web apps table body.
+    read-only GET /api/iris/web-apps/detail (detail drawer) and
+    GET /api/iris/web-apps/rest-endpoints (REST Endpoints tab), and
+    renders into the web apps table body.
 12. (Step 6) The Tasks nav item and view exist in the markup and the nav
     item is enabled (not `disabled`).
 13. (Step 6) tasks.js calls GET /api/iris/tasks and no other endpoint, and
@@ -466,6 +467,9 @@ def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
     check('id="web-apps-filter-search"' in html, "the web apps search input exists")
     check('id="web-apps-filter-kind"' in html, "the web apps REST/CSP kind filter exists")
     check('id="web-apps-drawer"' in html, "the web apps detail drawer element exists")
+    check('id="web-apps-tab-rest"' in html, "the web apps drawer has a REST Endpoints tab")
+    check('id="web-apps-rest-search"' in html, "the REST endpoints search input exists")
+    check('id="web-apps-rest-detail-view"' in html, "the REST endpoint detail view exists")
 
 
 def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
@@ -476,6 +480,10 @@ def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
     check(
         "IrisApi.getWebAppDetail" in web_apps_js,
         "web-apps.js calls IrisApi.getWebAppDetail() for the detail drawer",
+    )
+    check(
+        "IrisApi.getWebAppRestEndpoints" in web_apps_js,
+        "web-apps.js calls IrisApi.getWebAppRestEndpoints() for the REST Endpoints tab",
     )
     other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getTasks"]
     for method in other_methods:

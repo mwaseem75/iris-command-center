@@ -15,6 +15,7 @@ route here isn't.
 """
 
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -39,6 +40,9 @@ from app.models.iris import (
     JournalSettings,
     NamespaceEntry,
     ProcessEntry,
+    RestEndpoint,
+    RestEndpointParameter,
+    RestRouteMap,
     TaskEntry,
     WebAppDetail,
     WebAppEntry,
@@ -253,6 +257,144 @@ async def get_web_app_detail(
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[WebAppDetail].model_validate(raw)
+
+
+# Swagger 2.0 path-item keys that are HTTP operations (everything else in a
+# path item, e.g. "parameters", is not an endpoint).
+_SWAGGER_HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch"})
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _rest_parameter(raw: dict[str, Any], shared: dict[str, Any]) -> RestEndpointParameter:
+    """One Swagger parameter, with a "#/parameters/<name>" $ref resolved
+    against the spec's own top-level `parameters`. A $ref that can't be
+    resolved is kept verbatim as `ref` — never guessed."""
+    ref = raw.get("$ref")
+    if isinstance(ref, str):
+        prefix = "#/parameters/"
+        target = shared.get(ref[len(prefix):]) if ref.startswith(prefix) else None
+        if not isinstance(target, dict):
+            return RestEndpointParameter(ref=ref)
+        raw = target
+    schema = raw.get("schema")
+    required = raw.get("required")
+    return RestEndpointParameter(
+        name=_optional_str(raw.get("name")),
+        location=_optional_str(raw.get("in")),
+        required=required if isinstance(required, bool) else None,
+        type=_optional_str(raw.get("type")),
+        description=_optional_str(raw.get("description")),
+        pattern=_optional_str(raw.get("pattern")),
+        bodySchema=schema if isinstance(schema, dict) else None,
+    )
+
+
+def _rest_endpoints(spec: dict[str, Any]) -> list[RestEndpoint]:
+    """Flattens a Swagger 2.0 `paths` object into one RestEndpoint per
+    (path, method), in the document's own order. Path-level parameters
+    (Swagger lets a path item declare them for all its operations) are
+    prepended to each operation's own."""
+    shared = spec.get("parameters") if isinstance(spec.get("parameters"), dict) else {}
+    paths = spec.get("paths") if isinstance(spec.get("paths"), dict) else {}
+    endpoints: list[RestEndpoint] = []
+    for path, item in paths.items():
+        if not isinstance(item, dict):
+            continue
+        path_params = item.get("parameters") if isinstance(item.get("parameters"), list) else []
+        for method, operation in item.items():
+            if method.lower() not in _SWAGGER_HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            op_params = operation.get("parameters") if isinstance(operation.get("parameters"), list) else []
+            endpoints.append(
+                RestEndpoint(
+                    method=method.upper(),
+                    path=path,
+                    operationId=_optional_str(operation.get("operationId")),
+                    serviceMethod=_optional_str(operation.get("x-ISC_ServiceMethod")),
+                    summary=_optional_str(operation.get("summary")),
+                    description=_optional_str(operation.get("description")),
+                    parameters=[
+                        _rest_parameter(param, shared)
+                        for param in [*path_params, *op_params]
+                        if isinstance(param, dict)
+                    ],
+                )
+            )
+    return endpoints
+
+
+@router.get("/web-apps/rest-endpoints", response_model=IRISEnvelope[RestRouteMap])
+async def get_web_app_rest_endpoints(
+    name: str,
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[RestRouteMap]:
+    """The REST route map of one web application, keyed by its real Name —
+    the data behind the Web Apps Explorer's "REST Endpoints" tab.
+
+    Two read-only GETs against IRIS's API Management API (/api/mgmnt — not
+    part of mainspec_v2.json; see IRISClient.get_mgmnt for why it uses HTTP
+    Basic rather than the /api/admin JWT):
+      1. GET /api/mgmnt/ — IRIS's own list of REST applications in every
+         namespace. An app not in this list is not a REST app as far as
+         IRIS is concerned (404 here), and the list supplies the app's real
+         namespace for step 2 rather than trusting the caller.
+      2. GET /api/mgmnt/v1/{namespace}/spec{name} — a Swagger 2.0 document
+         IRIS generates from the dispatch class's route map. IRIS answers
+         404 when it cannot generate one (observed live for
+         /api/interop-editors), surfaced here as a distinct 404 detail.
+
+    Never gated by the authorization/confirmation/execution framework:
+    nothing here changes IRIS state, like every other route in this file.
+    """
+    try:
+        rest_apps = await client.get_mgmnt("/")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+
+    entry = None
+    if isinstance(rest_apps, list):
+        entry = next(
+            (app for app in rest_apps if isinstance(app, dict) and app.get("name") == name),
+            None,
+        )
+    namespace = entry.get("namespace") if entry else None
+    if not isinstance(namespace, str) or not namespace:
+        raise HTTPException(
+            status_code=404, detail="IRIS does not list this web application as a REST application"
+        )
+
+    spec_path = f"/v1/{quote(namespace, safe='')}/spec{quote(name, safe='/')}"
+    try:
+        spec = await client.get_mgmnt(spec_path)
+    except IRISResponseError as exc:
+        if exc.status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="IRIS could not generate a REST route map for this web application",
+            ) from exc
+        raise _as_http_exception(exc) from exc
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+
+    if not isinstance(spec, dict):
+        raise HTTPException(status_code=502, detail="IRIS returned an unexpected REST route map")
+
+    enabled = entry.get("enabled")
+    route_map = RestRouteMap(
+        name=name,
+        namespace=namespace,
+        dispatchClass=_optional_str(entry.get("dispatchClass")) or "",
+        enabled=enabled if isinstance(enabled, bool) else None,
+        basePath=_optional_str(spec.get("basePath")),
+        swagger=_optional_str(spec.get("swagger")),
+        endpoints=_rest_endpoints(spec),
+    )
+    return IRISEnvelope[RestRouteMap](
+        status={"errors": [], "summary": ""}, console=[], result=route_map
+    )
 
 
 @router.get("/ext-lang-servers", response_model=IRISEnvelope[list[ExternalLanguageServerEntry]])

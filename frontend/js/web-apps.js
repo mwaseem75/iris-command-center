@@ -1,9 +1,13 @@
 // Web Apps view: a read-only Web Apps Explorer — KPI cards, the Enabled/
 // Disabled strip, a client-side search/filter toolbar, a compact table,
-// and a detail drawer. It calls exactly two read-only endpoints:
-//   - GET /api/iris/web-apps (the list; IrisApi.getWebApps()), and
+// and a detail drawer with Configuration and (REST apps only) REST
+// Endpoints tabs. It calls exactly three read-only endpoints:
+//   - GET /api/iris/web-apps (the list; IrisApi.getWebApps()),
 //   - GET /api/iris/web-apps/detail?name= (one app's full configuration,
-//     fetched only when its drawer opens; IrisApi.getWebAppDetail()).
+//     fetched only when its drawer opens; IrisApi.getWebAppDetail()), and
+//   - GET /api/iris/web-apps/rest-endpoints?name= (a REST app's route map,
+//     fetched only when its REST Endpoints tab is first opened;
+//     IrisApi.getWebAppRestEndpoints()).
 // No mutating HTTP method is used anywhere in this module, and there are
 // deliberately no web-app actions (enable/disable/edit/delete).
 //
@@ -59,6 +63,34 @@ const dom = {
   drawerErrorText: document.getElementById("web-apps-drawer-error-text"),
   drawerConfig: document.getElementById("web-apps-drawer-config"),
   drawerClose: document.getElementById("web-apps-drawer-close"),
+  drawerTabs: document.getElementById("web-apps-drawer-tabs"),
+  tabConfig: document.getElementById("web-apps-tab-config"),
+  tabRest: document.getElementById("web-apps-tab-rest"),
+  panelConfig: document.getElementById("web-apps-panel-config"),
+  panelRest: document.getElementById("web-apps-panel-rest"),
+  restLoading: document.getElementById("web-apps-rest-loading"),
+  restError: document.getElementById("web-apps-rest-error"),
+  restErrorText: document.getElementById("web-apps-rest-error-text"),
+  restUnavailable: document.getElementById("web-apps-rest-unavailable"),
+  restContent: document.getElementById("web-apps-rest-content"),
+  restMeta: document.getElementById("web-apps-rest-meta"),
+  restListView: document.getElementById("web-apps-rest-list-view"),
+  restFilterForm: document.getElementById("web-apps-rest-filter-form"),
+  restSearch: document.getElementById("web-apps-rest-search"),
+  restMethod: document.getElementById("web-apps-rest-method"),
+  restCount: document.getElementById("web-apps-rest-count"),
+  restFilterEmpty: document.getElementById("web-apps-rest-filter-empty"),
+  restList: document.getElementById("web-apps-rest-list"),
+  restDetailView: document.getElementById("web-apps-rest-detail-view"),
+  restBack: document.getElementById("web-apps-rest-back"),
+  restDetailMethod: document.getElementById("web-apps-rest-detail-method"),
+  restDetailPath: document.getElementById("web-apps-rest-detail-path"),
+  restDetailFields: document.getElementById("web-apps-rest-detail-fields"),
+  restDetailNoParams: document.getElementById("web-apps-rest-detail-no-params"),
+  restDetailParamsWrapper: document.getElementById("web-apps-rest-detail-params-wrapper"),
+  restDetailParams: document.getElementById("web-apps-rest-detail-params"),
+  restDetailDescriptionSection: document.getElementById("web-apps-rest-detail-description-section"),
+  restDetailDescription: document.getElementById("web-apps-rest-detail-description"),
 };
 
 // [label, WebAppEntry field, value kind] — the list-endpoint facts shown at
@@ -193,6 +225,16 @@ let allWebApps = [];
 // response for a previously opened app can never overwrite a newer one.
 let currentDrawerName = null;
 let detailRequestSeq = 0;
+
+// REST Endpoints tab state. Route maps are cached per app name until the
+// next list Refresh (each fetch costs IRIS a few seconds); a cached entry
+// is either { routeMap } or { unavailable: message }. `restRequestSeq`
+// guards against a slow response for a previously viewed app.
+let activeDrawerTab = "config";
+let restCache = new Map();
+let restRequestSeq = 0;
+let currentRouteMap = null;
+let currentEndpointIndex = null;
 
 function kindOf(app) {
   return typeof app.DispatchClass === "string" && app.DispatchClass !== "" ? "REST" : "CSP";
@@ -538,23 +580,280 @@ async function loadDrawerDetail(name) {
   }
 }
 
+// --- REST Endpoints tab ---
+
+function trimmedOrNull(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function makeMethodBadge(method) {
+  const badge = document.createElement("span");
+  badge.className = "method-badge";
+  // Colour is keyed by IRIS's own verb, lower-cased (see styles.css).
+  badge.dataset.method = String(method || "").toLowerCase();
+  badge.textContent = textOrPlaceholder(method);
+  return badge;
+}
+
+function setDrawerTab(tab) {
+  const app = allWebApps.find((entry) => entry.Name === currentDrawerName);
+  const restAvailable = Boolean(app) && kindOf(app) === "REST";
+  activeDrawerTab = tab === "rest" && restAvailable ? "rest" : "config";
+  const isRest = activeDrawerTab === "rest";
+
+  dom.tabConfig.setAttribute("aria-selected", String(!isRest));
+  dom.tabRest.setAttribute("aria-selected", String(isRest));
+  dom.tabConfig.tabIndex = isRest ? -1 : 0;
+  dom.tabRest.tabIndex = isRest ? 0 : -1;
+  dom.panelConfig.hidden = isRest;
+  dom.panelRest.hidden = !isRest;
+  dom.drawer.classList.toggle("ns-drawer--xwide", isRest);
+
+  if (isRest) loadRestEndpoints(currentDrawerName);
+}
+
+function resetRestPanel() {
+  restRequestSeq += 1; // discard any in-flight route-map response
+  currentRouteMap = null;
+  currentEndpointIndex = null;
+  dom.restLoading.hidden = true;
+  dom.restError.hidden = true;
+  dom.restUnavailable.hidden = true;
+  dom.restContent.hidden = true;
+  dom.restList.replaceChildren();
+  dom.restSearch.value = "";
+  dom.restMethod.value = "";
+  showEndpointList();
+}
+
+/** Fetches (or reuses) the route map for `name` and renders it. Only the
+ * most recent request's result is ever rendered. */
+async function loadRestEndpoints(name) {
+  const cached = restCache.get(name);
+  if (cached) {
+    renderRestResult(cached);
+    return;
+  }
+  if (!dom.restLoading.hidden) return; // this app's request is already in flight
+
+  const seq = ++restRequestSeq;
+  dom.restError.hidden = true;
+  dom.restUnavailable.hidden = true;
+  dom.restContent.hidden = true;
+  dom.restLoading.hidden = false;
+
+  try {
+    const response = await IrisApi.getWebAppRestEndpoints(name);
+    if (seq !== restRequestSeq) return;
+    const routeMap = response && response.result;
+    if (!routeMap || !Array.isArray(routeMap.endpoints)) {
+      dom.restErrorText.textContent = "IRIS did not return the expected REST route map.";
+      dom.restError.hidden = false;
+      return;
+    }
+    const entry = { routeMap };
+    restCache.set(name, entry);
+    renderRestResult(entry);
+  } catch (err) {
+    if (seq !== restRequestSeq) return;
+    if (err instanceof ApiError && err.status === 404) {
+      // The backend's 404 means IRIS itself has no route map for this app
+      // (observed live for /api/interop-editors) — a real, cacheable
+      // answer, not a transient failure.
+      const entry = {
+        unavailable:
+          "IRIS's API Management API returned no REST route map for this application, so its endpoints cannot be listed here.",
+      };
+      restCache.set(name, entry);
+      renderRestResult(entry);
+      return;
+    }
+    dom.restErrorText.textContent =
+      err instanceof ApiError
+        ? "Could not load this application's REST route map."
+        : "An unexpected error occurred while loading this application's REST route map.";
+    dom.restError.hidden = false;
+  } finally {
+    if (seq === restRequestSeq) dom.restLoading.hidden = true;
+  }
+}
+
+function renderRestResult(entry) {
+  dom.restLoading.hidden = true;
+  dom.restError.hidden = true;
+  if (entry.unavailable) {
+    currentRouteMap = null;
+    dom.restContent.hidden = true;
+    dom.restUnavailable.textContent = entry.unavailable;
+    dom.restUnavailable.hidden = false;
+    return;
+  }
+  dom.restUnavailable.hidden = true;
+  if (currentRouteMap === entry.routeMap) return; // already rendered; keep filters/detail
+  currentRouteMap = entry.routeMap;
+  currentEndpointIndex = null;
+
+  const routeMap = entry.routeMap;
+  dom.restMeta.replaceChildren(
+    makeInfoRow("Dispatch Class", null, textOrPlaceholder(routeMap.dispatchClass), "mono"),
+    makeInfoRow("Namespace", null, textOrPlaceholder(routeMap.namespace), "text"),
+    makeInfoRow("Base Path", null, textOrPlaceholder(routeMap.basePath), "mono"),
+    makeInfoRow("Endpoints", null, String(routeMap.endpoints.length), "text"),
+    makeInfoRow("Spec Format", null, routeMap.swagger ? `Swagger ${routeMap.swagger}` : PLACEHOLDER, "text"),
+  );
+
+  const methods = [...new Set(routeMap.endpoints.map((e) => e.method).filter(Boolean))].sort();
+  populateSelect(dom.restMethod, "All methods", methods);
+  showEndpointList();
+  renderEndpointList();
+  dom.restContent.hidden = false;
+}
+
+function endpointMatches(endpoint, query, method) {
+  if (method && endpoint.method !== method) return false;
+  if (!query) return true;
+  return [endpoint.path, endpoint.serviceMethod, endpoint.operationId, endpoint.summary]
+    .some((value) => typeof value === "string" && value.toLowerCase().includes(query));
+}
+
+function renderEndpointList() {
+  if (!currentRouteMap) return;
+  const query = dom.restSearch.value.trim().toLowerCase();
+  const method = dom.restMethod.value;
+  const endpoints = currentRouteMap.endpoints;
+
+  dom.restList.replaceChildren();
+  let shown = 0;
+  endpoints.forEach((endpoint, index) => {
+    if (!endpointMatches(endpoint, query, method)) return;
+    shown += 1;
+    const item = document.createElement("li");
+    item.className = "endpoint-list__item";
+    item.dataset.index = String(index);
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    item.setAttribute(
+      "aria-label",
+      `View endpoint ${textOrPlaceholder(endpoint.method)} ${textOrPlaceholder(endpoint.path)}`,
+    );
+
+    const path = document.createElement("span");
+    path.className = "endpoint-list__path";
+    path.textContent = textOrPlaceholder(endpoint.path);
+    path.title = path.textContent;
+
+    const service = document.createElement("span");
+    service.className = "endpoint-list__service";
+    service.textContent = textOrPlaceholder(endpoint.serviceMethod);
+    service.title = `Implementing method: ${service.textContent}`;
+
+    item.append(makeMethodBadge(endpoint.method), path, service);
+    dom.restList.append(item);
+  });
+
+  const filtered = query !== "" || method !== "";
+  dom.restList.hidden = shown === 0;
+  dom.restFilterEmpty.hidden = shown !== 0;
+  dom.restCount.textContent = filtered
+    ? `Showing ${shown} of ${endpoints.length}`
+    : `Showing all ${endpoints.length}`;
+}
+
+function showEndpointList() {
+  dom.restDetailView.hidden = true;
+  dom.restListView.hidden = false;
+}
+
+function formatParameterType(param) {
+  if (param.bodySchema) return JSON.stringify(param.bodySchema);
+  return textOrPlaceholder(param.type);
+}
+
+function showEndpointDetail(index) {
+  const endpoint = currentRouteMap && currentRouteMap.endpoints[index];
+  if (!endpoint) return;
+  currentEndpointIndex = index;
+
+  dom.restDetailMethod.dataset.method = String(endpoint.method || "").toLowerCase();
+  dom.restDetailMethod.textContent = textOrPlaceholder(endpoint.method);
+  dom.restDetailPath.textContent = textOrPlaceholder(endpoint.path);
+
+  const basePath = currentRouteMap.basePath || "";
+  dom.restDetailFields.replaceChildren(
+    makeInfoRow("Full Path", null, textOrPlaceholder(`${basePath}${endpoint.path || ""}`), "mono"),
+    makeInfoRow("Implementing Method", "x-ISC_ServiceMethod", textOrPlaceholder(endpoint.serviceMethod), "mono"),
+    makeInfoRow("Dispatch Class", null, textOrPlaceholder(currentRouteMap.dispatchClass), "mono"),
+    makeInfoRow("Operation ID", "operationId", textOrPlaceholder(endpoint.operationId), "mono"),
+    makeInfoRow("Summary", "summary", textOrPlaceholder(trimmedOrNull(endpoint.summary)), "text"),
+  );
+
+  const params = Array.isArray(endpoint.parameters) ? endpoint.parameters : [];
+  dom.restDetailParams.replaceChildren();
+  for (const param of params) {
+    const row = document.createElement("tr");
+    // An unresolvable $ref is shown verbatim, never guessed into a name.
+    const nameText = param.ref ? `${param.ref} (unresolved)` : textOrPlaceholder(param.name);
+    row.append(
+      makeCell(nameText, { mono: true }),
+      makeCell(textOrPlaceholder(param.location)),
+      makeCell(formatBoolean(param.required)),
+      makeCell(formatParameterType(param), { mono: true }),
+      makeCell(textOrPlaceholder(param.pattern), { mono: true }),
+    );
+    dom.restDetailParams.append(row);
+  }
+  dom.restDetailNoParams.hidden = params.length !== 0;
+  dom.restDetailParamsWrapper.hidden = params.length === 0;
+
+  const description = trimmedOrNull(endpoint.description);
+  dom.restDetailDescription.textContent = description || "";
+  dom.restDetailDescriptionSection.hidden = description === null;
+
+  dom.restListView.hidden = true;
+  dom.restDetailView.hidden = false;
+  dom.drawer.scrollTop = 0;
+  dom.restBack.focus();
+}
+
+function backToEndpointList() {
+  const index = currentEndpointIndex;
+  currentEndpointIndex = null;
+  showEndpointList();
+  const item = index === null ? null : dom.restList.querySelector(`[data-index="${index}"]`);
+  if (item) item.focus();
+}
+
 function openDrawer(name) {
   const app = allWebApps.find((entry) => entry.Name === name);
   if (!app) return;
+  const isSameApp = currentDrawerName === app.Name;
   currentDrawerName = app.Name;
   renderDrawerSummary(app);
+
+  // The REST Endpoints tab exists only for REST apps (DispatchClass set).
+  dom.drawerTabs.hidden = kindOf(app) !== "REST";
+  if (!isSameApp) {
+    resetRestPanel();
+    activeDrawerTab = "config";
+  }
 
   const wasHidden = dom.drawer.hidden;
   dom.drawerBackdrop.hidden = false;
   dom.drawer.hidden = false;
-  dom.drawer.scrollTop = 0;
+  if (!isSameApp) dom.drawer.scrollTop = 0;
   if (wasHidden) dom.drawerClose.focus();
+  setDrawerTab(activeDrawerTab);
   loadDrawerDetail(app.Name);
 }
 
 function closeDrawer() {
   currentDrawerName = null;
   detailRequestSeq += 1; // discard any in-flight detail response
+  resetRestPanel();
+  activeDrawerTab = "config";
+  dom.drawer.classList.remove("ns-drawer--xwide");
   dom.drawerLoading.hidden = true;
   dom.drawerBackdrop.hidden = true;
   dom.drawer.hidden = true;
@@ -573,6 +872,9 @@ function renderWebApps(webApps) {
   }
 
   allWebApps = webApps;
+  // A Refresh re-reads route maps too; an open REST tab re-fetches below.
+  restCache = new Map();
+  currentRouteMap = null;
   dom.content.hidden = false;
   dom.empty.hidden = true;
   dom.countLabel.textContent = `${webApps.length} web app${webApps.length === 1 ? "" : "s"}`;
@@ -699,4 +1001,32 @@ export function initWebAppsControls() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !dom.drawer.hidden) closeDrawer();
   });
+
+  // Drawer tabs (REST apps only), with arrow-key switching per the WAI-ARIA
+  // tabs pattern.
+  dom.tabConfig.addEventListener("click", () => setDrawerTab("config"));
+  dom.tabRest.addEventListener("click", () => setDrawerTab("rest"));
+  dom.drawerTabs.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setDrawerTab(activeDrawerTab === "rest" ? "config" : "rest");
+    (activeDrawerTab === "rest" ? dom.tabRest : dom.tabConfig).focus();
+  });
+
+  // REST endpoint filtering is client-side over the cached route map.
+  dom.restFilterForm.addEventListener("submit", (event) => event.preventDefault());
+  dom.restSearch.addEventListener("input", renderEndpointList);
+  dom.restMethod.addEventListener("change", renderEndpointList);
+  dom.restList.addEventListener("click", (event) => {
+    const item = event.target.closest(".endpoint-list__item");
+    if (item) showEndpointDetail(Number(item.dataset.index));
+  });
+  dom.restList.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const item = event.target.closest(".endpoint-list__item");
+    if (!item) return;
+    event.preventDefault();
+    showEndpointDetail(Number(item.dataset.index));
+  });
+  dom.restBack.addEventListener("click", backToEndpointList);
 }

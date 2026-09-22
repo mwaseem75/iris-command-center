@@ -51,6 +51,13 @@ from app.iris_client.exceptions import (
 
 _API_BASE_PATH = "/api/admin"
 
+# IRIS's API Management REST application (dispatch class %Api.Mgmnt.v2.disp).
+# Verified against icc-iris-dev: its web app has JWT disabled
+# (JWTAuthEnabled: false, AutheEnabled: 32 = Password only), so it rejects
+# the /api/admin Bearer token with 401 and accepts only HTTP Basic with the
+# same configured IRIS credentials. See get_mgmnt().
+_MGMNT_BASE_PATH = "/api/mgmnt"
+
 # Verified against icc-iris-dev (see docs/api-capability-matrix.md): a real
 # audit-record query task completed within a single poll. These defaults
 # give real, larger queries room to complete without making a caller wait
@@ -85,6 +92,51 @@ class IRISClient:
         """
         response = await self._request("GET", path, params=params)
         return response.json()
+
+    async def get_mgmnt(self, path: str) -> Any:
+        """Perform a read-only GET against IRIS's API Management REST API.
+
+        `path` is relative to /api/mgmnt, e.g. "/" or
+        "/v1/%25SYS/spec/api/admin". Authenticates with HTTP Basic using the
+        same configured IRIS credentials the JWT login already uses (this
+        application does not accept the JWT — see _MGMNT_BASE_PATH). The
+        credentials are passed only via httpx's `auth=`, never placed in a
+        URL, log line, or exception message. Deliberately GET-only: this
+        client exposes no way to call /api/mgmnt's mutating operations.
+        Returns the parsed JSON body verbatim (a list for "/", an object for
+        a spec).
+        """
+        url = self._mgmnt_url(path)
+        auth = httpx.BasicAuth(
+            self._settings.iris_username, self._settings.iris_password.get_secret_value()
+        )
+        response = await self._send("GET", url, path, auth=auth)
+        return response.json()
+
+    def _mgmnt_url(self, path: str) -> httpx.URL:
+        """Builds the /api/mgmnt URL for `path`, refusing (before any request
+        exists, so the Basic credentials are never attached) anything that
+        would not land on the configured IRIS host strictly under
+        /api/mgmnt/. httpx normalizes "../" segments, so "/../admin/..."
+        would otherwise reach /api/admin/..., and a percent-encoded "%2e%2e"
+        survives normalization but decodes to ".." — any dot segment is
+        rejected, as is a path not starting with "/" (e.g. "@host" or
+        ".suffix"). The error message deliberately names no path or
+        credential."""
+        base = httpx.URL(self._settings.iris_base_url.rstrip("/") + _MGMNT_BASE_PATH + "/")
+        url = httpx.URL(f"{self._settings.iris_base_url.rstrip('/')}{_MGMNT_BASE_PATH}{path}")
+        # Checked both before normalization (literal "./" or "../" anywhere —
+        # no legitimate /api/mgmnt path has one) and after (decoded "%2e%2e").
+        segments = path.split("/") + url.path.split("/")
+        if (
+            not path.startswith("/")
+            or (url.scheme, url.host, url.port) != (base.scheme, base.host, base.port)
+            or not url.path.startswith(base.path)
+            or "." in segments
+            or ".." in segments
+        ):
+            raise ValueError("Refusing to send IRIS credentials outside /api/mgmnt/")
+        return url
 
     async def put(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
         """Perform an authenticated PUT against the IRIS SysAdmin REST API.
@@ -211,7 +263,22 @@ class IRISClient:
         session = await self._auth.get_valid_session()
         url = f"{self._settings.iris_base_url.rstrip('/')}{_API_BASE_PATH}{path}"
         headers = {"Authorization": f"Bearer {session.access_token}"}
+        return await self._send(method, url, path, params=params, json=json, headers=headers)
 
+    async def _send(
+        self,
+        method: str,
+        url: str | httpx.URL,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.Response:
+        """Shared transport + error mapping for every IRIS request. `path`
+        (never the full URL) is the only request detail put in an error
+        message."""
         try:
             response = await self._http.request(
                 method,
@@ -219,6 +286,7 @@ class IRISClient:
                 params=params,
                 json=json,
                 headers=headers,
+                auth=auth,
                 timeout=self._settings.iris_request_timeout_seconds,
             )
         except httpx.TimeoutException as exc:

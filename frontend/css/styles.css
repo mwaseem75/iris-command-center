@@ -2026,6 +2026,167 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
+/* --- Web Apps drawer: Configuration / REST Endpoints tabs and the REST
+   route-map explorer. The tab bar is a minimal underline tab strip in the
+   same muted small-caps language as .ns-drawer__section-title; method
+   badges follow the common API-explorer convention (GET blue, POST green,
+   PUT/PATCH amber, DELETE red), keyed by a lowercase data-method attribute
+   set from IRIS's own verb. --- */
+
+.drawer-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.drawer-tabs__tab {
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color var(--transition-base), border-color var(--transition-base);
+}
+
+.drawer-tabs__tab:hover {
+  color: var(--color-text);
+}
+
+.drawer-tabs__tab[aria-selected="true"] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
+
+/* The REST tab lists long paths — the drawer widens while it is active. */
+.ns-drawer--xwide {
+  width: min(720px, 96vw);
+}
+
+.method-badge {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 58px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.method-badge[data-method="get"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-color: transparent;
+}
+
+.method-badge[data-method="post"] {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  border-color: transparent;
+}
+
+.method-badge[data-method="put"],
+.method-badge[data-method="patch"] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: transparent;
+}
+
+.method-badge[data-method="delete"] {
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  border-color: transparent;
+}
+
+.endpoint-meta {
+  margin-bottom: 16px;
+}
+
+/* `.ns-drawer form` (the New Namespace/Database wizards) stacks forms in a
+   column; a filter toolbar inside a drawer must stay a wrapping row, or
+   its fields' flex-basis turns into height. */
+.ns-drawer .filter-form--toolbar {
+  flex-direction: row;
+  margin-bottom: 0;
+}
+
+.endpoint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.endpoint-list__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.endpoint-list__item:last-child {
+  border-bottom: none;
+}
+
+.endpoint-list__item:hover,
+.endpoint-list__item:focus-visible {
+  outline: none;
+  background: var(--color-surface-hover);
+}
+
+.endpoint-list__path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpoint-list__service {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-faint);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpoint-detail__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 12px;
+}
+
+.endpoint-detail__path {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+.endpoint-detail__description {
+  max-height: 320px;
+}
+
 /* --- Responsive --- */
 
 @media (max-width: 860px) {

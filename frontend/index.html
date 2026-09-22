@@ -1006,16 +1006,84 @@
               <button class="ns-drawer__close" type="button" id="web-apps-drawer-close" aria-label="Close web application details">&times;</button>
             </div>
             <p class="ns-hint">Read-only. Kind is derived from Dispatch Class: an app with a dispatch class is REST, otherwise CSP.</p>
-            <dl class="info-list" id="web-apps-drawer-summary"></dl>
-            <div class="loading-state" id="web-apps-drawer-loading" hidden>
-              <span class="spinner" aria-hidden="true"></span>
-              <span>Loading full configuration&hellip;</span>
+            <div class="drawer-tabs" id="web-apps-drawer-tabs" role="tablist" aria-label="Web application details" hidden>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="web-apps-tab-config" aria-controls="web-apps-panel-config" aria-selected="true">Configuration</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="web-apps-tab-rest" aria-controls="web-apps-panel-rest" aria-selected="false" tabindex="-1">REST Endpoints</button>
             </div>
-            <div class="banner banner--error" id="web-apps-drawer-error" hidden role="alert">
-              <span class="banner__icon" aria-hidden="true">&#9888;</span>
-              <span id="web-apps-drawer-error-text"></span>
+            <div id="web-apps-panel-config" role="tabpanel" aria-labelledby="web-apps-tab-config">
+              <dl class="info-list" id="web-apps-drawer-summary"></dl>
+              <div class="loading-state" id="web-apps-drawer-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading full configuration&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="web-apps-drawer-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="web-apps-drawer-error-text"></span>
+              </div>
+              <div id="web-apps-drawer-config"></div>
             </div>
-            <div id="web-apps-drawer-config"></div>
+            <div id="web-apps-panel-rest" role="tabpanel" aria-labelledby="web-apps-tab-rest" hidden>
+              <p class="ns-hint">Routes IRIS generates from this app&rsquo;s dispatch-class route map (API Management <code>/api/mgmnt</code>). The implementing method is IRIS&rsquo;s own <code>x-ISC_ServiceMethod</code> for each route. Read-only &mdash; nothing here calls these endpoints.</p>
+              <div class="loading-state" id="web-apps-rest-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading REST route map from IRIS&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="web-apps-rest-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="web-apps-rest-error-text"></span>
+              </div>
+              <p class="empty-state" id="web-apps-rest-unavailable" hidden></p>
+              <div id="web-apps-rest-content" hidden>
+                <dl class="info-list endpoint-meta" id="web-apps-rest-meta"></dl>
+                <div id="web-apps-rest-list-view">
+                  <form class="filter-form filter-form--toolbar" id="web-apps-rest-filter-form" role="search" aria-label="Filter REST endpoints">
+                    <div class="filter-field filter-field--wide">
+                      <label for="web-apps-rest-search">Search</label>
+                      <input type="search" id="web-apps-rest-search" placeholder="Path, method name, summary&hellip;" autocomplete="off" />
+                    </div>
+                    <div class="filter-field">
+                      <label for="web-apps-rest-method">HTTP Method</label>
+                      <select id="web-apps-rest-method">
+                        <option value="">All methods</option>
+                      </select>
+                    </div>
+                  </form>
+                  <p class="info-panel__meta filter-count" id="web-apps-rest-count" aria-live="polite"></p>
+                  <p class="empty-state" id="web-apps-rest-filter-empty" hidden>No endpoints match the current filters.</p>
+                  <ul class="endpoint-list" id="web-apps-rest-list"></ul>
+                </div>
+                <div id="web-apps-rest-detail-view" hidden>
+                  <button class="back-link" type="button" id="web-apps-rest-back">&larr; All endpoints</button>
+                  <div class="endpoint-detail__heading">
+                    <span class="method-badge" id="web-apps-rest-detail-method"></span>
+                    <code class="endpoint-detail__path" id="web-apps-rest-detail-path"></code>
+                  </div>
+                  <dl class="info-list" id="web-apps-rest-detail-fields"></dl>
+                  <div class="ns-drawer__section">
+                    <h4 class="ns-drawer__section-title">Parameters</h4>
+                    <p class="ns-hint" id="web-apps-rest-detail-no-params" hidden>IRIS lists no parameters for this route.</p>
+                    <div class="table-wrapper" id="web-apps-rest-detail-params-wrapper">
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">In</th>
+                            <th scope="col">Required</th>
+                            <th scope="col">Type / Schema</th>
+                            <th scope="col">Pattern</th>
+                          </tr>
+                        </thead>
+                        <tbody id="web-apps-rest-detail-params"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div class="ns-drawer__section" id="web-apps-rest-detail-description-section">
+                    <h4 class="ns-drawer__section-title">Description</h4>
+                    <pre class="integrity-console endpoint-detail__description" id="web-apps-rest-detail-description"></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
           </aside>
         </section>
 

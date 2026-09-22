@@ -238,6 +238,12 @@ export const IrisApi = {
   // parameter — a query parameter because names contain slashes.
   getWebAppDetail: (name) =>
     fetchIris(`/api/iris/web-apps/detail?name=${encodeURIComponent(name)}`),
+  // Read-only — the REST route map IRIS generates for a REST web app, via
+  // IRIS's API Management API (see backend/app/routes/iris.py's
+  // get_web_app_rest_endpoints). HTTP 404 means IRIS has no route map for
+  // this app (not a REST app, or IRIS could not generate one).
+  getWebAppRestEndpoints: (name) =>
+    fetchIris(`/api/iris/web-apps/rest-endpoints?name=${encodeURIComponent(name)}`),
   getTasks: () => fetchIris("/api/iris/tasks"),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>
