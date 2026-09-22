@@ -286,6 +286,11 @@ def test_processes_nav_and_view_exist_and_are_enabled() -> None:
     check(view_match is not None, 'a <section id="view-processes" data-view="processes"> exists')
 
     check('id="processes-table-body"' in html, "the processes table body element exists")
+    check('id="processes-summary-grid"' in html, "the processes state KPI grid exists")
+    check('id="processes-overview"' in html, "the processes State Distribution panel exists")
+    check('id="processes-filter-search"' in html, "the processes search input exists")
+    check('id="processes-filter-state"' in html, "the processes State filter exists")
+    check('id="processes-drawer"' in html, "the processes detail drawer element exists")
 
 
 def test_processes_view_uses_only_get_processes() -> None:

@@ -1923,6 +1923,94 @@ input:focus-visible {
   cursor: pointer;
 }
 
+/* --- Explorer toolkit (Processes): compact KPI cards (which
+   double as filter toggles), an inline search/filter toolbar, clickable
+   compact table rows, and a wider .ns-drawer for detail. Reuses
+   .stat-card/.filter-form/.data-table--compact/.ns-drawer verbatim; only
+   the density, active-filter, and width modifiers are new. --- */
+
+.stat-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stat-grid--compact .stat-card {
+  padding: 10px 12px;
+}
+
+.stat-grid--compact .stat-card__label {
+  margin-bottom: 4px;
+}
+
+.stat-grid--compact .stat-card__value {
+  font-size: 20px;
+}
+
+.stat-card--active {
+  border-color: var(--stat-card-accent, var(--color-accent));
+  background: var(--color-surface-hover);
+}
+
+/* Flex-wrap rather than a fixed grid so the same toolbar works for any
+   number of filters and wraps naturally at narrow widths. */
+.filter-form--toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filter-form--toolbar .filter-field {
+  flex: 1 1 150px;
+}
+
+.filter-form--toolbar .filter-field--wide {
+  flex: 2 1 240px;
+}
+
+.filter-form--toolbar .filter-form__actions {
+  flex: 0 0 auto;
+}
+
+.filter-form--toolbar .filter-field input,
+.filter-form--toolbar .filter-field select {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.filter-count {
+  margin: 8px 0 10px;
+}
+
+.data-table__row--clickable {
+  cursor: pointer;
+}
+
+.data-table__row--clickable:focus-visible {
+  outline: none;
+}
+
+.data-table__row--clickable:focus-visible .data-table__cell {
+  background: var(--color-surface-hover);
+  box-shadow: inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent);
+}
+
+.data-table--compact .status-badge {
+  padding: 1px 8px;
+  font-size: 10.5px;
+}
+
+/* Detail drawers that list many fields (e.g. Processes) — a touch wider
+   than the Namespace/Database drawers so long values (EXE names,
+   routines) fit. */
+.ns-drawer--wide {
+  width: min(460px, 92vw);
+}
+
+.ns-drawer--wide .info-list__value {
+  word-break: break-all;
+}
+
 /* --- Responsive --- */
 
 @media (max-width: 860px) {

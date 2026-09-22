@@ -574,31 +574,73 @@
             <p class="info-panel__meta" id="processes-count"></p>
           </div>
 
-          <div class="view-overview" id="processes-overview" hidden>
-            <p class="stat-card__label">State Distribution</p>
-            <div id="processes-overview-viz"></div>
-          </div>
-
           <p class="empty-state" id="processes-empty" hidden>No processes reported.</p>
 
-          <div class="table-wrapper" id="processes-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">PID</th>
-                  <th scope="col">Job</th>
-                  <th scope="col">Namespace</th>
-                  <th scope="col">Username</th>
-                  <th scope="col">Routine</th>
-                  <th scope="col">State</th>
-                  <th scope="col">Device</th>
-                  <th scope="col">Elapsed Time</th>
-                  <th scope="col">CPU Time</th>
-                </tr>
-              </thead>
-              <tbody id="processes-table-body"></tbody>
-            </table>
+          <div id="processes-content" hidden>
+            <div class="stat-grid stat-grid--compact" id="processes-summary-grid" aria-label="Process state counts"></div>
+
+            <div class="view-overview" id="processes-overview" hidden>
+              <p class="stat-card__label">State Distribution</p>
+              <div id="processes-overview-viz"></div>
+            </div>
+
+            <form class="filter-form filter-form--toolbar" id="processes-filter-form" role="search" aria-label="Filter processes">
+              <div class="filter-field filter-field--wide">
+                <label for="processes-filter-search">Search</label>
+                <input type="search" id="processes-filter-search" placeholder="PID, job, user, routine, device, client, IP&hellip;" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="processes-filter-state">State</label>
+                <select id="processes-filter-state">
+                  <option value="">All states</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="processes-filter-namespace">Namespace</label>
+                <select id="processes-filter-namespace">
+                  <option value="">All namespaces</option>
+                </select>
+              </div>
+              <div class="filter-field filter-form__actions">
+                <button class="btn" type="button" id="processes-filter-clear-button">Clear</button>
+              </div>
+            </form>
+            <p class="info-panel__meta filter-count" id="processes-filter-count" aria-live="polite"></p>
+
+            <p class="empty-state" id="processes-filter-empty" hidden>No processes match the current filters.</p>
+
+            <div class="table-wrapper" id="processes-table-wrapper">
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">PID</th>
+                    <th scope="col">Job</th>
+                    <th scope="col">Namespace</th>
+                    <th scope="col">Username</th>
+                    <th scope="col">Routine</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Device</th>
+                    <th scope="col">Elapsed Time</th>
+                    <th scope="col">CPU Time</th>
+                  </tr>
+                </thead>
+                <tbody id="processes-table-body"></tbody>
+              </table>
+            </div>
           </div>
+
+          <div class="ns-drawer-backdrop" id="processes-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="processes-drawer" hidden aria-labelledby="processes-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="processes-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="processes-drawer-state-badge"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="processes-drawer-close" aria-label="Close process details">&times;</button>
+            </div>
+            <p class="ns-hint">Every field IRIS reported for this process in the last refresh. Read-only &mdash; no process actions are available here.</p>
+            <dl class="info-list" id="processes-drawer-fields"></dl>
+          </aside>
         </section>
 
         <section class="view" id="view-databases" data-view="databases" aria-labelledby="databases-title" hidden>
