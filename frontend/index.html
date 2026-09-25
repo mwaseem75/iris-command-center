@@ -1398,6 +1398,7 @@
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-roles" data-tab="roles" aria-controls="security-panel-roles" aria-selected="false" tabindex="-1">Roles</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-resources" data-tab="resources" aria-controls="security-panel-resources" aria-selected="false" tabindex="-1">Resources</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-authentication" data-tab="authentication" aria-controls="security-panel-authentication" aria-selected="false" tabindex="-1">Authentication</button>
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-wallet" data-tab="wallet" aria-controls="security-panel-wallet" aria-selected="false" tabindex="-1">Wallet</button>
               </div>
 
               <div id="security-panel-users" role="tabpanel" aria-labelledby="security-tab-users">
@@ -1648,6 +1649,94 @@
                         </thead>
                         <tbody id="security-class-access-table-body"></tbody>
                       </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="security-panel-wallet" role="tabpanel" aria-labelledby="security-tab-wallet" hidden>
+                <p class="ns-hint">Wallet collections, their access resources, and the <strong>names and types</strong> of their secrets. Read-only &mdash; secret values are never requested (IRIS has no API that returns them), and nothing here can create, edit, rotate or delete.</p>
+
+                <div class="banner banner--error" id="security-wallet-error-banner" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="security-wallet-error-banner-text"></span>
+                </div>
+                <div class="loading-state" id="security-wallet-loading" hidden>
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span>Loading wallet collections&hellip;</span>
+                </div>
+
+                <div id="security-wallet-content" hidden>
+                  <div class="stat-grid stat-grid--compact" id="security-wallet-summary-grid" aria-label="Wallet counts"></div>
+
+                  <p class="empty-state" id="security-wallet-none" hidden>IRIS reports no wallet collections on this instance, so there are no secrets to list. Collections created in IRIS will appear here with their secrets&rsquo; names and types.</p>
+
+                  <div id="security-wallet-sections">
+                    <div class="ns-section">
+                      <div class="ns-section__header">
+                        <h4 class="section-heading section-heading--secondary">Collections</h4>
+                      </div>
+                      <form class="filter-form filter-form--toolbar" id="security-wallet-collections-filter-form" role="search" aria-label="Filter wallet collections">
+                        <div class="filter-field filter-field--wide">
+                          <label for="security-wallet-collections-search">Search</label>
+                          <input type="search" id="security-wallet-collections-search" placeholder="Collection name, resource&hellip;" autocomplete="off" />
+                        </div>
+                      </form>
+                      <p class="info-panel__meta filter-count" id="security-wallet-collections-count" aria-live="polite"></p>
+                      <p class="empty-state" id="security-wallet-collections-empty" hidden>No collections match the search.</p>
+                      <div class="table-wrapper" id="security-wallet-collections-table-wrapper">
+                        <table class="data-table data-table--compact">
+                          <thead>
+                            <tr>
+                              <th scope="col">Collection</th>
+                              <th scope="col">Edit Resource</th>
+                              <th scope="col">Use Resource</th>
+                              <th scope="col">Secrets</th>
+                            </tr>
+                          </thead>
+                          <tbody id="security-wallet-collections-table-body"></tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div class="ns-section">
+                      <div class="ns-section__header">
+                        <h4 class="section-heading section-heading--secondary">Secrets (names and types only)</h4>
+                      </div>
+                      <form class="filter-form filter-form--toolbar" id="security-wallet-secrets-filter-form" role="search" aria-label="Filter wallet secrets">
+                        <div class="filter-field filter-field--wide">
+                          <label for="security-wallet-secrets-search">Search</label>
+                          <input type="search" id="security-wallet-secrets-search" placeholder="Secret name&hellip;" autocomplete="off" />
+                        </div>
+                        <div class="filter-field">
+                          <label for="security-wallet-secrets-collection">Collection</label>
+                          <select id="security-wallet-secrets-collection">
+                            <option value="">All collections</option>
+                          </select>
+                        </div>
+                        <div class="filter-field">
+                          <label for="security-wallet-secrets-type">Type</label>
+                          <select id="security-wallet-secrets-type">
+                            <option value="">All types</option>
+                          </select>
+                        </div>
+                        <div class="filter-field filter-form__actions">
+                          <button class="btn" type="button" id="security-wallet-secrets-clear">Clear</button>
+                        </div>
+                      </form>
+                      <p class="info-panel__meta filter-count" id="security-wallet-secrets-count" aria-live="polite"></p>
+                      <p class="empty-state" id="security-wallet-secrets-empty" hidden></p>
+                      <div class="table-wrapper" id="security-wallet-secrets-table-wrapper">
+                        <table class="data-table data-table--compact">
+                          <thead>
+                            <tr>
+                              <th scope="col">Secret</th>
+                              <th scope="col">Type</th>
+                              <th scope="col">Collection</th>
+                            </tr>
+                          </thead>
+                          <tbody id="security-wallet-secrets-table-body"></tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 </div>

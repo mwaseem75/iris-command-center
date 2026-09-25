@@ -19,6 +19,7 @@ import { loadTasks, initTasksControls } from "./tasks.js";
 import { loadSecurity, initSecurityControls } from "./security.js";
 import { loadSecurityAccess, initSecurityAccessControls } from "./security-access.js";
 import { initSecurityAuthControls, refreshSecurityAuthIfLoaded } from "./security-auth.js";
+import { initSecurityWalletControls, refreshSecurityWalletIfLoaded } from "./security-wallet.js";
 import { loadJournal, initJournalControls } from "./journal.js";
 import { loadOperations, initOperationsControls } from "./operations.js";
 import { initAiAssistantControls } from "./ai-assistant.js";
@@ -46,6 +47,7 @@ function init() {
   initSecurityControls();
   initSecurityAccessControls();
   initSecurityAuthControls();
+  initSecurityWalletControls();
   initJournalControls();
   initOperationsControls();
   initAiAssistantControls();
@@ -87,6 +89,7 @@ function init() {
       loadSecurity();
       loadSecurityAccess();
       refreshSecurityAuthIfLoaded();
+      refreshSecurityWalletIfLoaded();
     } else if (view === "journal") {
       loadJournal();
     } else if (view === "operations") {

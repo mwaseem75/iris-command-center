@@ -4,6 +4,10 @@
   - Authentication Posture: services, system-wide web authentication,
     superservers and application class-access (GET /v2/security/services|
     service|web-auth|superservers|superserver, /v2/web-app/pct-accesses).
+  - Wallet: collections and their secrets' NAMES AND TYPES only (GET
+    /v2/wallet/collections|collection|secrets, %Admin_Wallet:U). No route
+    here requests a secret value — IRIS has no GET for one — and the
+    models are allowlists, so no value-bearing field can pass through.
 
 Nothing here changes IRIS state — only GETs are sent, and no route is gated
 by the authorization/confirmation/execution framework, the same as every
@@ -39,6 +43,10 @@ from app.models.iris import (
     SecurityUserEntry,
     SuperserverDetail,
     SuperserverEntry,
+    WalletCollectionDetail,
+    WalletCollectionEntry,
+    WalletCollectionOverview,
+    WalletSecretEntry,
     WebAuthSettings,
 )
 from app.routes.iris import _IRIS_CLIENT_ERRORS, _as_http_exception
@@ -63,6 +71,7 @@ _KNOWN_UNLISTED_ROLES = ("%SQLTuneTable",)
 # request (38 roles on icc-iris-dev).
 _ROLE_DETAIL_CONCURRENCY = 8
 _SUPERSERVER_DETAIL_CONCURRENCY = 4
+_WALLET_SECRETS_CONCURRENCY = 4
 
 
 async def _get(client: IRISClient, path: str, params: dict[str, Any] | None, not_found: str) -> Any:
@@ -296,3 +305,72 @@ async def get_class_access(
     which % classes each web application may use."""
     raw = await _get(client, "/v2/web-app/pct-accesses", None, "IRIS reports no class-access entries")
     return IRISEnvelope[list[ClassAccessEntry]].model_validate(raw)
+
+
+# --- Wallet (metadata only) ---
+
+
+@router.get("/wallet/overview", response_model=IRISEnvelope[list[WalletCollectionOverview]])
+async def get_wallet_overview(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[WalletCollectionOverview]]:
+    """Every wallet collection with its secrets' names and types. A failed
+    secret-list call gives Secrets=None plus a warning in status.errors
+    (naming only the collection), never a guess. Only GETs are sent."""
+    raw = await _get(client, "/v2/wallet/collections", None, "IRIS reports no wallet collections")
+    listing = IRISEnvelope[list[WalletCollectionEntry]].model_validate(raw)
+    semaphore = asyncio.Semaphore(_WALLET_SECRETS_CONCURRENCY)
+
+    async def read_secrets(name: str) -> list[WalletSecretEntry] | None:
+        async with semaphore:
+            try:
+                body = await client.get("/v2/wallet/secrets", params={"collection": name})
+                result = body.get("result") if isinstance(body, dict) else None
+                if not isinstance(result, list):
+                    return None
+                return [WalletSecretEntry.model_validate(entry) for entry in result]
+            except (*_IRIS_CLIENT_ERRORS, ValidationError):
+                return None
+
+    secrets = await asyncio.gather(*(read_secrets(entry.Name) for entry in listing.result))
+
+    errors = list(listing.status.errors)
+    entries: list[WalletCollectionOverview] = []
+    for entry, collection_secrets in zip(listing.result, secrets):
+        if collection_secrets is None:
+            errors.append({"error": f"Secret list unavailable for {entry.Name}", "collection": entry.Name})
+        entries.append(WalletCollectionOverview(**entry.model_dump(), Secrets=collection_secrets))
+    missing = sum(1 for collection_secrets in secrets if collection_secrets is None)
+    summary = listing.status.summary
+    if missing and not summary:
+        summary = f"Secret list unavailable for {missing} collection{'' if missing == 1 else 's'}"
+    return IRISEnvelope[list[WalletCollectionOverview]](
+        status={"errors": errors, "summary": summary}, console=listing.console, result=entries
+    )
+
+
+@router.get("/wallet/collections/detail", response_model=IRISEnvelope[WalletCollectionDetail])
+async def get_wallet_collection_detail(
+    name: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[WalletCollectionDetail]:
+    """One collection's edit/use resources. IRIS answers 404 for an unknown
+    name (observed live: ERROR #5809)."""
+    raw = await _get(
+        client, "/v2/wallet/collection", {"name": name}, "IRIS reports no wallet collection with this name"
+    )
+    return IRISEnvelope[WalletCollectionDetail].model_validate(raw)
+
+
+@router.get("/wallet/secrets", response_model=IRISEnvelope[list[WalletSecretEntry]])
+async def get_wallet_secrets(
+    collection: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[list[WalletSecretEntry]]:
+    """Names and types of the secrets in one collection — never values.
+    `collection` is IRIS's own required parameter name."""
+    raw = await _get(
+        client,
+        "/v2/wallet/secrets",
+        {"collection": collection},
+        "IRIS reports no wallet collection with this name",
+    )
+    return IRISEnvelope[list[WalletSecretEntry]].model_validate(raw)

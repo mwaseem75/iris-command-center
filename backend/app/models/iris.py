@@ -676,6 +676,50 @@ class SuperserverEntry(BaseModel):
 # "all-applications") may use.
 
 
+# --- Security: Wallet (GET /v2/wallet/collections|collection|secrets, all
+#     %Admin_Wallet:U). icc-iris-dev has NO wallet collections (live list is
+#     [], SQL %Wallet.Collection has 0 rows), so no populated response has
+#     been observed: these shapes follow mainspec_v2.json (WalletCollection,
+#     WalletCollectionList, WalletSecretList). The permission fields are
+#     optional so a populated response missing one shows "not reported"
+#     instead of failing; Name is required.
+#
+#     These models are strict allowlists of METADATA ONLY. IRIS has no GET
+#     that returns a secret's value (GET /v2/wallet/secrets is documented as
+#     "names and types of secrets"; /v2/wallet/secret is PUT/DELETE only and
+#     its schema is writeOnly). Any other field IRIS might send — e.g. a
+#     `Secret` or `WalletSecretConfig` — is dropped by validation and can
+#     never reach a response. ---
+
+
+class WalletCollectionEntry(BaseModel):
+    Name: str
+    EditResource: str | None = None
+    UseResource: str | None = None
+
+
+class WalletCollectionDetail(BaseModel):
+    EditResource: str | None = None
+    UseResource: str | None = None
+
+
+class WalletSecretEntry(BaseModel):
+    Name: str
+    Type: str | None = None
+
+
+# GET /api/iris/security/wallet/overview — every collection merged with its
+# secrets' names and types. `Secrets` is None when that collection's secret
+# list could not be read.
+
+
+class WalletCollectionOverview(BaseModel):
+    Name: str
+    EditResource: str | None = None
+    UseResource: str | None = None
+    Secrets: list[WalletSecretEntry] | None
+
+
 class ClassAccessEntry(BaseModel):
     Name: str
     AllowType: str

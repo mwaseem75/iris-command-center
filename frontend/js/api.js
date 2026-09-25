@@ -292,6 +292,13 @@ export const IrisApi = {
   getSecurityWebAuth: () => fetchIris("/api/iris/security/web-auth"),
   getSecuritySuperservers: () => fetchIris("/api/iris/security/superservers"),
   getSecurityClassAccess: () => fetchIris("/api/iris/security/class-access"),
+  // Read-only Wallet METADATA (same backend module): collections with their
+  // secrets' names and types. No endpoint returns a secret value.
+  getSecurityWalletOverview: () => fetchIris("/api/iris/security/wallet/overview"),
+  getSecurityWalletCollectionDetail: (name) =>
+    fetchIris(`/api/iris/security/wallet/collections/detail?name=${encodeURIComponent(name)}`),
+  getSecurityWalletSecrets: (collection) =>
+    fetchIris(`/api/iris/security/wallet/secrets?collection=${encodeURIComponent(collection)}`),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),

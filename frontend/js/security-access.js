@@ -43,6 +43,7 @@ const dom = {
     roles: $("security-panel-roles"),
     resources: $("security-panel-resources"),
     authentication: $("security-panel-authentication"),
+    wallet: $("security-panel-wallet"),
   },
   users: {
     form: $("security-users-filter-form"),
@@ -92,9 +93,10 @@ const dom = {
   drawerBody: $("security-drawer-body"),
 };
 
-// "authentication" is owned by security-auth.js: this module only shows its
-// panel and announces it with a "security-tab-shown" event on the tab bar.
-const TABS = ["users", "roles", "resources", "authentication"];
+// "authentication" (security-auth.js) and "wallet" (security-wallet.js) are
+// owned by their own modules: this module only shows their panels and
+// announces them with a "security-tab-shown" event on the tab bar.
+const TABS = ["users", "roles", "resources", "authentication", "wallet"];
 
 // Resource permission letters, per mainspec_v2.json ("a string consisting
 // only of 'R', 'W', and 'U'").
@@ -256,7 +258,9 @@ function makeLinkChips(kind, names, labelFor = (name) => name) {
 }
 
 /** A compact table whose rows open another entity in the drawer.
- * `rows` is [{kind, name, cells: [text, ...]}]; the first column is the name. */
+ * `rows` is [{kind, name, label?, cells: [text, ...]}]; the first column
+ * shows `label` when given (e.g. a display name for a composite key),
+ * otherwise `name`. */
 function makeLinkTable(headers, rows) {
   const wrapper = document.createElement("div");
   wrapper.className = "table-wrapper";
@@ -278,8 +282,9 @@ function makeLinkTable(headers, rows) {
     tr.tabIndex = 0;
     tr.dataset.openKind = row.kind;
     tr.dataset.openName = row.name;
-    tr.setAttribute("aria-label", `View ${row.kind} ${row.name}`);
-    tr.append(makeCell(row.name, { mono: true }), ...row.cells.map((text) => makeCell(text)));
+    const label = row.label ?? row.name;
+    tr.setAttribute("aria-label", `View ${row.kind} ${label}`);
+    tr.append(makeCell(label, { mono: true }), ...row.cells.map((text) => makeCell(text)));
     body.append(tr);
   }
   table.append(head, body);
@@ -933,6 +938,8 @@ export const securityUi = {
   makeInfoList,
   makeSection,
   makeNote,
+  makeLinkChips,
+  makeLinkTable,
   populateSelect,
   uniqueSorted,
 };
