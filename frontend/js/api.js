@@ -182,6 +182,17 @@ async function postDatabaseMount(fields, confirmed, dryRun = false) {
 }
 
 /**
+ * database.dismount (POST /api/iris/databases/dismount,
+ * backend/app/routes/databases.py) — same discipline as postDatabaseMount:
+ * forwards only {Directory} plus the explicit, user-driven `confirmed` flag
+ * and `dry_run`; the backend alone authorizes, refuses system/critical
+ * databases, executes and verifies.
+ */
+async function postDatabaseDismount(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/databases/dismount", fields, confirmed, dryRun);
+}
+
+/**
  * POST /api/iris/web-apps/set-enabled — web_app.set_enabled
  * (backend/app/routes/web_apps.py). Same body convention and helper as the
  * database operations: only the caller's fields plus an explicit
@@ -401,6 +412,8 @@ export const IrisApi = {
   // dryRun=true for a real, non-mutating server-validated preview.
   mountDatabase: (fields, confirmed, dryRun = false) =>
     postDatabaseMount(fields, confirmed, dryRun),
+  dismountDatabase: (fields, confirmed, dryRun = false) =>
+    postDatabaseDismount(fields, confirmed, dryRun),
   setWebAppEnabled: (fields, confirmed, dryRun = false) =>
     postWebAppSetEnabled(fields, confirmed, dryRun),
   updateWebAppDescription: (fields, confirmed, dryRun = false) =>

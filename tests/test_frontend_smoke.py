@@ -420,6 +420,20 @@ def test_databases_view_uses_only_get_and_create_database_and_get_namespaces() -
         "databases-drawer-mount" in databases_js,
         "databases.js renders into the drawer's mount elements",
     )
+    # database.dismount: beside Mount, the same dry-run-then-confirm flow,
+    # only through its IrisApi wrapper; the markup has its own controls.
+    check(
+        "IrisApi.dismountDatabase" in databases_js,
+        "databases.js calls IrisApi.dismountDatabase() for the drawer's dismount action",
+    )
+    dismount_html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    for element_id in (
+        "databases-drawer-dismount-check-button",
+        "databases-drawer-dismount-ack-checkbox",
+        "databases-drawer-dismount-confirm-button",
+        "databases-drawer-dismount-result",
+    ):
+        check(f'id="{element_id}"' in dismount_html, f"the {element_id!r} element exists")
     other_methods = ["getInfo", "getProcesses", "getWebApps", "getTasks"]
     for method in other_methods:
         check(method not in databases_js, f"databases.js does NOT call IrisApi.{method}()")
@@ -1458,11 +1472,11 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except eight sanctioned, scoped exceptions...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except nine sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The eight sanctioned mutating calls in the entire frontend, all in
+    # The nine sanctioned mutating calls in the entire frontend, all in
     # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
     # archived, backend/app/routes/journal.py), postNamespaceCreate (POST
     # /api/iris/namespaces, backend/app/routes/namespaces.py),
@@ -1473,9 +1487,10 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     # (POST /api/iris/security/users/set-enabled, backend/app/routes/
     # security_users.py), and postTaskRunNow (POST /api/iris/tasks/run-now,
     # backend/app/routes/tasks.py), and postWebAppUpdateDescription (POST
-    # /api/iris/web-apps/update-description, backend/app/routes/web_apps.py)
-    # — asserted below to be
-    # scoped to exactly those eight paths, never a different/new one. PUT and PATCH
+    # /api/iris/web-apps/update-description, backend/app/routes/web_apps.py),
+    # and postDatabaseDismount (POST /api/iris/databases/dismount,
+    # backend/app/routes/databases.py) — asserted below to be
+    # scoped to exactly those nine paths, never a different/new one. PUT and PATCH
     # remain forbidden everywhere, including in api.js — this project has
     # no PUT or PATCH route at all, mutating or otherwise.
     allowed_post_file = "api.js"
@@ -1538,6 +1553,11 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         '"/api/iris/web-apps/update-description"' in api_js and "updateWebAppDescription:" in api_js,
         "api.js's eighth sanctioned POST (postWebAppUpdateDescription) is scoped to "
         "/api/iris/web-apps/update-description and exposed as IrisApi.updateWebAppDescription()",
+    )
+    check(
+        '"/api/iris/databases/dismount"' in api_js and "dismountDatabase:" in api_js,
+        "api.js's ninth sanctioned POST (postDatabaseDismount) is scoped to "
+        "/api/iris/databases/dismount and exposed as IrisApi.dismountDatabase()",
     )
 
     # operations.js (where the execute UI lives) must call the api.js

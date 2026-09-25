@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 from app.dependencies import get_caller_privileges, get_iris_client
 from app.execution.database_create_handler import DatabaseCreateHandler
 from app.execution.database_mount_handler import DatabaseMountHandler
+from app.execution.database_dismount_handler import DatabaseDismountHandler
 from app.execution.executor import OperationExecutor
 from app.execution.models import ExecutionContext, OperationRequest, OperationResult
 from app.iris_client.client import IRISClient
@@ -115,6 +116,43 @@ async def mount_database(
     request = OperationRequest(
         operation_name=_MOUNT_OPERATION_NAME,
         parameters={"Directory": body.Directory, "ReadOnly": body.ReadOnly},
+    )
+    context = ExecutionContext(
+        available_privileges=privileges,
+        confirmation_received=body.confirmed,
+        dry_run=body.dry_run,
+    )
+    return await executor.execute(request, context)
+
+
+_DISMOUNT_OPERATION_NAME = "database.dismount"
+
+
+class DatabaseDismountOperationRequest(BaseModel):
+    """Public request body for POST /api/iris/databases/dismount. Same
+    discipline as DatabaseMountOperationRequest: only the Directory,
+    `confirmed` defaults to False, no force/skip field, and extra fields are
+    rejected (422)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    Directory: str
+    confirmed: bool = False
+    dry_run: bool = False
+
+
+@router.post("/databases/dismount", response_model=OperationResult)
+async def dismount_database(
+    body: DatabaseDismountOperationRequest,
+    client: IRISClient = Depends(get_iris_client),
+    privileges: frozenset[str] = Depends(get_caller_privileges),
+) -> OperationResult:
+    """database.dismount (`%Admin_Operate:U`) — always HTTP 200 with a
+    structured OperationResult, same convention as mount_database()."""
+    executor = OperationExecutor({_DISMOUNT_OPERATION_NAME: DatabaseDismountHandler(client)})
+    request = OperationRequest(
+        operation_name=_DISMOUNT_OPERATION_NAME,
+        parameters={"Directory": body.Directory},
     )
     context = ExecutionContext(
         available_privileges=privileges,

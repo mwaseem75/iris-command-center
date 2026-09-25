@@ -47,6 +47,10 @@
 // real request is sent only from submitMount(), reachable only via the
 // Confirm & Mount button after an acknowledged, validated preview. As with
 // database.create, the backend alone authorizes — see handleMountCheckClick().
+// The drawer also exposes database.dismount the same way ("Check Dismount" ->
+// explicit confirmation -> "Confirm & Dismount", IrisApi.dismountDatabase(),
+// POST /api/iris/databases/dismount); its real request is sent only from
+// submitDismount().
 //
 // This view also exposes a second mutating capability, database.create,
 // via the "New Database" wizard drawer, which calls IrisApi.createDatabase()
@@ -145,6 +149,16 @@ const dom = {
   drawerMountAckCheckbox: document.getElementById("databases-drawer-mount-ack-checkbox"),
   drawerMountConfirmButton: document.getElementById("databases-drawer-mount-confirm-button"),
   drawerMountResult: document.getElementById("databases-drawer-mount-result"),
+  drawerDismountCheckButton: document.getElementById("databases-drawer-dismount-check-button"),
+  drawerDismountLoading: document.getElementById("databases-drawer-dismount-loading"),
+  drawerDismountLoadingText: document.getElementById("databases-drawer-dismount-loading-text"),
+  drawerDismountError: document.getElementById("databases-drawer-dismount-error"),
+  drawerDismountErrorText: document.getElementById("databases-drawer-dismount-error-text"),
+  drawerDismountConfirm: document.getElementById("databases-drawer-dismount-confirm"),
+  drawerDismountPreviewText: document.getElementById("databases-drawer-dismount-preview-text"),
+  drawerDismountAckCheckbox: document.getElementById("databases-drawer-dismount-ack-checkbox"),
+  drawerDismountConfirmButton: document.getElementById("databases-drawer-dismount-confirm-button"),
+  drawerDismountResult: document.getElementById("databases-drawer-dismount-result"),
 };
 
 // The "New Database" wizard — a second, separate drawer from the
@@ -866,6 +880,145 @@ async function submitMount() {
   }
 }
 
+// --- Dismount (database.dismount) ---
+//
+// The same flow as Mount above: "Check Dismount" is a dry-run preview
+// (IrisApi.dismountDatabase(fields, true, true) — the handler only reads
+// the database list, namespaces and database-dir/info, and never sends the
+// dismount); the real request is sent only from submitDismount(), reachable
+// only via Confirm & Dismount after an acknowledged, validated preview. The
+// backend alone authorizes and refuses system/critical databases.
+
+// The fields the operator previewed via "Check Dismount" — set only by a
+// successful dry run, cleared whenever the drawer's database changes.
+let pendingDismountFields = null;
+
+function updateDismountConfirmEnabled() {
+  dom.drawerDismountConfirmButton.disabled = !(pendingDismountFields && dom.drawerDismountAckCheckbox.checked);
+}
+
+function clearDismountPreview() {
+  pendingDismountFields = null;
+  dom.drawerDismountConfirm.hidden = true;
+  dom.drawerDismountAckCheckbox.checked = false;
+  updateDismountConfirmEnabled();
+}
+
+function resetDrawerDismount() {
+  clearDismountPreview();
+  dom.drawerDismountLoading.hidden = true;
+  dom.drawerDismountError.hidden = true;
+  dom.drawerDismountResult.hidden = true;
+  dom.drawerDismountResult.replaceChildren();
+  dom.drawerDismountCheckButton.disabled = false;
+}
+
+function showDismountError(message) {
+  dom.drawerDismountErrorText.textContent = message;
+  dom.drawerDismountError.hidden = false;
+}
+
+async function handleDismountCheckClick() {
+  const directory = currentDrawerDirectory;
+  if (!directory) return;
+
+  const fields = { Directory: directory };
+  clearDismountPreview();
+  dom.drawerDismountError.hidden = true;
+  dom.drawerDismountResult.hidden = true;
+  dom.drawerDismountCheckButton.disabled = true;
+  dom.drawerDismountLoadingText.textContent = "Checking mount state…";
+  dom.drawerDismountLoading.hidden = false;
+
+  try {
+    const preview = await IrisApi.dismountDatabase(fields, true, true);
+    if (currentDrawerDirectory !== directory) return; // drawer moved to another database
+    const handlerResult = preview && preview.handler_result;
+    if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
+      pendingDismountFields = fields;
+      dom.drawerDismountPreviewText.textContent = handlerResult.detail;
+      dom.drawerDismountConfirm.hidden = false;
+      updateDismountConfirmEnabled();
+    } else {
+      // Protected, already dismounted, unknown directory… shown exactly as
+      // the backend explained it.
+      showDismountError(
+        (handlerResult && handlerResult.detail) || preview.detail || "This dismount request could not be validated against IRIS.",
+      );
+    }
+  } catch (err) {
+    showDismountError(
+      err instanceof ApiError
+        ? "Could not reach the Command Center backend to check this database's mount state."
+        : "An unexpected error occurred while checking this database's mount state.",
+    );
+  } finally {
+    dom.drawerDismountLoading.hidden = true;
+    dom.drawerDismountCheckButton.disabled = false;
+  }
+}
+
+function renderDismountResult(result) {
+  const rows = [
+    ["Status", textOrPlaceholder(result.status)],
+    ["Detail", textOrPlaceholder(result.detail)],
+  ];
+  if (result.handler_result) rows.push(["Execution Detail", textOrPlaceholder(result.handler_result.detail)]);
+  if (result.verification) {
+    rows.push(["Verification Status", textOrPlaceholder(result.verification.status)]);
+    rows.push(["Verification Detail", textOrPlaceholder(result.verification.detail)]);
+  }
+  dom.drawerDismountResult.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const row = document.createElement("div");
+      row.className = "info-list__row";
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.className = "info-list__value";
+      dd.textContent = value;
+      row.append(dt, dd);
+      return row;
+    }),
+  );
+  dom.drawerDismountResult.hidden = false;
+}
+
+/**
+ * The ONLY place in this file that sends a real (non-dry-run) dismount
+ * request — reachable only via Confirm & Dismount, which is enabled only
+ * after a successful Check Dismount preview and the acknowledgment.
+ */
+async function submitDismount() {
+  const fields = pendingDismountFields;
+  if (!fields) return;
+
+  clearDismountPreview();
+  dom.drawerDismountCheckButton.disabled = true;
+  dom.drawerDismountLoadingText.textContent = "Dismounting database…";
+  dom.drawerDismountLoading.hidden = false;
+
+  try {
+    const result = await IrisApi.dismountDatabase(fields, true, false);
+    renderDismountResult(result);
+    if (result.status === "success" || result.status === "verification_failed") {
+      // Re-read the real database list rather than patching local state.
+      await loadDatabases();
+    }
+  } catch (err) {
+    renderDismountResult({
+      status: "request_failed",
+      detail:
+        err instanceof ApiError
+          ? "Could not reach the Command Center backend to dismount this database."
+          : "An unexpected error occurred while dismounting this database.",
+    });
+  } finally {
+    dom.drawerDismountLoading.hidden = true;
+    dom.drawerDismountCheckButton.disabled = false;
+  }
+}
+
 function openDrawer(databaseName) {
   const db = allDatabases.find((entry) => entry.Name === databaseName);
   if (!db) return;
@@ -895,6 +1048,7 @@ function openDrawer(databaseName) {
   resetDrawerInfo();
   resetDrawerIntegrityCheck();
   resetDrawerMount();
+  resetDrawerDismount();
 
   dom.drawerBackdrop.hidden = false;
   dom.drawer.hidden = false;
@@ -1334,6 +1488,13 @@ export function initDatabasesControls() {
   dom.drawerMountAckCheckbox.addEventListener("change", updateMountConfirmEnabled);
   dom.drawerMountConfirmButton.addEventListener("click", () => {
     submitMount();
+  });
+  dom.drawerDismountCheckButton.addEventListener("click", () => {
+    handleDismountCheckClick();
+  });
+  dom.drawerDismountAckCheckbox.addEventListener("change", updateDismountConfirmEnabled);
+  dom.drawerDismountConfirmButton.addEventListener("click", () => {
+    submitDismount();
   });
 
   createDom.openButton.addEventListener("click", openCreateDrawer);

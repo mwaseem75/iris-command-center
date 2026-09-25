@@ -237,6 +237,26 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.MEDIUM,
         confirmation_required=True,
     ),
+    "database.dismount": OperationDefinition(
+        name="database.dismount",
+        description=(
+            "Dismount an existing, currently mounted, non-system IRIS database "
+            "(POST /api/admin/v2/database-dir/dismount?dir=<Directory>, no request "
+            "body — IRIS's own implementation, %Api.Admin.Endpoints.Database.Actions, "
+            "calls SYS.Database.Dismount and requires %Admin_Operate; it refuses only "
+            "the manager's database itself). Hard-denied here for IRIS's system "
+            "databases, databases marked Mount Required, databases used by the %SYS "
+            "namespace, and mirrored databases; unknown directories and databases "
+            "already dismounted are refused before any write. The preview names the "
+            "namespaces that map the database. Verified afterwards via a fresh "
+            "database-dir/info read reporting Mounted=false. See "
+            "app/execution/database_dismount_handler.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.OPERATE}),
+        risk_level=RiskLevel.HIGH,
+        confirmation_required=True,
+    ),
     "web_app.set_enabled": OperationDefinition(
         name="web_app.set_enabled",
         description=(

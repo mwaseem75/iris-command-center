@@ -795,6 +795,35 @@
               </div>
               <dl class="info-list" id="databases-drawer-mount-result" hidden></dl>
             </div>
+            <div class="ns-drawer__section">
+              <div class="ns-section__header">
+                <h4 class="ns-drawer__section-title">Dismount</h4>
+                <button class="btn" type="button" id="databases-drawer-dismount-check-button">Check Dismount</button>
+              </div>
+              <p class="ns-hint">Dismounts this database if IRIS reports it mounted, through the authorization &rarr; confirmation &rarr; execution &rarr; verification framework. Check Dismount is a read-only preview that also lists the namespaces that map this database; nothing is sent to IRIS until you explicitly confirm. IRIS system databases, Mount Required databases, databases used by %SYS and mirrored databases are refused by the backend.</p>
+              <div class="loading-state" id="databases-drawer-dismount-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span id="databases-drawer-dismount-loading-text">Checking mount state&hellip;</span>
+              </div>
+              <div class="banner banner--error" id="databases-drawer-dismount-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="databases-drawer-dismount-error-text"></span>
+              </div>
+              <div id="databases-drawer-dismount-confirm" hidden>
+                <div class="banner banner--warning" role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="databases-drawer-dismount-preview-text"></span>
+                </div>
+                <label class="ns-form-checkbox">
+                  <input type="checkbox" id="databases-drawer-dismount-ack-checkbox" />
+                  I understand this will dismount the database on the IRIS instance, and the namespaces above will lose access to it until it is mounted again.
+                </label>
+                <div class="btn-row">
+                  <button class="btn btn--warning" type="button" id="databases-drawer-dismount-confirm-button" disabled>Confirm &amp; Dismount</button>
+                </div>
+              </div>
+              <dl class="info-list" id="databases-drawer-dismount-result" hidden></dl>
+            </div>
           </aside>
 
           <div class="ns-drawer-backdrop" id="database-create-backdrop" hidden></div>
