@@ -35,18 +35,15 @@
       </div>
 
       <div class="header-status">
-        <label class="theme-select">
-          <span class="theme-select__label">Theme</span>
-          <select id="theme-select" aria-label="Color theme">
-            <option value="midnight">Midnight</option>
-            <option value="slate">Slate</option>
-            <option value="light">Light</option>
-          </select>
-        </label>
         <span class="header-status__version" id="header-version-meta"></span>
         <div class="connection-status" id="connection-status" data-state="checking">
           <span class="connection-status__dot" aria-hidden="true"></span>
           <span class="connection-status__label" id="connection-status-label">Checking connection&hellip;</span>
+        </div>
+        <div class="theme-switch" id="theme-select" role="group" aria-label="Color theme">
+          <button class="theme-switch__option" type="button" value="midnight" aria-pressed="true" aria-label="Midnight theme" title="Midnight">&#127769;</button>
+          <button class="theme-switch__option" type="button" value="slate" aria-pressed="false" aria-label="Slate theme" title="Slate">&#9680;</button>
+          <button class="theme-switch__option" type="button" value="light" aria-pressed="false" aria-label="Light theme" title="Light">&#9728;&#65038;</button>
         </div>
       </div>
     </header>
@@ -159,6 +156,10 @@
                 <span class="dash-live__dot" aria-hidden="true"></span>
                 <span class="dash-live__label" id="dashboard-live-label">Connecting&hellip;</span>
               </div>
+              <button class="btn" type="button" id="dashboard-demo-activity-button" data-demo-activity-open title="Runs a safe, reversible IRIS rehearsal that produces real execution traces. Opens a confirmation first.">
+                <span class="btn__icon" aria-hidden="true">&#9654;</span>
+                Demo Activity
+              </button>
               <button class="btn btn--primary" type="button" id="refresh-button">
                 <span class="btn__icon" aria-hidden="true">&#8635;</span>
                 Refresh
@@ -177,102 +178,114 @@
           </div>
 
           <div class="stat-grid" id="stat-grid" aria-label="Key figures">
-            <article class="stat-card stat-card--interactive" data-card="namespaces" role="button" tabindex="0" aria-label="View Namespaces">
-              <h3 class="stat-card__label">Namespaces</h3>
-              <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
+            <article class="stat-card stat-card--interactive dash-kpi" data-card="namespaces" role="button" tabindex="0" aria-label="View Namespaces">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Namespaces</h3>
+                <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
+              </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
 
-            <article class="stat-card stat-card--interactive" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
-              <h3 class="stat-card__label">Databases</h3>
-              <p class="stat-card__value" id="stat-databases">&mdash;</p>
-              <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
+            <article class="stat-card stat-card--interactive dash-kpi" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Databases</h3>
+                <p class="stat-card__value" id="stat-databases">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
+              </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
 
-            <article class="stat-card stat-card--interactive" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
-              <h3 class="stat-card__label">Processes</h3>
-              <p class="stat-card__value" id="stat-processes">&mdash;</p>
-              <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
+            <article class="stat-card stat-card--interactive dash-kpi" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Processes</h3>
+                <p class="stat-card__value" id="stat-processes">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
+              </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
 
-            <article class="stat-card stat-card--interactive" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
-              <h3 class="stat-card__label">Web Applications</h3>
-              <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
-              <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
+            <article class="stat-card stat-card--interactive dash-kpi" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Web Applications</h3>
+                <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
+              </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
 
-            <article class="stat-card stat-card--interactive" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
-              <h3 class="stat-card__label">Tasks</h3>
-              <p class="stat-card__value" id="stat-tasks">&mdash;</p>
-              <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
+            <article class="stat-card stat-card--interactive dash-kpi" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M8.5 15l2.2 2.2 4.8-4.7"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Tasks</h3>
+                <p class="stat-card__value" id="stat-tasks">&mdash;</p>
+                <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
+              </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
 
-            <article class="stat-card" title="Elapsed time since IRIS started (GET /v2/monitor/dashboard/main)">
-              <h3 class="stat-card__label">Uptime</h3>
-              <p class="stat-card__value stat-card__value--mono" id="stat-uptime">&mdash;</p>
-            </article>
-
-            <article class="stat-card" title="License usage as a percentage of available license units">
-              <h3 class="stat-card__label">License Use</h3>
-              <p class="stat-card__value" id="stat-license">&mdash;</p>
-              <p class="stat-card__meta" id="stat-license-meta"></p>
+            <article class="stat-card dash-kpi" data-card="alerts" id="stat-alerts-card" title="IRIS&rsquo;s own alert counters (GET /v2/monitor/dashboard/main &rarr; Alerts). IRIS&rsquo;s REST API reports counts, not the alert log.">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.8l7.5 3v5.7c0 4.6-3.2 8.3-7.5 9.7-4.3-1.4-7.5-5.1-7.5-9.7V5.8z"/><path d="M12 8v4.5M12 15.8h.01"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">IRIS Alerts</h3>
+                <p class="stat-card__value" id="stat-alerts">&mdash;</p>
+                <p class="stat-card__meta" id="stat-alerts-meta"></p>
+              </div>
             </article>
           </div>
 
-          <div class="dash-grid">
-            <section class="info-card dash-panel" aria-labelledby="dashboard-health-title">
-              <h3 class="info-card__title" id="dashboard-health-title">System Health</h3>
-              <p class="info-card__hint">IRIS&rsquo;s own status indicators (System Dashboard).</p>
-              <div class="banner banner--warning" id="dashboard-monitor-warning" hidden role="status">
-                <span class="banner__icon" aria-hidden="true">&#9888;</span>
-                <span>IRIS&rsquo;s System Monitor is not running. Per IRIS, the dashboard&rsquo;s status indicators and alert counts are not updated while it is stopped &mdash; they may not be current.</span>
-              </div>
-              <p class="info-card__empty" id="dashboard-health-empty" hidden>Could not load IRIS&rsquo;s system dashboard.</p>
-              <ul class="dash-indicators" id="dashboard-health-indicators"></ul>
-              <dl class="info-list" id="dashboard-health-facts"></dl>
-            </section>
-
-            <section class="info-card dash-panel" aria-labelledby="dashboard-resources-title">
-              <h3 class="info-card__title" id="dashboard-resources-title">Resources</h3>
-              <p class="info-card__hint" id="dashboard-resources-hint">Trends from samples taken by this page every 15 s (kept for the last 60 samples).</p>
+          <div class="dash-grid dash-grid--main">
+            <section class="info-card dash-panel dash-panel--resources" aria-labelledby="dashboard-resources-title">
+              <header class="dash-panel__head">
+                <h3 class="info-card__title" id="dashboard-resources-title"><span class="dash-panel__icon" aria-hidden="true">&#8767;</span>System Resource Usage</h3>
+                <span class="dash-panel__meta" id="dashboard-resources-hint" title="Trends from samples taken by this page every 15 s (kept for the last 60 samples). Nothing is interpolated.">sampled every 15 s &middot; last 60</span>
+              </header>
               <p class="info-card__empty" id="dashboard-resources-empty" hidden>Could not load IRIS&rsquo;s performance counters.</p>
               <div class="dash-sparks" id="dashboard-resources"></div>
+              <div class="dash-trend" id="dashboard-resources-chart"></div>
             </section>
 
-            <section class="info-card dash-panel" aria-labelledby="dashboard-storage-title">
-              <h3 class="info-card__title" id="dashboard-storage-title">Database Storage</h3>
-              <p class="info-card__hint" id="dashboard-storage-hint">Allocated size of each local database (GET /v2/database-dirs).</p>
+            <section class="info-card dash-panel dash-panel--storage" aria-labelledby="dashboard-storage-title">
+              <header class="dash-panel__head">
+                <h3 class="info-card__title" id="dashboard-storage-title"><span class="dash-panel__icon" aria-hidden="true">&#9921;</span>Database Storage</h3>
+                <span class="dash-panel__meta" id="dashboard-storage-hint" title="Allocated size of each local database (GET /v2/database-dirs).">GET /v2/database-dirs</span>
+              </header>
               <p class="info-card__empty" id="dashboard-storage-empty" hidden>Could not load database sizes.</p>
+              <div class="dash-storage-total" id="dashboard-storage-total"></div>
               <div class="dash-storage" id="dashboard-storage"></div>
             </section>
 
-            <section class="info-card dash-panel" aria-labelledby="dashboard-alerts-title">
-              <h3 class="info-card__title" id="dashboard-alerts-title">Recent Alerts</h3>
-              <p class="info-card__hint">IRIS&rsquo;s own alert counters and any indicator that is not Normal. IRIS&rsquo;s REST API reports alert counts, not the alert log itself.</p>
-              <p class="info-card__empty" id="dashboard-alerts-empty" hidden>Could not load IRIS&rsquo;s alert counters.</p>
-              <div class="dash-alert-counts" id="dashboard-alert-counts"></div>
-              <ul class="dash-alert-list" id="dashboard-alert-list"></ul>
+            <section class="info-card dash-panel dash-panel--health" aria-labelledby="dashboard-health-title">
+              <header class="dash-panel__head">
+                <h3 class="info-card__title" id="dashboard-health-title"><span class="dash-panel__icon" aria-hidden="true">&#9829;</span>System Health</h3>
+                <span class="dash-panel__meta" title="IRIS&rsquo;s own status indicators (System Dashboard).">IRIS indicators</span>
+              </header>
+              <div class="banner banner--warning" id="dashboard-monitor-warning" hidden role="status">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span>IRIS&rsquo;s System Monitor is not running &mdash; indicators and alert counts may not be current.</span>
+              </div>
+              <p class="info-card__empty" id="dashboard-health-empty" hidden>Could not load IRIS&rsquo;s system dashboard.</p>
+              <div class="dash-health-summary" id="dashboard-health-summary"></div>
+              <ul class="dash-checks" id="dashboard-health-indicators" aria-label="Health checks"></ul>
+              <div class="dash-license" title="License usage as a percentage of available license units (GET /v2/monitor/dashboard/main)">
+                <span class="dash-license__label">License use</span>
+                <span class="dash-license__value" id="stat-license">&mdash;</span>
+                <span class="dash-license__meta" id="stat-license-meta"></span>
+              </div>
+              <dl class="info-list" id="dashboard-health-facts"></dl>
             </section>
+          </div>
 
-            <section class="info-card dash-panel" aria-labelledby="dashboard-process-title">
-              <h3 class="info-card__title" id="dashboard-process-title">Process Distribution</h3>
-              <p class="info-card__hint">Current IRIS processes by state and namespace (GET /v2/processes).</p>
-              <p class="info-card__empty" id="dashboard-process-empty" hidden>Could not load processes.</p>
-              <div class="dash-process" id="dashboard-process-state"></div>
-              <p class="stat-card__label dash-subtitle">By namespace</p>
-              <div id="dashboard-process-namespace"></div>
-              <p class="stat-card__label dash-subtitle">Busiest processes (commands executed)</p>
-              <dl class="info-list" id="dashboard-process-busy"></dl>
-            </section>
-
-            <section class="info-card dash-panel" aria-labelledby="dashboard-activity-title">
-              <h3 class="info-card__title" id="dashboard-activity-title">Recent Operations</h3>
-              <p class="info-card__hint">Most recent operations run through this Command Center.</p>
-              <p class="stat-card__meta" id="dashboard-operations-summary"></p>
+          <div class="dash-grid dash-grid--activity">
+            <section class="info-card dash-panel dash-panel--activity" aria-labelledby="dashboard-activity-title">
+              <header class="dash-panel__head">
+                <h3 class="info-card__title" id="dashboard-activity-title"><span class="dash-panel__icon" aria-hidden="true">&#9654;</span>Recent Operations</h3>
+                <button class="dash-panel__link" type="button" id="dashboard-view-observability-button">View all &rarr;</button>
+              </header>
+              <p class="dash-panel__note" id="dashboard-operations-summary"></p>
               <p class="info-card__empty info-card__empty--quiet" id="dashboard-activity-empty" hidden>No operations have been executed yet through this Command Center. Try the Operations view.</p>
               <div class="table-wrapper" id="dashboard-activity-table-wrapper" hidden>
                 <table class="data-table data-table--compact">
@@ -281,52 +294,36 @@
                       <th scope="col">Operation</th>
                       <th scope="col">Status</th>
                       <th scope="col">Duration</th>
-                      <th scope="col">Started</th>
+                      <th scope="col">Time</th>
                     </tr>
                   </thead>
                   <tbody id="dashboard-activity-table-body"></tbody>
                 </table>
               </div>
-              <div class="btn-row">
-                <button class="btn" type="button" id="dashboard-view-observability-button">View all in Observability &rarr;</button>
+            </section>
+
+            <section class="info-card dash-panel dash-panel--alerts" aria-labelledby="dashboard-alerts-title">
+              <header class="dash-panel__head">
+                <h3 class="info-card__title" id="dashboard-alerts-title"><span class="dash-panel__icon" aria-hidden="true">&#9888;</span>Recent Alerts</h3>
+                <span class="dash-panel__meta" title="IRIS&rsquo;s own alert counters and any indicator that is not Normal. IRIS&rsquo;s REST API reports alert counts, not the alert log itself.">IRIS alert counters</span>
+              </header>
+              <p class="info-card__empty" id="dashboard-alerts-empty" hidden>Could not load IRIS&rsquo;s alert counters.</p>
+              <div class="dash-alert-counts" id="dashboard-alert-counts"></div>
+              <ul class="dash-alert-list" id="dashboard-alert-list" aria-label="Findings"></ul>
+            </section>
+
+            <section class="info-card dash-panel dash-panel--process" aria-labelledby="dashboard-process-title">
+              <header class="dash-panel__head">
+                <h3 class="info-card__title" id="dashboard-process-title"><span class="dash-panel__icon" aria-hidden="true">&#9881;</span>Active Processes</h3>
+                <span class="dash-panel__meta" title="Current IRIS processes by state and namespace (GET /v2/processes).">GET /v2/processes</span>
+              </header>
+              <p class="info-card__empty" id="dashboard-process-empty" hidden>Could not load processes.</p>
+              <div class="dash-process" id="dashboard-process-state"></div>
+              <div class="dash-process-extra">
+                <p class="dash-subtitle">By namespace</p>
+                <div id="dashboard-process-namespace"></div>
               </div>
             </section>
-          </div>
-
-          <div class="dashboard-section dashboard-section--quicklinks">
-            <h3 class="section-heading section-heading--tertiary">Quick Access</h3>
-            <div class="quicklink-grid" id="dashboard-quicklinks">
-              <article class="quicklink-card">
-                <h4 class="quicklink-card__title">Investigation</h4>
-                <p class="quicklink-card__description">Search IRIS&rsquo;s own security audit log &mdash; filter by time, event type, or username to investigate an issue.</p>
-                <button class="btn" type="button" data-quicklink="investigation">Open &rarr;</button>
-              </article>
-
-              <article class="quicklink-card">
-                <h4 class="quicklink-card__title">Operations</h4>
-                <p class="quicklink-card__description">Run controlled operations through the authorization &rarr; confirmation &rarr; execution &rarr; verification framework.</p>
-                <button class="btn" type="button" data-quicklink="operations">Open &rarr;</button>
-              </article>
-
-              <article class="quicklink-card">
-                <h4 class="quicklink-card__title">Security</h4>
-                <p class="quicklink-card__description">Users, roles, authentication posture, wallet, certificates and OAuth 2.0.</p>
-                <button class="btn" type="button" data-quicklink="security">Open &rarr;</button>
-              </article>
-
-              <article class="quicklink-card">
-                <h4 class="quicklink-card__title">Observability</h4>
-                <p class="quicklink-card__description">Inspect every execution trace and span recorded by the authorization and execution framework.</p>
-                <button class="btn" type="button" data-quicklink="observability">Open &rarr;</button>
-              </article>
-
-              <article class="quicklink-card">
-                <h4 class="quicklink-card__title">API Capability Explorer</h4>
-                <p class="quicklink-card__description">See which IRIS SysAdmin REST API capabilities this Command Center has verified and wired up.</p>
-                <p class="stat-card__meta" id="dashboard-capabilities-summary"></p>
-                <button class="btn" type="button" data-quicklink="capabilities">Open &rarr;</button>
-              </article>
-            </div>
           </div>
         </section>
 
@@ -2122,7 +2119,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="operations-title">Operations</h2>
-              <p class="view__subtitle">Operations registered in the authorization and execution framework.</p>
+              <p class="view__subtitle view__subtitle--wide">Supported actions that change IRIS. Every action is authorized, explicitly confirmed and verified afterwards by the Command Center&rsquo;s execution framework.</p>
             </div>
             <button class="btn btn--primary" type="button" id="operations-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -2148,28 +2145,32 @@
             <p class="info-panel__meta" id="operations-count"></p>
           </div>
 
-          <div class="view-overview" id="operations-overview" hidden>
-            <p class="stat-card__label">Risk Level Distribution</p>
-            <div id="operations-overview-viz"></div>
-          </div>
+          <p class="empty-state" id="operations-empty" hidden>No supported actions are registered.</p>
 
-          <p class="empty-state" id="operations-empty" hidden>No operations registered.</p>
+          <div class="ops-catalog" id="operations-catalog" aria-label="Supported Actions"></div>
 
-          <div class="table-wrapper" id="operations-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Kind</th>
-                  <th scope="col">Risk</th>
-                  <th scope="col">Required Privilege</th>
-                  <th scope="col">Confirmation Required</th>
-                  <th scope="col">Description</th>
-                </tr>
-              </thead>
-              <tbody id="operations-table-body"></tbody>
-            </table>
-          </div>
+          <section class="ops-group ops-group--demo" aria-labelledby="operations-demo-title">
+            <h3 class="ops-group__title" id="operations-demo-title">Safe Demo</h3>
+            <div class="ops-grid">
+              <article class="ops-card ops-card--demo">
+                <div class="ops-card__head">
+                  <h4 class="ops-card__title">Demo Activity</h4>
+                  <span class="status-badge status-badge--neutral">Not a registered operation</span>
+                </div>
+                <p class="ops-card__description">Runs a safe, reversible rehearsal: a few of the registered operations above are executed for real, each restored and verified straight away, producing real execution traces.</p>
+                <dl class="ops-card__facts">
+                  <div class="ops-card__fact"><dt>Changes left behind</dt><dd>None &mdash; every temporary change is restored</dd></div>
+                  <div class="ops-card__fact"><dt>Required privilege</dt><dd>Each operation&rsquo;s own</dd></div>
+                </dl>
+                <div class="ops-card__foot">
+                  <span class="ops-card__where">Asks for confirmation first</span>
+                  <button class="btn ops-card__open" type="button" data-demo-activity-open aria-label="Open Demo Activity">Open &rarr;</button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <p class="empty-state ops-select-hint" id="operations-select-hint">Select an action above to review and execute it safely.</p>
 
           <div class="info-grid" id="operations-review-grid" hidden>
             <section class="info-card info-card--wide" aria-labelledby="operations-review-title">
@@ -2582,6 +2583,55 @@
           <h2 class="view__title" id="placeholder-title">Coming soon</h2>
           <p class="view__subtitle" id="placeholder-subtitle">This section isn&rsquo;t implemented yet.</p>
         </section>
+        <div class="ns-drawer-backdrop" id="demo-activity-backdrop" hidden></div>
+        <aside class="ns-drawer ns-drawer--wide demo-drawer" id="demo-activity-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="demo-activity-title">
+          <div class="ns-drawer__header">
+            <div class="ns-drawer__title-group">
+              <h3 class="ns-drawer__title" id="demo-activity-title">Demo Activity</h3>
+              <span class="status-badge status-badge--neutral">Safe demo</span>
+            </div>
+            <button class="ns-drawer__close" type="button" id="demo-activity-close" aria-label="Close Demo Activity">&times;</button>
+          </div>
+
+          <div class="ns-drawer__section" id="demo-activity-intro">
+            <p class="info-card__hint">This runs real, registered operations through the Command Center&rsquo;s authorization, confirmation, execution and verification framework, restores every temporary change, and records real execution traces. It is not itself a registered operation.</p>
+            <h4 class="ns-drawer__section-title">What will happen</h4>
+            <ol class="demo-plan">
+              <li><strong>Journal setting:</strong> PurgeArchived is switched to the opposite value, verified, then restored to its original value and verified.</li>
+              <li><strong>Web application description:</strong> on a safe web application (<code>/csp/user</code> when available; never a System app, <code>/api/admin</code> or <code>/api/mgmnt</code>), the description is temporarily changed, verified, then restored and verified.</li>
+              <li><strong>Dry runs only:</strong> Mount Database and Run Task Now are simulated when a valid candidate exists &mdash; nothing is mounted or run. Otherwise they are skipped.</li>
+            </ol>
+            <p class="info-card__hint">The rehearsal stops at the first failure and always tries to restore anything it changed. Nothing is sent until you confirm.</p>
+            <div class="btn-row">
+              <button class="btn btn--warning" type="button" id="demo-activity-confirm-button">Confirm &amp; Run Rehearsal</button>
+              <button class="btn" type="button" id="demo-activity-cancel-button">Cancel</button>
+            </div>
+          </div>
+
+          <div class="loading-state" id="demo-activity-running" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Running the rehearsal &mdash; each change is verified and restored&hellip;</span>
+          </div>
+
+          <div class="ns-drawer__section" id="demo-activity-result" hidden aria-live="polite">
+            <h4 class="ns-drawer__section-title">Result</h4>
+            <div class="demo-result__summary">
+              <span id="demo-activity-result-status"></span>
+              <span class="demo-result__detail" id="demo-activity-result-detail"></span>
+            </div>
+            <ol class="demo-steps" id="demo-activity-steps" aria-label="Rehearsal steps"></ol>
+            <div class="btn-row">
+              <button class="btn btn--primary" type="button" id="demo-activity-done-button">Done</button>
+            </div>
+          </div>
+
+          <div class="ns-drawer__section" id="demo-activity-error" hidden role="alert">
+            <div class="banner banner--error">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="demo-activity-error-text"></span>
+            </div>
+          </div>
+        </aside>
       </main>
     </div>
   </div>

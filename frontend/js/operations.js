@@ -1,6 +1,7 @@
-// Operations view: lists every registered operation (GET /api/iris/operations)
-// and implements the full UI flow for the one operation this project
-// supports executing — journal.update_purge_archived:
+// Operations view: a "Supported Actions" catalog of the mutating operations
+// the Command Center supports (risk level and required privilege come from
+// the live registry, GET /api/iris/operations), plus the full UI flow for the
+// one operation executed on this page — journal.update_purge_archived:
 //
 //   Review -> explicit confirmation -> [existing backend framework decides
 //   authorization -> execution -> post-action verification] -> result
@@ -18,7 +19,7 @@
 // button's own click handler.
 
 import { IrisApi, ApiError } from "./api.js";
-import { countBy, renderStackedBar } from "./viz.js";
+import { navigateTo } from "./nav.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 const JOURNAL_OPERATION_NAME = "journal.update_purge_archived";
@@ -31,11 +32,9 @@ const dom = {
   connectionStatus: document.getElementById("operations-connection-status"),
   connectionStatusLabel: document.getElementById("operations-connection-status-label"),
   countLabel: document.getElementById("operations-count"),
-  tableWrapper: document.getElementById("operations-table-wrapper"),
-  tableBody: document.getElementById("operations-table-body"),
   empty: document.getElementById("operations-empty"),
-  overview: document.getElementById("operations-overview"),
-  overviewViz: document.getElementById("operations-overview-viz"),
+  catalog: document.getElementById("operations-catalog"),
+  selectHint: document.getElementById("operations-select-hint"),
   reviewGrid: document.getElementById("operations-review-grid"),
   reviewList: document.getElementById("operations-review-list"),
   executeLoadingState: document.getElementById("operations-execute-loading-state"),
@@ -58,6 +57,86 @@ const dom = {
 let journalOperation = null; // the operation's own registry metadata, from GET /api/iris/operations
 let currentPurgeArchived = null; // last-known value, from GET /api/iris/journal/settings
 let pendingTarget = null; // the value the user picked but has not yet confirmed
+let journalSelected = false; // true once the user opened the journal action; nothing is preselected
+
+// The supported mutating actions, grouped for the catalog. Only the friendly
+// title/description/group and where the action is performed live here; risk
+// level and required privilege always come from the registry. An action
+// missing from the registry is not shown. `view` is the existing view whose
+// own review/confirm flow performs the action; `null` = this page (journal).
+const CATALOG_GROUPS = ["Journal", "Namespaces", "Databases", "Web Applications", "Users", "Tasks"];
+const SUPPORTED_ACTIONS = [
+  {
+    name: JOURNAL_OPERATION_NAME,
+    title: "Update Journal Settings",
+    description: "Choose whether IRIS deletes journal files once they have been archived (the PurgeArchived setting).",
+    group: "Journal",
+    view: null,
+  },
+  {
+    name: "namespace.create",
+    title: "Create Namespace",
+    description: "Create a new namespace and map it to databases for its data and code.",
+    group: "Namespaces",
+    view: "namespaces",
+  },
+  {
+    name: "database.create",
+    title: "Create Database",
+    description: "Create a new database in a directory on the IRIS server.",
+    group: "Databases",
+    view: "databases",
+  },
+  {
+    name: "database.mount",
+    title: "Mount Database",
+    description: "Mount a database so its data becomes available to IRIS.",
+    group: "Databases",
+    view: "databases",
+  },
+  {
+    name: "database.dismount",
+    title: "Dismount Database",
+    description: "Dismount a database; its data is unavailable until it is mounted again. System databases are protected.",
+    group: "Databases",
+    view: "databases",
+  },
+  {
+    name: "web_app.set_enabled",
+    title: "Enable / Disable Web Application",
+    description: "Turn a web application on or off.",
+    group: "Web Applications",
+    view: "web-apps",
+  },
+  {
+    name: "web_app.update_description",
+    title: "Update Web Application Description",
+    description: "Change the description text of a web application.",
+    group: "Web Applications",
+    view: "web-apps",
+  },
+  {
+    name: "user.set_enabled",
+    title: "Enable / Disable User",
+    description: "Allow or block sign-in for an IRIS user account.",
+    group: "Users",
+    view: "security",
+  },
+  {
+    name: "task.run_now",
+    title: "Run Task Now",
+    description: "Start a scheduled task immediately instead of waiting for its next scheduled run.",
+    group: "Tasks",
+    view: "tasks",
+  },
+];
+const VIEW_LABEL = {
+  namespaces: "Namespaces",
+  databases: "Databases",
+  "web-apps": "Web Applications",
+  security: "Security",
+  tasks: "Tasks",
+};
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -107,6 +186,11 @@ function formatConfirmation(required) {
   return required ? "Yes" : "No";
 }
 
+function formatRisk(riskLevel) {
+  if (typeof riskLevel !== "string" || !riskLevel) return PLACEHOLDER;
+  return `${riskLevel.charAt(0).toUpperCase()}${riskLevel.slice(1)} risk`;
+}
+
 // Same status-badge convention already used by observability.js's trace
 // status column — reused here so risk level and confirmation-required read
 // as the same kind of at-a-glance safety signal, instead of plain table
@@ -122,71 +206,97 @@ function makeRiskBadge(riskLevel) {
   const key = typeof riskLevel === "string" ? riskLevel.toLowerCase() : "";
   const badge = document.createElement("span");
   badge.className = `status-badge ${RISK_BADGE_CLASS[key] || "status-badge--neutral"}`;
-  badge.textContent = textOrPlaceholder(riskLevel);
+  badge.textContent = formatRisk(riskLevel);
   return badge;
 }
 
-function makeConfirmationBadge(required) {
-  const badge = document.createElement("span");
-  badge.className = `status-badge ${required ? "status-badge--warning" : "status-badge--neutral"}`;
-  badge.textContent = formatConfirmation(required);
-  return badge;
+// Built via document.createElement + .textContent — never innerHTML — so a
+// registry value containing HTML-special characters is never markup.
+function makeEl(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
 
-// Cells/rows are always built via document.createElement + .textContent —
-// never innerHTML — so an operation name/description containing
-// HTML-special characters can never be interpreted as markup.
-function makeCell(content) {
-  const cell = document.createElement("td");
-  cell.className = "data-table__cell";
-  if (content instanceof Node) {
-    cell.append(content);
-  } else {
-    cell.textContent = content;
-    cell.title = content;
+function makeActionCard(action, operation) {
+  const card = makeEl("article", "ops-card");
+  card.dataset.operation = action.name;
+
+  const head = makeEl("div", "ops-card__head");
+  head.append(makeEl("h4", "ops-card__title", action.title), makeRiskBadge(operation.risk_level));
+
+  const description = makeEl("p", "ops-card__description", action.description);
+
+  const facts = makeEl("dl", "ops-card__facts");
+  for (const [label, value] of [
+    ["Category", action.group],
+    ["Required privilege", formatPrivileges(operation.required_privileges)],
+  ]) {
+    const row = makeEl("div", "ops-card__fact");
+    row.append(makeEl("dt", "", label), makeEl("dd", "", value));
+    facts.append(row);
   }
-  return cell;
+
+  const foot = makeEl("div", "ops-card__foot");
+  foot.append(
+    makeEl("span", "ops-card__where", action.view ? `Opens in ${VIEW_LABEL[action.view]}` : "Opens on this page"),
+  );
+  const open = makeEl("button", "btn ops-card__open", "Open →");
+  open.type = "button";
+  open.setAttribute("aria-label", `Open ${action.title}`);
+  open.addEventListener("click", () => openAction(action));
+  foot.append(open);
+
+  card.append(head, description, facts, foot);
+  return card;
 }
 
-/** A real risk_level distribution over the same `operations` array
- * renderTable() below already renders as a table — no extra fetch, no
- * invented category. Hidden entirely when there's nothing to show. */
-function renderOverview(operations) {
-  if (!Array.isArray(operations) || operations.length === 0) {
-    dom.overview.hidden = true;
+/** Renders the Supported Actions catalog from the registry: only the
+ * actions listed above that the registry actually defines, grouped. */
+function renderCatalog(operations) {
+  dom.catalog.replaceChildren();
+  const byName = new Map(Array.isArray(operations) ? operations.map((op) => [op.name, op]) : []);
+  const available = SUPPORTED_ACTIONS.filter((action) => byName.has(action.name));
+
+  dom.empty.hidden = !Array.isArray(operations) || available.length > 0;
+  dom.countLabel.textContent = available.length
+    ? `${available.length} supported action${available.length === 1 ? "" : "s"}`
+    : "";
+
+  for (const group of CATALOG_GROUPS) {
+    const actions = available.filter((action) => action.group === group);
+    if (actions.length === 0) continue;
+    const section = makeEl("section", "ops-group");
+    section.append(makeEl("h3", "ops-group__title", group));
+    const grid = makeEl("div", "ops-grid");
+    for (const action of actions) grid.append(makeActionCard(action, byName.get(action.name)));
+    section.append(grid);
+    dom.catalog.append(section);
+  }
+}
+
+function markOpened(name) {
+  dom.catalog.querySelectorAll(".ops-card").forEach((card) => {
+    card.classList.toggle("ops-card--selected", card.dataset.operation === name);
+  });
+}
+
+/** "Open →": the journal action shows this page's existing review/execute
+ * panels; every other action goes to the existing view whose own
+ * review/confirm flow performs it. Opening never executes anything. */
+function openAction(action) {
+  if (action.view) {
+    navigateTo(action.view);
     return;
   }
-  dom.overview.hidden = false;
-  const entries = countBy(operations, (op) => op.risk_level || "unknown");
-  renderStackedBar(dom.overviewViz, entries);
-}
-
-function renderTable(operations) {
-  dom.tableBody.replaceChildren();
-  renderOverview(operations);
-
-  if (!Array.isArray(operations) || operations.length === 0) {
-    dom.tableWrapper.hidden = true;
-    dom.empty.hidden = false;
-    dom.countLabel.textContent = "";
-    return;
-  }
-
-  dom.tableWrapper.hidden = false;
-  dom.empty.hidden = true;
-  dom.countLabel.textContent = `${operations.length} operation${operations.length === 1 ? "" : "s"}`;
-
-  for (const op of operations) {
-    const row = document.createElement("tr");
-    row.append(
-      makeCell(textOrPlaceholder(op.name)),
-      makeCell(formatKind(op.kind)),
-      makeCell(makeRiskBadge(op.risk_level)),
-      makeCell(formatPrivileges(op.required_privileges)),
-      makeCell(makeConfirmationBadge(op.confirmation_required)),
-      makeCell(textOrPlaceholder(op.description)),
-    );
-    dom.tableBody.append(row);
+  journalSelected = true;
+  markOpened(action.name);
+  dom.selectHint.hidden = true;
+  dom.reviewGrid.hidden = !journalOperation;
+  if (journalOperation) {
+    loadCurrentPurgeArchived();
+    dom.reviewGrid.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -198,12 +308,13 @@ function renderReview(operations) {
     : null;
   journalOperation = operation || null;
 
+  // Shown only after the user opens the journal action — never preselected.
   if (!operation) {
     dom.reviewGrid.hidden = true;
     return;
   }
 
-  dom.reviewGrid.hidden = false;
+  dom.reviewGrid.hidden = !journalSelected;
 
   // The row explicitly naming the field execution would change
   // (PurgeArchived) is what satisfies "clearly show what execution
@@ -236,7 +347,7 @@ function renderReview(operations) {
 }
 
 /**
- * Fetches GET /api/iris/operations and renders the table + review card.
+ * Fetches GET /api/iris/operations and renders the catalog + review card.
  * This is a READ-ONLY call — no mutating request happens here.
  */
 export async function loadOperations() {
@@ -256,7 +367,7 @@ export async function loadOperations() {
         : "An unexpected error occurred while loading operations.";
     setConnectionState("error", "Could not reach the backend");
     setErrorBanner(message);
-    renderTable(null);
+    renderCatalog(null);
     renderReview(null);
     setLoading(false);
     return;
@@ -267,7 +378,7 @@ export async function loadOperations() {
   if (operations === null) {
     setConnectionState("error", "Backend returned no data");
     setErrorBanner("The backend did not return the expected operations list.");
-    renderTable(null);
+    renderCatalog(null);
     renderReview(null);
     setLoading(false);
     return;
@@ -275,14 +386,15 @@ export async function loadOperations() {
 
   setConnectionState("connected", "Connected");
   setErrorBanner(null);
-  renderTable(operations);
+  renderCatalog(operations);
+  markOpened(journalSelected ? JOURNAL_OPERATION_NAME : null);
   renderReview(operations);
   setLoading(false);
 
   // Independent read (GET /api/iris/journal/settings) that populates the
-  // execute panel's "current value" — safe to run every time this view
-  // loads/refreshes, since it never confirms or executes anything itself.
-  await loadCurrentPurgeArchived();
+  // execute panel's "current value" — only once the journal action has been
+  // opened; it never confirms or executes anything itself.
+  if (journalSelected) await loadCurrentPurgeArchived();
 }
 
 // --- Execute panel: Review -> explicit confirmation -> execute -> result ---

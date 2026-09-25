@@ -4,7 +4,8 @@
 // attribute. The choice is remembered in localStorage — a per-viewer
 // convenience only, so every storage access is guarded and the app works
 // (in Midnight) when storage is unavailable. index.html's <head> applies the
-// saved theme before first paint; this module keeps the selector in sync.
+// saved theme before first paint; this module keeps the header's
+// Midnight/Slate/Light switch in sync.
 
 const STORAGE_KEY = "icc-theme";
 const THEMES = ["midnight", "slate", "light"];
@@ -36,11 +37,19 @@ export function applyTheme(theme) {
 }
 
 export function initThemeSelector() {
-  const select = document.getElementById("theme-select");
+  const group = document.getElementById("theme-select");
   const current = applyTheme(readSavedTheme());
-  if (!select) return;
-  select.value = current;
-  select.addEventListener("change", () => {
-    saveTheme(applyTheme(select.value));
+  if (!group) return;
+  const options = [...group.querySelectorAll("button[value]")];
+  const sync = (theme) => {
+    options.forEach((button) => button.setAttribute("aria-pressed", String(button.value === theme)));
+  };
+  sync(current);
+  options.forEach((button) => {
+    button.addEventListener("click", () => {
+      const theme = applyTheme(button.value);
+      saveTheme(theme);
+      sync(theme);
+    });
   });
 }

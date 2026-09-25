@@ -47,6 +47,10 @@ const dom = {
 // re-render without losing which rows the user had open.
 const expandedTraceIds = new Set();
 
+// A trace another view asked to open (focusTrace()); scrolled into view and
+// highlighted once the next render contains it, then cleared.
+let pendingFocusTraceId = null;
+
 // The full list from the last successful fetch — the time filter only
 // ever re-renders a subset of this, never re-fetches it.
 let allTraces = [];
@@ -423,6 +427,7 @@ function renderTable(traces) {
     const isExpanded = expandedTraceIds.has(trace.trace_id);
 
     const row = document.createElement("tr");
+    if (trace.trace_id === pendingFocusTraceId) row.classList.add("data-table__row--focused");
     const traceIdText = textOrPlaceholder(trace.trace_id);
     row.append(
       makeCell(traceIdText.length > 12 ? `${traceIdText.slice(0, 12)}…` : traceIdText),
@@ -454,6 +459,11 @@ function renderTable(traces) {
       detailCell.append(buildTraceDetail(trace));
       detailRow.append(detailCell);
       dom.tableBody.append(detailRow);
+    }
+
+    if (trace.trace_id === pendingFocusTraceId) {
+      pendingFocusTraceId = null;
+      row.scrollIntoView({ block: "center" });
     }
   }
 }
@@ -515,6 +525,21 @@ export async function loadExecutionTraces() {
 export function setTimeWindow(begin, end) {
   dom.filterBegin.value = begin;
   dom.filterEnd.value = end;
+}
+
+/**
+ * Asks this view to open one trace's existing detail: clears the time
+ * filter, expands that trace's detail row, and scrolls to it on the next
+ * render. Never fetches anything itself — like setTimeWindow(), it is
+ * called right before nav.navigateTo("observability"), whose view-opened
+ * load renders the real, freshly fetched trace list.
+ */
+export function focusTrace(traceId) {
+  if (typeof traceId !== "string" || !traceId) return;
+  dom.filterBegin.value = "";
+  dom.filterEnd.value = "";
+  expandedTraceIds.add(traceId);
+  pendingFocusTraceId = traceId;
 }
 
 /**

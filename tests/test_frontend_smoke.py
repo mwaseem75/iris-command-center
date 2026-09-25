@@ -139,6 +139,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "investigation.js",
         FRONTEND_DIR / "js" / "capabilities.js",
         FRONTEND_DIR / "js" / "theme.js",
+        FRONTEND_DIR / "js" / "demo-activity.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -1400,8 +1401,8 @@ def test_observability_investigation_cross_link_exists() -> None:
     )
 
 
-def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
-    print("Checking the Dashboard surfaces recent activity and working quicklinks to other views...")
+def test_dashboard_is_the_landing_screen_with_activity() -> None:
+    print("Checking the Dashboard surfaces recent activity (and no Quick Access section)...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
 
     for element_id in (
@@ -1409,36 +1410,24 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
         "dashboard-activity-table-wrapper",
         "dashboard-activity-table-body",
         "dashboard-view-observability-button",
-        "dashboard-quicklinks",
     ):
         check(f'id="{element_id}"' in html, f"the {element_id!r} dashboard element exists")
 
-    # Every quicklink must point at a real, enabled nav view — never a
-    # typo'd or since-renamed data-view value.
-    quicklink_targets = re.findall(r'data-quicklink="([a-z-]+)"', html)
-    check(len(quicklink_targets) >= 3, f"found {len(quicklink_targets)} dashboard quicklinks")
-    for target in quicklink_targets:
-        nav_match = re.search(
-            rf'<button class="nav-item[^"]*"[^>]*data-view="{target}"[^>]*>', html
-        )
-        check(nav_match is not None, f"quicklink target {target!r} matches a real nav-item")
-        check("disabled" not in nav_match.group(0), f"quicklink target {target!r}'s nav-item is NOT disabled")
+    # The redesigned Dashboard has no Quick Access section (the sidebar
+    # already navigates everywhere).
+    check('id="dashboard-quicklinks"' not in html, "the Dashboard has no Quick Access section")
+    check("data-quicklink=" not in html, "no dashboard quicklink buttons remain")
 
     dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
     check(
         "IrisApi.getExecutionTraces" in dashboard_js,
         "dashboard.js calls IrisApi.getExecutionTraces() for its Recent Activity section",
     )
-    # The design-system pass added two "Insights" donuts (Operations
-    # Overview, API Coverage) reusing these two existing, already-used-
-    # elsewhere GET routes — both still read-only, no new backend surface.
+    # The Recent Operations summary reuses the existing, read-only
+    # operations registry route — no new backend surface.
     check(
         "IrisApi.getOperations" in dashboard_js,
-        "dashboard.js calls IrisApi.getOperations() for its Operations Overview insight",
-    )
-    check(
-        "IrisApi.getCapabilities" in dashboard_js,
-        "dashboard.js calls IrisApi.getCapabilities() for its API Coverage insight",
+        "dashboard.js calls IrisApi.getOperations() for its Recent Operations summary",
     )
     # The Tasks card/micro-bar use the same backend-derived run State as the
     # Tasks view (GET /api/iris/tasks/overview), never the task list's own
@@ -1478,7 +1467,6 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
     for element_id in (
         "dashboard-live-status",
         "dashboard-live-label",
-        "stat-uptime",
         "stat-license",
         "dashboard-monitor-warning",
         "dashboard-health-indicators",
@@ -1488,7 +1476,6 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
         "dashboard-alert-list",
         "dashboard-process-state",
         "dashboard-process-namespace",
-        "dashboard-process-busy",
     ):
         check(f'id="{element_id}"' in html, f"the {element_id!r} dashboard element exists")
 
@@ -1511,6 +1498,18 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
     )
     check("setInterval(" not in dashboard_js, "dashboard.js chains setTimeout so refreshes never overlap")
     check("Math.random" not in dashboard_js, "dashboard.js never generates synthetic values")
+    # IRIS's Status.SystemMonitor flag is always false on this IRIS version
+    # (a status string cast to boolean), so the running/stale state must come
+    # from the %SYS.Monitor.Control process in the real process list.
+    check(
+        "Status.SystemMonitor" not in dashboard_js.replace("Status.SystemMonitor flag", ""),
+        "dashboard.js never uses IRIS's Status.SystemMonitor flag for running/stale decisions",
+    )
+    check(
+        '"%SYS.Monitor.Control"' in dashboard_js and 'p.Nspace === "%SYS"' in dashboard_js,
+        "dashboard.js detects the System Monitor from its %SYS.Monitor.Control process in %SYS",
+    )
+    check("Unknown (process list unavailable)" in dashboard_js, "System Monitor state is Unknown when process data fails")
 
 
 def test_theme_selector_offers_three_persisted_themes() -> None:
@@ -1533,7 +1532,7 @@ def test_theme_selector_offers_three_persisted_themes() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except nine sanctioned, scoped exceptions...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except ten sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
@@ -1620,6 +1619,11 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         "api.js's ninth sanctioned POST (postDatabaseDismount) is scoped to "
         "/api/iris/databases/dismount and exposed as IrisApi.dismountDatabase()",
     )
+    check(
+        '"/api/iris/demo/rehearsal"' in api_js and "runDemoRehearsal:" in api_js,
+        "api.js's tenth sanctioned POST (postDemoRehearsal) is scoped to "
+        "/api/iris/demo/rehearsal and exposed as IrisApi.runDemoRehearsal()",
+    )
 
     # operations.js (where the execute UI lives) must call the api.js
     # wrapper — it never constructs its own fetch call or duplicates
@@ -1661,6 +1665,59 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     )
 
 
+def test_demo_activity_is_confirmed_and_uses_only_real_traces() -> None:
+    print("Checking Demo Activity: explicit confirmation, no auto-run, real traces only...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js_dir = FRONTEND_DIR / "js"
+    for element_id in (
+        "dashboard-demo-activity-button",
+        "demo-activity-drawer",
+        "demo-activity-confirm-button",
+        "demo-activity-cancel-button",
+        "demo-activity-result",
+        "demo-activity-steps",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} Demo Activity element exists")
+    check(html.count("data-demo-activity-open") >= 2, "Demo Activity opens from the Dashboard and the Operations page")
+    check('id="dashboard-quicklinks"' not in html, "the old Quick Access section was not reintroduced")
+
+    demo_js = (js_dir / "demo-activity.js").read_text(encoding="utf-8")
+    check("fetch(" not in demo_js, "demo-activity.js makes no raw fetch() call (goes through IrisApi)")
+    code_only = re.sub(r"//.*", "", demo_js)
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
+    check(
+        code_only.count("IrisApi.runDemoRehearsal(") == 1 and "IrisApi.runDemoRehearsal(true)" in code_only,
+        "demo-activity.js calls IrisApi.runDemoRehearsal(true) in exactly one place",
+    )
+    check(
+        re.search(r'confirmButton\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*runConfirmed\(\);', demo_js)
+        is not None
+        and len(re.findall(r"(?<!function )runConfirmed\(\)", code_only)) == 1,
+        "the rehearsal only runs from the Confirm & Run button's own click handler",
+    )
+    for bypass_word in ("force", "bypass", "skip_confirmation", "skipConfirmation"):
+        check(
+            re.search(rf'["\']{bypass_word}["\']\s*:', demo_js) is None,
+            f"demo-activity.js sends no {bypass_word!r} field",
+        )
+
+    for name in ("dashboard.js", "app.js", "operations.js", "observability.js"):
+        content = (js_dir / name).read_text(encoding="utf-8")
+        check("runDemoRehearsal" not in content, f"{name} never calls the rehearsal itself (no auto-run)")
+
+    dashboard_js = (js_dir / "dashboard.js").read_text(encoding="utf-8")
+    check("onOpenTrace(trace.trace_id)" in dashboard_js, "Recent Operations rows open their real trace")
+    observability_js = (js_dir / "observability.js").read_text(encoding="utf-8")
+    check("export function focusTrace" in observability_js, "observability.js exposes focusTrace() for trace links")
+    app_js = (js_dir / "app.js").read_text(encoding="utf-8")
+    check(
+        "initDemoActivity(" in app_js and "loadExecutionTraces();" in app_js and "loadDashboard();" in app_js,
+        "app.js refreshes the Dashboard and Observability from the backend after a rehearsal",
+    )
+    check("demo" not in (js_dir / "operations.js").read_text(encoding="utf-8").lower(),
+          "Demo Activity is not part of the registry-driven operations catalog")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -1695,8 +1752,9 @@ def main() -> None:
         test_capabilities_nav_and_view_exist_and_are_enabled,
         test_capabilities_view_uses_only_expected_endpoint,
         test_observability_investigation_cross_link_exists,
-        test_dashboard_is_the_landing_screen_with_activity_and_quicklinks,
+        test_dashboard_is_the_landing_screen_with_activity,
         test_dashboard_live_monitoring_uses_real_read_only_sources,
+        test_demo_activity_is_confirmed_and_uses_only_real_traces,
         test_theme_selector_offers_three_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

@@ -236,6 +236,39 @@ async function postTaskRunNow(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/tasks/run-now", fields, confirmed, dryRun);
 }
 
+/**
+ * POST /api/iris/demo/rehearsal (backend/app/routes/demo.py) — the Demo
+ * Activity rehearsal. The body is `{ confirmed }` only (the route forbids
+ * any other field): the backend passes it unchanged to every existing
+ * operation, which alone authorizes, executes, verifies and restores. The
+ * response is the backend's RehearsalResult ({ status, confirmed, detail,
+ * steps }). HTTP 409 means another rehearsal is already running.
+ */
+async function postDemoRehearsal(confirmed) {
+  const path = "/api/iris/demo/rehearsal";
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ confirmed: confirmed === true }),
+    });
+  } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+
+  if (!response.ok) {
+    throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+
+  setHeaderConnectionStatus("connected", "Connected to backend");
+  return response.json();
+}
+
 async function postDatabaseOperation(path, fields, confirmed, dryRun) {
   let response;
   try {
@@ -426,6 +459,10 @@ export const IrisApi = {
   setUserEnabled: (fields, confirmed, dryRun = false) =>
     postUserSetEnabled(fields, confirmed, dryRun),
   runTaskNow: (fields, confirmed, dryRun = false) => postTaskRunNow(fields, confirmed, dryRun),
+  // The Demo Activity rehearsal — existing operations run by the backend's
+  // own framework; never called on page load, only from demo-activity.js's
+  // Confirm button.
+  runDemoRehearsal: (confirmed) => postDemoRehearsal(confirmed),
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),

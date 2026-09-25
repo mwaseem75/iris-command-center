@@ -1,7 +1,7 @@
 // Dashboard view: the main landing screen — a live view of the connected
 // IRIS instance built only from real, read-only data:
-//   - KPI row: counts from the existing list routes, plus Uptime and License
-//     Use from IRIS's own System Dashboard.
+//   - KPI row: counts from the existing list routes, plus IRIS's own alert
+//     counters from its System Dashboard (License Use is in System Health).
 //   - System Health, Recent Alerts and the Resources trends: GET
 //     /api/iris/monitor/dashboard (IRIS's GET /v2/monitor/dashboard/main).
 //   - Database Storage: GET /api/iris/databases/storage (/v2/database-dirs),
@@ -9,12 +9,11 @@
 //   - Process Distribution: the existing GET /api/iris/processes.
 //   - Recent Operations: the backend's own execution traces plus the
 //     operations registry (both existing routes).
-//   - Quick Access: static navigation, plus the capability matrix summary.
 //
 // Live refresh: every REFRESH_INTERVAL_MS while the Dashboard view is shown
 // AND the browser tab is visible (paused otherwise, resumed on return). The
 // fast panels refresh every tick; the heavier sources (counts, storage,
-// tasks, registry, capabilities) every SLOW_EVERY_TICKS ticks. Refreshes are
+// tasks, registry) every SLOW_EVERY_TICKS ticks. Refreshes are
 // chained with setTimeout, so two never overlap.
 //
 // Resource trends come from up to MAX_SAMPLES real samples taken by this page
@@ -48,16 +47,21 @@ const dom = {
   refreshButton: $("refresh-button"),
   liveStatus: $("dashboard-live-status"),
   liveLabel: $("dashboard-live-label"),
-  uptime: $("stat-uptime"),
   license: $("stat-license"),
   licenseMeta: $("stat-license-meta"),
+  alertsCard: $("stat-alerts-card"),
+  alerts: $("stat-alerts"),
+  alertsMeta: $("stat-alerts-meta"),
   monitorWarning: $("dashboard-monitor-warning"),
   healthEmpty: $("dashboard-health-empty"),
+  healthSummary: $("dashboard-health-summary"),
   healthIndicators: $("dashboard-health-indicators"),
   healthFacts: $("dashboard-health-facts"),
   resourcesEmpty: $("dashboard-resources-empty"),
   resources: $("dashboard-resources"),
+  resourcesChart: $("dashboard-resources-chart"),
   storageEmpty: $("dashboard-storage-empty"),
+  storageTotal: $("dashboard-storage-total"),
   storage: $("dashboard-storage"),
   storageHint: $("dashboard-storage-hint"),
   alertsEmpty: $("dashboard-alerts-empty"),
@@ -66,14 +70,11 @@ const dom = {
   processEmpty: $("dashboard-process-empty"),
   processState: $("dashboard-process-state"),
   processNamespace: $("dashboard-process-namespace"),
-  processBusy: $("dashboard-process-busy"),
   activityEmpty: $("dashboard-activity-empty"),
   activityTableWrapper: $("dashboard-activity-table-wrapper"),
   activityTableBody: $("dashboard-activity-table-body"),
   operationsSummary: $("dashboard-operations-summary"),
   viewObservabilityButton: $("dashboard-view-observability-button"),
-  quicklinks: $("dashboard-quicklinks"),
-  capabilitiesSummary: $("dashboard-capabilities-summary"),
   databasesViz: $("stat-databases-viz"),
   processesViz: $("stat-processes-viz"),
   webAppsViz: $("stat-web-apps-viz"),
@@ -120,6 +121,7 @@ let lastSuccess = null; // Date of the last refresh with no failures
 let lastRefreshFailed = false;
 let databaseNames = new Map(); // Directory → Name, from the last database list
 let loadedOnce = false;
+let onOpenTrace = null; // app.js: opens a trace in Observability's detail view
 
 // --- small helpers ---
 
@@ -139,6 +141,17 @@ function formatTimestamp(iso) {
   if (typeof iso !== "string" || !iso) return PLACEHOLDER;
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+}
+
+/** Compact time-of-day for the Recent Operations table; full timestamp on hover. */
+function formatTime(iso) {
+  const full = formatTimestamp(iso);
+  const date = new Date(iso);
+  if (full === PLACEHOLDER || Number.isNaN(date.getTime())) return full;
+  const span = document.createElement("span");
+  span.textContent = date.toLocaleTimeString();
+  span.title = full;
+  return span;
 }
 
 function formatNumber(value, digits = 0) {
@@ -245,15 +258,25 @@ function setUnavailable(node) {
   node.classList.add("stat-card__value--unavailable");
 }
 
-function renderMonitorKpis(monitor) {
+function renderMonitorKpis(monitor, sysMon) {
   if (!monitor) {
-    setUnavailable(dom.uptime);
     setUnavailable(dom.license);
     dom.licenseMeta.textContent = "";
+    setUnavailable(dom.alerts);
+    dom.alertsMeta.textContent = "";
+    dom.alertsCard.classList.add("stat-card--error");
+    delete dom.alertsCard.dataset.level;
     return;
   }
-  dom.uptime.classList.remove("stat-card__value--unavailable");
-  dom.uptime.textContent = textOrPlaceholder(monitor.Status.UpTime.replace(/\s+/g, " "));
+  // IRIS Alerts KPI: IRIS's own serious-alert counter, as reported.
+  const serious = monitor.Alerts.SeriousAlerts;
+  dom.alerts.classList.remove("stat-card__value--unavailable");
+  dom.alertsCard.classList.remove("stat-card--error");
+  dom.alerts.textContent = formatNumber(serious);
+  dom.alertsCard.dataset.level = serious > 0 ? "alert" : "ok";
+  dom.alertsMeta.textContent =
+    `serious · ${formatNumber(monitor.Alerts.ApplicationErrors)} app errors` + (sysMon === null ? " · may not be current" : "");
+
   const lic = monitor.Licensing;
   dom.license.classList.remove("stat-card__value--unavailable");
   // Spec: LicenseUse is a percentage, or "" when there is no license limit.
@@ -284,37 +307,109 @@ function statusVariant(value) {
   return value.trim().toLowerCase() === "normal" ? "status-badge--ok" : "status-badge--warning";
 }
 
-function renderHealth(monitor) {
+// System Monitor running state, from the real process list: the monitor's
+// controller runs as %SYS.Monitor.Control in %SYS for as long as it is up.
+// IRIS's own Status.SystemMonitor flag is NOT used: SYS.Metrics reports a
+// status string (e.g. "Normal") that the REST endpoint casts to boolean, so it
+// is always false on this IRIS version.
+// Returns the process (running), null (not running) or undefined (unknown —
+// the process list could not be loaded).
+function findSystemMonitorProcess(processesResult) {
+  const value = fulfilled(processesResult);
+  if (!value || !Array.isArray(value.result)) return undefined;
+  return (
+    value.result.find(
+      (p) => typeof p.Routine === "string" && p.Routine.startsWith("%SYS.Monitor.Control") && p.Nspace === "%SYS",
+    ) || null
+  );
+}
+
+function describeSystemMonitor(sysMon) {
+  if (sysMon === undefined) return "Unknown (process list unavailable)";
+  if (sysMon === null) return "Not running (no %SYS.Monitor.Control process in %SYS)";
+  return `Running (PID ${sysMon.Pid})`;
+}
+
+// Compact visual summary: a ring filled by the share of IRIS indicators that
+// report "Normal", with the plain count in the centre. No score is computed.
+function renderHealthSummary(monitor) {
+  dom.healthSummary.replaceChildren();
+  if (!monitor) return;
+  const values = HEALTH_INDICATORS.map(([, section, field]) => monitor[section][field]);
+  const normal = values.filter((v) => typeof v === "string" && v.trim().toLowerCase() === "normal").length;
+  const ring = document.createElement("div");
+  ring.className = "dash-health-ring";
+  ring.style.setProperty("--ring-fill", `${(normal / values.length) * 360}deg`);
+  ring.title = HEALTH_INDICATORS.map(([label], i) => `${label}: ${textOrPlaceholder(values[i])}`).join("\n");
+  const hole = document.createElement("div");
+  hole.className = "dash-health-ring__hole";
+  const count = document.createElement("span");
+  count.className = "dash-health-ring__value";
+  count.textContent = `${normal}/${values.length}`;
+  const label = document.createElement("span");
+  label.className = "dash-health-ring__label";
+  label.textContent = "Normal";
+  hole.append(count, label);
+  ring.append(hole);
+  dom.healthSummary.dataset.level = normal === values.length ? "ok" : "warning";
+  dom.healthSummary.append(ring);
+}
+
+function makeCheck(level, text) {
+  const item = document.createElement("li");
+  item.className = "dash-checks__item";
+  item.dataset.level = level;
+  const icon = document.createElement("span");
+  icon.className = "dash-checks__icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = level === "ok" ? "\u2713" : level === "warning" ? "!" : "?";
+  const label = document.createElement("span");
+  label.textContent = text;
+  item.append(icon, label);
+  return item;
+}
+
+function renderHealth(monitor, sysMon) {
   dom.healthIndicators.replaceChildren();
   dom.healthFacts.replaceChildren();
   dom.healthEmpty.hidden = Boolean(monitor);
-  dom.monitorWarning.hidden = !monitor || monitor.Status.SystemMonitor !== false;
+  dom.monitorWarning.hidden = !monitor || sysMon !== null;
+  renderHealthSummary(monitor);
   if (!monitor) return;
 
-  for (const [label, section, field] of HEALTH_INDICATORS) {
+  // Each check restates a value IRIS (or the process list) reported.
+  const checks = [];
+  if (sysMon === undefined) checks.push(["unknown", "System Monitor: unknown (process list unavailable)"]);
+  else if (sysMon === null) checks.push(["warning", "System Monitor not running"]);
+  else checks.push(["ok", `System Monitor running (PID ${sysMon.Pid})`]);
+  const abnormal = HEALTH_INDICATORS.filter(([, section, field]) => {
     const value = monitor[section][field];
-    const item = document.createElement("li");
-    item.className = "dash-indicators__item";
-    const name = document.createElement("span");
-    name.textContent = label;
-    item.append(name, makeBadge(textOrPlaceholder(value), statusVariant(value)));
-    dom.healthIndicators.append(item);
+    return typeof value !== "string" || value.trim().toLowerCase() !== "normal";
+  });
+  if (abnormal.length === 0) checks.push(["ok", `All ${HEALTH_INDICATORS.length} status indicators Normal`]);
+  for (const [label, section, field] of abnormal) {
+    checks.push(["warning", `${label}: ${textOrPlaceholder(monitor[section][field])}`]);
   }
+  const serious = monitor.Alerts.SeriousAlerts;
+  checks.push(serious > 0 ? ["warning", `${formatNumber(serious)} serious alerts reported`] : ["ok", "No serious alerts reported"]);
+  const backup = monitor.Status.LastBackup;
+  checks.push(backup === "Never" ? ["warning", "No full backup recorded"] : ["ok", `Last full backup: ${textOrPlaceholder(backup)}`]);
+  for (const [level, text] of checks) dom.healthIndicators.append(makeCheck(level, text));
+
   dom.healthFacts.append(
-    makeInfoRow("System Monitor", monitor.Status.SystemMonitor ? "Running" : "Not running"),
+    makeInfoRow("System Monitor", describeSystemMonitor(sysMon)),
     makeInfoRow("Uptime", textOrPlaceholder(monitor.Status.UpTime.replace(/\s+/g, " ")), { mono: true }),
-    makeInfoRow("Last Full Backup", textOrPlaceholder(monitor.Status.LastBackup), { mono: true }),
     makeInfoRow("Journal Entries", formatNumber(monitor.SystemUsage.JournalEntries), { mono: true }),
   );
 }
 
-function renderAlerts(monitor) {
+function renderAlerts(monitor, sysMon) {
   dom.alertCounts.replaceChildren();
   dom.alertList.replaceChildren();
   dom.alertsEmpty.hidden = Boolean(monitor);
   if (!monitor) return;
 
-  const stale = monitor.Status.SystemMonitor === false;
+  const stale = sysMon === null;
   for (const [label, value] of [
     ["Serious alerts", monitor.Alerts.SeriousAlerts],
     ["Application errors", monitor.Alerts.ApplicationErrors],
@@ -346,22 +441,21 @@ function renderAlerts(monitor) {
     findings.push(["warning", `License use is at ${monitor.Licensing.LicenseUse}% of the limit.`]);
   }
 
-  if (findings.length === 0) {
-    const item = document.createElement("li");
-    item.className = "dash-alert-list__item";
-    item.dataset.level = "ok";
-    item.textContent = "No indicator reports a non-Normal status.";
-    dom.alertList.append(item);
-    return;
-  }
+  if (findings.length === 0) findings.push(["ok", "No indicator reports a non-Normal status."]);
   for (const [level, message] of findings) {
     const item = document.createElement("li");
     item.className = "dash-alert-list__item";
     item.dataset.level = level;
-    item.textContent = message;
+    const text = document.createElement("span");
+    text.className = "dash-alert-list__text";
+    text.textContent = message;
+    item.append(makeBadge(ALERT_LEVEL_LABEL[level], ALERT_LEVEL_BADGE[level]), text);
     dom.alertList.append(item);
   }
 }
+
+const ALERT_LEVEL_LABEL = { warning: "Warning", info: "Info", ok: "OK" };
+const ALERT_LEVEL_BADGE = { warning: "status-badge--warning", info: "status-badge--neutral", ok: "status-badge--ok" };
 
 // --- Resources (sampled trends) ---
 
@@ -393,7 +487,7 @@ function takeSample(monitor) {
 
 function makeSparkline(values) {
   const width = 160;
-  const height = 36;
+  const height = 28;
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("class", "dash-spark__chart");
@@ -406,24 +500,125 @@ function makeSparkline(values) {
   const span = max - min || 1;
   const step = values.length > 1 ? width / (values.length - 1) : width;
   const coords = points.map(([i, v]) => `${(i * step).toFixed(1)},${(height - 3 - ((v - min) / span) * (height - 6)).toFixed(1)}`);
+  // Area under the line, spanning only the real samples (never extrapolated).
+  const firstX = (points[0][0] * step).toFixed(1);
+  const lastX = (points[points.length - 1][0] * step).toFixed(1);
+  const area = document.createElementNS(SVG_NS, "polygon");
+  area.setAttribute("points", `${firstX},${height} ${coords.join(" ")} ${lastX},${height}`);
+  area.setAttribute("class", "dash-spark__area");
   const line = document.createElementNS(SVG_NS, "polyline");
   line.setAttribute("points", coords.join(" "));
   line.setAttribute("class", "dash-spark__line");
-  svg.append(line);
+  svg.append(area, line);
   return svg;
+}
+
+// A rounded axis ceiling so gridline labels read cleanly (1, 2, 2.5, 5 × 10^n).
+function niceCeiling(value) {
+  if (!(value > 0)) return 1;
+  const power = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 2, 2.5, 5, 10]) if (step * power >= value) return step * power;
+  return 10 * power;
+}
+
+function formatClock(time) {
+  return new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+// Large trend chart of one real sampled series, with a zero-based y axis,
+// gridlines and sample-time labels. Only real samples are plotted.
+function renderTrendChart(label, pick) {
+  dom.resourcesChart.replaceChildren();
+  const values = samples.map(pick);
+  const points = values.map((v, i) => [i, v]).filter(([, v]) => typeof v === "number" && Number.isFinite(v));
+  const head = document.createElement("div");
+  head.className = "dash-trend__head";
+  const title = document.createElement("span");
+  title.className = "dash-trend__title";
+  title.textContent = label;
+  const legend = document.createElement("span");
+  legend.className = "dash-trend__legend";
+  legend.textContent = `${points.length} sample${points.length === 1 ? "" : "s"}`;
+  head.append(title, legend);
+  dom.resourcesChart.append(head);
+  if (points.length < 2) {
+    const wait = document.createElement("p");
+    wait.className = "dash-trend__wait";
+    wait.textContent = "The chart appears after two samples (15 s apart).";
+    dom.resourcesChart.append(wait);
+    return;
+  }
+  const top = niceCeiling(Math.max(...points.map(([, v]) => v)));
+  const width = 600;
+  const height = 150;
+  const step = width / (values.length - 1);
+  const y = (v) => height - (v / top) * height;
+
+  const body = document.createElement("div");
+  body.className = "dash-trend__body";
+  const axis = document.createElement("div");
+  axis.className = "dash-trend__axis";
+  for (const fraction of [1, 0.75, 0.5, 0.25, 0]) {
+    const tick = document.createElement("span");
+    tick.textContent = formatNumber(top * fraction, top < 10 ? 2 : 0);
+    axis.append(tick);
+  }
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("class", "dash-trend__chart");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${label}, ${points.length} samples, latest ${formatNumber(points[points.length - 1][1], 1)}`);
+  for (const fraction of [0.25, 0.5, 0.75, 1]) {
+    const grid = document.createElementNS(SVG_NS, "line");
+    grid.setAttribute("x1", "0");
+    grid.setAttribute("x2", String(width));
+    grid.setAttribute("y1", String(y(top * fraction)));
+    grid.setAttribute("y2", String(y(top * fraction)));
+    grid.setAttribute("class", "dash-trend__grid");
+    svg.append(grid);
+  }
+  const coords = points.map(([i, v]) => `${(i * step).toFixed(1)},${y(v).toFixed(1)}`);
+  const area = document.createElementNS(SVG_NS, "polygon");
+  area.setAttribute("points", `${(points[0][0] * step).toFixed(1)},${height} ${coords.join(" ")} ${(points[points.length - 1][0] * step).toFixed(1)},${height}`);
+  area.setAttribute("class", "dash-trend__area");
+  const line = document.createElementNS(SVG_NS, "polyline");
+  line.setAttribute("points", coords.join(" "));
+  line.setAttribute("class", "dash-trend__line");
+  svg.append(area, line);
+  // The plot box has a fixed, CSS-reserved size; the SVG fills it absolutely,
+  // so drawing the first line never changes the panel's dimensions.
+  const plot = document.createElement("div");
+  plot.className = "dash-trend__plot";
+  plot.append(svg);
+  body.append(axis, plot);
+
+  const times = document.createElement("div");
+  times.className = "dash-trend__times";
+  const count = Math.min(5, samples.length);
+  for (let k = 0; k < count; k += 1) {
+    const index = Math.round((k * (samples.length - 1)) / Math.max(1, count - 1));
+    const tick = document.createElement("span");
+    tick.textContent = formatClock(samples[index].time);
+    times.append(tick);
+  }
+  dom.resourcesChart.append(body, times);
 }
 
 function renderResources(monitorAvailable) {
   dom.resourcesEmpty.hidden = monitorAvailable || samples.length > 0;
   dom.resources.replaceChildren();
+  dom.resourcesChart.replaceChildren();
   if (samples.length === 0) return;
+  renderTrendChart("Global references / s", (s) => s.globalRefsPerSecond);
   const spanSeconds = samples.length > 1 ? Math.round((samples[samples.length - 1].time - samples[0].time) / 1000) : 0;
-  for (const [label, unit, pick] of RESOURCE_SERIES) {
+  RESOURCE_SERIES.forEach(([label, unit, pick], index) => {
     const values = samples.map(pick);
     const numeric = values.filter((v) => typeof v === "number" && Number.isFinite(v));
     const current = values[values.length - 1];
     const tile = document.createElement("div");
     tile.className = "dash-spark";
+    tile.style.setProperty("--spark-color", `var(--color-chart-${(index % 6) + 1})`);
     const head = document.createElement("div");
     head.className = "dash-spark__head";
     const name = document.createElement("span");
@@ -442,7 +637,7 @@ function renderResources(monitorAvailable) {
     tile.setAttribute("aria-label", `${label}: ${value.textContent}. ${meta.textContent}`);
     tile.append(head, makeSparkline(values), meta);
     dom.resources.append(tile);
-  }
+  });
 }
 
 // --- Database Storage ---
@@ -450,6 +645,7 @@ function renderResources(monitorAvailable) {
 function renderStorage(result) {
   const value = fulfilled(result);
   dom.storage.replaceChildren();
+  dom.storageTotal.replaceChildren();
   if (!value || !Array.isArray(value.result)) {
     dom.storageEmpty.hidden = false;
     return;
@@ -458,14 +654,34 @@ function renderStorage(result) {
   const entries = [...value.result].sort((a, b) => b.Size - a.Size);
   const largest = Math.max(1, ...entries.map((e) => e.Size));
   const total = entries.reduce((sum, e) => sum + (typeof e.Size === "number" ? e.Size : 0), 0);
-  dom.storageHint.textContent = `Allocated size of ${entries.length} local databases · ${formatMB(total)} in total (GET /v2/database-dirs).`;
-  for (const entry of entries) {
+  dom.storageHint.textContent = `Total: ${formatMB(total)}`;
+  dom.storageHint.title = `Allocated size of ${entries.length} local databases (GET /v2/database-dirs).`;
+
+  // Share of the total allocated size per database: the largest five, then Other.
+  const nameOf = (entry) => databaseNames.get(entry.Directory) || entry.Directory;
+  const shares = entries.slice(0, 5).map((e) => ({ key: nameOf(e), count: e.Size }));
+  const rest = entries.slice(5).reduce((sum, e) => sum + e.Size, 0);
+  if (rest > 0) shares.push({ key: "Other", count: rest });
+  const bar = document.createElement("div");
+  renderStackedBar(bar, shares, { compact: true, formatValue: (e) => formatMB(e.count) });
+  const caption = document.createElement("div");
+  caption.className = "dash-storage-total__caption";
+  const allocated = document.createElement("span");
+  allocated.className = "dash-storage-total__value";
+  allocated.textContent = `${formatMB(total)} allocated`;
+  const count = document.createElement("span");
+  count.textContent = `${entries.length} databases`;
+  caption.append(allocated, count);
+  dom.storageTotal.append(bar, caption);
+
+  entries.forEach((entry, index) => {
     const row = document.createElement("div");
     row.className = "dash-storage__row";
     row.title = entry.Directory;
+    row.style.setProperty("--bar-color", index < 5 ? `var(--color-chart-${index + 1})` : "var(--color-chart-neutral)");
     const label = document.createElement("span");
     label.className = "dash-storage__name";
-    label.textContent = databaseNames.get(entry.Directory) || entry.Directory;
+    label.textContent = nameOf(entry);
     const track = document.createElement("span");
     track.className = "dash-storage__track";
     const fill = document.createElement("span");
@@ -475,41 +691,39 @@ function renderStorage(result) {
     // relative to the largest database.
     fill.style.width = `${Math.max(2, (limited ? entry.Size / entry.MaxSize : entry.Size / largest) * 100)}%`;
     track.append(fill);
+    const share = document.createElement("span");
+    share.className = "dash-storage__share";
+    share.textContent = total > 0 ? `${Math.round((entry.Size / total) * 100)}%` : PLACEHOLDER;
+    share.title = "Share of the total allocated size";
     const size = document.createElement("span");
     size.className = "dash-storage__size";
-    size.textContent = limited ? `${formatMB(entry.Size)} of ${formatMB(entry.MaxSize)}` : formatMB(entry.Size);
-    row.append(label, track, size);
+    size.textContent = limited ? `${formatMB(entry.Size)} / ${formatMB(entry.MaxSize)}` : formatMB(entry.Size);
+    row.append(label, track, share, size);
     if (typeof entry.Status === "string" && !entry.Status.startsWith("Mounted")) {
       row.append(makeBadge(entry.Status, "status-badge--warning"));
     }
     dom.storage.append(row);
-  }
+  });
 }
 
 // --- Process Distribution ---
 
-function renderProcesses(result, monitor) {
+function renderProcesses(result) {
   const value = fulfilled(result);
   dom.processState.replaceChildren();
   dom.processNamespace.replaceChildren();
-  dom.processBusy.replaceChildren();
   if (!value || !Array.isArray(value.result)) {
     dom.processEmpty.hidden = false;
   } else {
     dom.processEmpty.hidden = true;
     const processes = value.result;
     renderDonut(dom.processState, topCategories(countBy(processes, (p) => p.State || "Unknown"), 6), {
-      size: 72,
+      size: 116,
       centerValue: processes.length,
-      centerLabel: "processes",
+      centerLabel: "total",
+      formatValue: (e) => `${e.count} (${Math.round((e.count / Math.max(1, processes.length)) * 100)}%)`,
     });
     renderStackedBar(dom.processNamespace, topCategories(countBy(processes, (p) => p.Nspace || "(none)"), 6));
-  }
-  const busy = monitor ? monitor.SystemUsage.BusyProcesses.filter((b) => b.Process !== "" && b.Commands > 0) : [];
-  if (busy.length === 0) {
-    dom.processBusy.append(makeInfoRow("Busiest", monitor ? "IRIS reports no busy processes" : "Unavailable"));
-  } else {
-    for (const b of busy.slice(0, 5)) dom.processBusy.append(makeInfoRow(`PID ${b.Process}`, formatNumber(b.Commands), { mono: true }));
   }
 }
 
@@ -553,11 +767,23 @@ function renderRecentActivity(result) {
   for (const trace of traces.slice(0, RECENT_ACTIVITY_LIMIT)) {
     const status = typeof trace.status === "string" ? trace.status : null;
     const row = document.createElement("tr");
+    if (onOpenTrace && typeof trace.trace_id === "string") {
+      // Each row opens its real trace in the existing Observability detail.
+      row.className = "data-table__row--link";
+      row.tabIndex = 0;
+      row.title = `Open trace ${trace.trace_id} in Observability`;
+      row.addEventListener("click", () => onOpenTrace(trace.trace_id));
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onOpenTrace(trace.trace_id);
+      });
+    }
     row.append(
       makeCell(textOrPlaceholder(trace.operation_name)),
       makeCell(makeBadge(textOrPlaceholder(status).replace(/_/g, " "), (status && STATUS_BADGE_CLASS[status]) || "status-badge--error")),
       makeCell(formatDuration(trace.duration_ms)),
-      makeCell(formatTimestamp(trace.start_time)),
+      makeCell(formatTime(trace.start_time)),
     );
     dom.activityTableBody.append(row);
   }
@@ -576,16 +802,6 @@ function renderOperationsSummary(operationsResult, tracesResult) {
   }
   if (parts.length) dom.operationsSummary.textContent = parts.join(" · ");
   else if (operationsResult) dom.operationsSummary.textContent = "Operations registry unavailable.";
-}
-
-function renderCapabilitiesSummary(result) {
-  const value = fulfilled(result);
-  if (!value || !Array.isArray(value.capabilities)) {
-    dom.capabilitiesSummary.textContent = "";
-    return;
-  }
-  const available = value.capabilities.filter((c) => c.available).length;
-  dom.capabilitiesSummary.textContent = `${available} of ${value.capabilities.length} tracked capabilities available`;
 }
 
 // --- refresh cycle ---
@@ -612,7 +828,6 @@ async function refresh({ includeSlow }) {
         tasks: IrisApi.getTaskOverview(),
         storage: IrisApi.getDatabaseStorage(),
         operations: IrisApi.getOperations(),
-        capabilities: IrisApi.getCapabilities(),
       }
     : {};
   const keys = [...Object.keys(fast), ...Object.keys(slow)];
@@ -624,11 +839,12 @@ async function refresh({ includeSlow }) {
   if (monitor) takeSample(monitor);
 
   renderInfo(r.info);
-  renderMonitorKpis(monitor);
-  renderHealth(monitor);
-  renderAlerts(monitor);
+  const sysMon = findSystemMonitorProcess(r.processes);
+  renderMonitorKpis(monitor, sysMon);
+  renderHealth(monitor, sysMon);
+  renderAlerts(monitor, sysMon);
   renderResources(Boolean(monitor));
-  renderProcesses(r.processes, monitor);
+  renderProcesses(r.processes);
   renderCountCard("processes", r.processes, (body) => body.result.length);
   renderMicroBar(dom.processesViz, r.processes, (p) => p.State || "Unknown");
   renderRecentActivity(r.traces);
@@ -648,7 +864,6 @@ async function refresh({ includeSlow }) {
     // grouping the Tasks view uses; never the task list's own Suspended flag.
     renderMicroBar(dom.tasksViz, r.tasks, (task) => task.State || "Unknown");
     renderStorage(r.storage);
-    renderCapabilitiesSummary(r.capabilities);
     renderOperationsSummary(r.operations, r.traces);
   } else {
     renderOperationsSummary(null, r.traces);
@@ -711,7 +926,10 @@ export function onDashboardShown() {
   if (!refreshing) loadDashboard();
 }
 
-export function initDashboardControls() {
+/** `onOpenTrace(traceId)`, when provided, makes each Recent Operations row
+ * open that trace in the existing Observability detail view. */
+export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
+  onOpenTrace = typeof openTrace === "function" ? openTrace : null;
   dom.refreshButton.addEventListener("click", () => {
     loadDashboard();
   });
@@ -729,13 +947,6 @@ export function initDashboardControls() {
 
   dom.viewObservabilityButton.addEventListener("click", () => {
     navigateTo("observability");
-  });
-
-  // Each quicklink card just navigates; the target view loads itself.
-  dom.quicklinks.querySelectorAll("[data-quicklink]").forEach((button) => {
-    button.addEventListener("click", () => {
-      navigateTo(button.dataset.quicklink);
-    });
   });
 
   // The count cards double as navigation shortcuts to their views.

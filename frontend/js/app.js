@@ -29,7 +29,9 @@ import {
   loadExecutionTraces,
   initObservabilityControls,
   setTimeWindow as setObservabilityTimeWindow,
+  focusTrace as focusObservabilityTrace,
 } from "./observability.js";
+import { initDemoActivity } from "./demo-activity.js";
 import { loadExtensions, initExtensionsControls } from "./extensions.js";
 import {
   loadInvestigation,
@@ -40,7 +42,23 @@ import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 
 function init() {
   initThemeSelector();
-  initDashboardControls();
+  // Opening a trace from the Dashboard or Demo Activity reuses the
+  // existing Observability detail: focus the trace, then navigate, so the
+  // view's normal view-opened load renders the real, fresh trace list.
+  const openTrace = (traceId) => {
+    focusObservabilityTrace(traceId);
+    navigateTo("observability");
+  };
+  initDashboardControls({ onOpenTrace: openTrace });
+  initDemoActivity({
+    // After every rehearsal attempt, re-read the real traces everywhere
+    // they are shown — nothing is injected client-side.
+    onCompleted: () => {
+      loadDashboard();
+      loadExecutionTraces();
+    },
+    onOpenTrace: openTrace,
+  });
   initSystemControls();
   initNamespacesControls();
   initProcessesControls();
