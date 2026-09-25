@@ -1,7 +1,9 @@
 // Tasks view: a read-only Tasks Explorer — KPI cards, a Run State strip,
 // a client-side search/filter toolbar, a compact table, and a detail
-// drawer with Overview / Schedule / Execution / Settings tabs. It calls
-// exactly three read-only endpoints and no mutating one:
+// drawer with Overview / Schedule / Execution / Settings tabs. It reads
+// through exactly three GET endpoints, and its ONE mutating action is the
+// drawer's Run Now section (task.run_now via IrisApi.runTaskNow, see
+// "Run Now" below):
 //   - GET /api/iris/tasks/overview (IrisApi.getTaskOverview()): every task
 //     merged with its GET /v2/task/info and the backend-derived `State`,
 //   - GET /api/iris/tasks/manager (IrisApi.getTaskManager()): the Task
@@ -494,6 +496,188 @@ function describeSchedule(detail) {
   return null;
 }
 
+// --- Run Now (task.run_now — this view's one MUTATING action) ---
+//
+// Same flow as the Web Apps drawer's Enabled State: "Check" sends a dry run
+// (IrisApi.runTaskNow(fields, true, true) — the executor's dry-run branch is
+// only reached with confirmed=true, and the handler's dry_run() never sends
+// the POST). Only a successful preview offers the confirm control, which is
+// enabled only after the acknowledgment checkbox; the real request is sent
+// only from its click handler. The backend alone authorizes, refuses
+// System/Maintenance, suspended and running tasks, executes and verifies —
+// this code only shows what the backend returned.
+//
+// The section is built once per opened task and re-attached on every
+// Overview re-render, so an in-progress preview or a result survives the
+// drawer's detail load and the list reload after a run.
+let runSection = null;
+let runSectionTaskId = null;
+
+function makeRunResultRows(result) {
+  const rows = [
+    makeInfoRow("Status", null, textOrPlaceholder(result.status)),
+    makeInfoRow("Detail", null, textOrPlaceholder(result.detail)),
+  ];
+  if (result.handler_result) rows.push(makeInfoRow("Execution Detail", null, textOrPlaceholder(result.handler_result.detail)));
+  if (result.verification) {
+    rows.push(makeInfoRow("Verification Status", null, textOrPlaceholder(result.verification.status)));
+    rows.push(makeInfoRow("Verification Detail", null, textOrPlaceholder(result.verification.detail)));
+  }
+  return rows;
+}
+
+function buildRunNowSection(task) {
+  const section = makeSection("Run Now", []);
+  const hint = document.createElement("p");
+  hint.className = "ns-hint";
+  hint.textContent =
+    "Asks IRIS's Task Manager to run this task now, through the authorization → confirmation → execution → " +
+    "verification framework. Check is a read-only dry run; nothing is sent to IRIS until you explicitly confirm. " +
+    "Only User tasks can be run — IRIS's System and Maintenance tasks, suspended tasks and running tasks are " +
+    "refused by the backend. The Task Manager polls every 60 seconds, so a run may start up to a minute later.";
+
+  const checkButton = document.createElement("button");
+  checkButton.type = "button";
+  checkButton.className = "btn";
+  checkButton.textContent = "Check Run Now";
+
+  const loading = document.createElement("div");
+  loading.className = "loading-state";
+  loading.hidden = true;
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const loadingText = document.createElement("span");
+  loading.append(spinner, loadingText);
+
+  const error = document.createElement("div");
+  error.className = "banner banner--error";
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+
+  const confirm = document.createElement("div");
+  confirm.hidden = true;
+  const preview = document.createElement("div");
+  preview.className = "banner banner--warning";
+  preview.setAttribute("role", "alert");
+  const ackLabel = document.createElement("label");
+  ackLabel.className = "ns-form-checkbox";
+  const ack = document.createElement("input");
+  ack.type = "checkbox";
+  const ackText = document.createElement("span");
+  ackText.textContent = `I understand this will run ${task.Name} now on the IRIS instance.`;
+  ackLabel.append(ack, ackText);
+  const confirmRow = document.createElement("div");
+  confirmRow.className = "btn-row";
+  const confirmButton = document.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.className = "btn btn--warning";
+  confirmButton.textContent = "Confirm & Run Now";
+  confirmButton.disabled = true;
+  confirmRow.append(confirmButton);
+  confirm.append(preview, ackLabel, confirmRow);
+
+  const resultList = document.createElement("dl");
+  resultList.className = "info-list";
+  resultList.hidden = true;
+
+  const taskId = task.Id;
+  const isCurrent = () => currentDrawerId === taskId && runSectionTaskId === taskId;
+  let pendingFields = null;
+  const clearPreview = () => {
+    pendingFields = null;
+    confirm.hidden = true;
+    ack.checked = false;
+    confirmButton.disabled = true;
+  };
+  const setBusy = (busy, message) => {
+    checkButton.disabled = busy;
+    loading.hidden = !busy;
+    loadingText.textContent = message || "";
+  };
+  const showError = (message) => {
+    error.textContent = message;
+    error.hidden = false;
+  };
+
+  checkButton.addEventListener("click", async () => {
+    const fields = { Id: taskId };
+    clearPreview();
+    error.hidden = true;
+    resultList.hidden = true;
+    setBusy(true, "Checking with IRIS (dry run)…");
+    try {
+      const result = await IrisApi.runTaskNow(fields, true, true);
+      if (!isCurrent()) return;
+      const handlerResult = result && result.handler_result;
+      if (result.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
+        pendingFields = fields;
+        preview.textContent = handlerResult.detail;
+        confirm.hidden = false;
+      } else {
+        // Unauthorized, protected, suspended, running, unknown task… shown
+        // exactly as the backend explained it.
+        showError((handlerResult && handlerResult.detail) || result.detail || "This run could not be validated against IRIS.");
+      }
+    } catch (err) {
+      if (!isCurrent()) return;
+      showError(
+        err instanceof ApiError
+          ? "Could not reach the Command Center backend to check this run."
+          : "An unexpected error occurred while checking this run.",
+      );
+    } finally {
+      if (isCurrent()) setBusy(false);
+    }
+  });
+
+  ack.addEventListener("change", () => {
+    confirmButton.disabled = !(pendingFields && ack.checked);
+  });
+
+  // The ONLY place in this file that sends a real (non-dry-run) request —
+  // reachable only via this button, enabled only after a successful preview
+  // and the acknowledgment checkbox.
+  confirmButton.addEventListener("click", async () => {
+    const fields = pendingFields;
+    if (!fields) return;
+    clearPreview();
+    setBusy(true, "Asking IRIS to run this task…");
+    let result;
+    try {
+      result = await IrisApi.runTaskNow(fields, true, false);
+    } catch (err) {
+      result = {
+        status: "request_failed",
+        detail:
+          err instanceof ApiError
+            ? "Could not reach the Command Center backend to run this task."
+            : "An unexpected error occurred while running this task.",
+      };
+    }
+    if (!isCurrent()) return;
+    setBusy(false);
+    resultList.replaceChildren(...makeRunResultRows(result));
+    resultList.hidden = false;
+    if (result.status === "success" || result.status === "verification_failed") {
+      // Re-read the real task state rather than patching it locally; this
+      // section (and the result above) is re-attached by the re-render.
+      await loadTasks();
+    }
+  });
+
+  section.append(hint, checkButton, loading, error, confirm, resultList);
+  return section;
+}
+
+function runNowSectionFor(task) {
+  if (!runSection || runSectionTaskId !== task.Id) {
+    runSectionTaskId = task.Id;
+    runSection = buildRunNowSection(task);
+  }
+  return runSection;
+}
+
 function renderOverviewPanel(task) {
   const info = task.Info;
   const [nextText] = describeNextScheduled(task.NextScheduled);
@@ -515,7 +699,7 @@ function renderOverviewPanel(task) {
     const note = document.createElement("p");
     note.className = "ns-hint";
     note.textContent = "IRIS task info (GET /v2/task/info) could not be read for this task, so its run state and last run are unknown.";
-    panel.append(makeSection("Run State", [makeInfoRow("State", null, "Unknown")]), note);
+    panel.append(makeSection("Run State", [makeInfoRow("State", null, "Unknown")]), note, runNowSectionFor(task));
     return;
   }
 
@@ -533,6 +717,7 @@ function renderOverviewPanel(task) {
       makeInfoRow("Next Scheduled", "NextScheduled", textOrPlaceholder(info.NextScheduled), { mono: true }),
       makeInfoRow("Next Scheduled (task list)", "NextScheduled", nextText, { mono: true }),
     ]),
+    runNowSectionFor(task),
   );
 }
 
@@ -711,6 +896,8 @@ function closeDrawer() {
   currentDrawerId = null;
   currentDetail = null;
   detailRequestSeq += 1; // discard any in-flight detail response
+  runSection = null; // a reopened drawer starts with a fresh Run Now section
+  runSectionTaskId = null;
   activeDrawerTab = "overview";
   dom.drawerLoading.hidden = true;
   dom.drawerBackdrop.hidden = true;

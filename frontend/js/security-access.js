@@ -3,8 +3,10 @@
 // shared detail drawer that can walk user → role → resource (with Back).
 // OAuth 2.0 on the same page stays in security.js.
 //
-// Read-only. It calls only these GET endpoints (all via IrisApi, see
-// backend/app/routes/security_access.py) and no mutating one:
+// Reads only through these GET endpoints (all via IrisApi, see
+// backend/app/routes/security_access.py). Its ONE mutating action is the user
+// drawer's Login Access section (user.set_enabled via IrisApi.setUserEnabled,
+// see "Login Access" below):
 //   - getSecurityUsers / getSecurityUserDetail(name) — personal fields
 //     (email, phone, free-text comment) are withheld by the backend; only their names arrive,
 //     in WithheldFields. IRIS returns no password or hash.
@@ -642,10 +644,187 @@ function errorMessage(err, what) {
   return `An unexpected error occurred while loading this ${what}.`;
 }
 
+// --- Login Access (user.set_enabled — the Security page's one MUTATING
+// action) ---
+//
+// Same flow as the Web Apps drawer's Enabled State: "Check" sends a dry run
+// (IrisApi.setUserEnabled(fields, true, true) — the executor's dry-run branch
+// is only reached with confirmed=true, and the handler's dry_run() never
+// sends the PUT). Only a successful preview offers the confirm control,
+// which is enabled only after the acknowledgment checkbox; the real request
+// is sent only from its click handler. The backend alone authorizes,
+// hard-denies protected users, executes and verifies — this code never
+// decides any of that itself; it only shows what the backend returned.
+
+// The last operation result per user name, so it stays visible after the
+// real change reloads the lists and re-renders the drawer.
+const lastUserResults = new Map();
+
+function makeResultList(result) {
+  const rows = [
+    ["Status", textOrPlaceholder(result.status)],
+    ["Detail", textOrPlaceholder(result.detail)],
+  ];
+  if (result.handler_result) rows.push(["Execution Detail", textOrPlaceholder(result.handler_result.detail)]);
+  if (result.verification) {
+    rows.push(["Verification Status", textOrPlaceholder(result.verification.status)]);
+    rows.push(["Verification Detail", textOrPlaceholder(result.verification.detail)]);
+  }
+  return makeInfoList(rows.map(([label, value]) => makeInfoRow(label, null, value)));
+}
+
+function makeLoginAccessSection(name, enabled) {
+  const section = makeSection("Login Access");
+  if (typeof enabled !== "boolean") {
+    section.append(makeNote("IRIS did not report whether this user is enabled, so it cannot be changed here."));
+    return section;
+  }
+  const target = !enabled;
+  const verb = target ? "Enable" : "Disable";
+  const seq = drawerSeq;
+  const isCurrent = () => seq === drawerSeq;
+
+  const hint = makeNote(
+    `${verb}s this user's login through the authorization → confirmation → execution → verification framework. ` +
+      "Check is a read-only dry run; nothing is sent to IRIS until you explicitly confirm, and only the Enabled " +
+      "setting is ever sent. IRIS's predefined accounts, the Command Center's own account and %All holders are " +
+      "refused by the backend.",
+  );
+  const checkButton = document.createElement("button");
+  checkButton.type = "button";
+  checkButton.className = "btn";
+  checkButton.textContent = `Check ${verb}`;
+
+  const loading = document.createElement("div");
+  loading.className = "loading-state";
+  loading.hidden = true;
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const loadingText = document.createElement("span");
+  loading.append(spinner, loadingText);
+
+  const error = document.createElement("div");
+  error.className = "banner banner--error";
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+
+  const confirm = document.createElement("div");
+  confirm.hidden = true;
+  const preview = document.createElement("div");
+  preview.className = "banner banner--warning";
+  preview.setAttribute("role", "alert");
+  const ackLabel = document.createElement("label");
+  ackLabel.className = "ns-form-checkbox";
+  const ack = document.createElement("input");
+  ack.type = "checkbox";
+  const ackText = document.createElement("span");
+  ackText.textContent = `I understand this will ${verb.toLowerCase()} login for ${name} on the IRIS instance.`;
+  ackLabel.append(ack, ackText);
+  const confirmRow = document.createElement("div");
+  confirmRow.className = "btn-row";
+  const confirmButton = document.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.className = "btn btn--warning";
+  confirmButton.textContent = `Confirm & ${verb}`;
+  confirmButton.disabled = true;
+  confirmRow.append(confirmButton);
+  confirm.append(preview, ackLabel, confirmRow);
+
+  const resultHolder = document.createElement("div");
+  const previous = lastUserResults.get(name);
+  if (previous) resultHolder.append(makeResultList(previous));
+
+  let pendingFields = null;
+  const clearPreview = () => {
+    pendingFields = null;
+    confirm.hidden = true;
+    ack.checked = false;
+    confirmButton.disabled = true;
+  };
+  const showError = (message) => {
+    error.textContent = message;
+    error.hidden = false;
+  };
+  const setBusy = (busy, message) => {
+    checkButton.disabled = busy;
+    loading.hidden = !busy;
+    loadingText.textContent = message || "";
+  };
+
+  checkButton.addEventListener("click", async () => {
+    const fields = { Name: name, Enabled: target };
+    clearPreview();
+    error.hidden = true;
+    setBusy(true, "Checking with IRIS (dry run)…");
+    try {
+      const result = await IrisApi.setUserEnabled(fields, true, true);
+      if (!isCurrent()) return;
+      const handlerResult = result && result.handler_result;
+      if (result.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
+        pendingFields = fields;
+        preview.textContent = handlerResult.detail;
+        confirm.hidden = false;
+      } else {
+        // Unauthorized, protected, no-op, unknown user… shown exactly as the
+        // backend explained it.
+        showError((handlerResult && handlerResult.detail) || result.detail || "This change could not be validated against IRIS.");
+      }
+    } catch (err) {
+      if (!isCurrent()) return;
+      showError(
+        err instanceof ApiError
+          ? "Could not reach the Command Center backend to check this change."
+          : "An unexpected error occurred while checking this change.",
+      );
+    } finally {
+      if (isCurrent()) setBusy(false);
+    }
+  });
+
+  ack.addEventListener("change", () => {
+    confirmButton.disabled = !(pendingFields && ack.checked);
+  });
+
+  // The ONLY place in this file that sends a real (non-dry-run) change —
+  // reachable only via this button, enabled only after a successful preview
+  // and the acknowledgment checkbox.
+  confirmButton.addEventListener("click", async () => {
+    const fields = pendingFields;
+    if (!fields) return;
+    clearPreview();
+    setBusy(true, fields.Enabled ? "Enabling login…" : "Disabling login…");
+    let result;
+    try {
+      result = await IrisApi.setUserEnabled(fields, true, false);
+    } catch (err) {
+      result = {
+        status: "request_failed",
+        detail:
+          err instanceof ApiError
+            ? "Could not reach the Command Center backend to change this user."
+            : "An unexpected error occurred while changing this user.",
+      };
+    }
+    lastUserResults.set(fields.Name, result);
+    if (!isCurrent()) return;
+    setBusy(false);
+    resultHolder.replaceChildren(makeResultList(result));
+    if (result.status === "success" || result.status === "verification_failed") {
+      // Re-read the real lists rather than patching local state; the drawer
+      // re-renders from them and shows the kept result.
+      await loadSecurityAccess();
+    }
+  });
+
+  section.append(hint, checkButton, loading, error, confirm, resultHolder);
+  return section;
+}
+
 async function renderUserDrawer(name, seq) {
   const listEntry = users.find((u) => u.Name === name);
   setDrawerHeader("User", name, listEntry ? (listEntry.Enabled ? ["Enabled", "status-badge--ok"] : ["Disabled", "status-badge--neutral"]) : null);
-  dom.drawerHint.textContent = "Read-only. Personal fields are withheld by the Command Center backend.";
+  dom.drawerHint.textContent = "Personal fields are withheld by the Command Center backend.";
 
   const response = await IrisApi.getSecurityUserDetail(name);
   if (seq !== drawerSeq) return;
@@ -654,7 +833,7 @@ async function renderUserDrawer(name, seq) {
 
   const withheld = Array.isArray(user.WithheldFields) ? user.WithheldFields : [];
   if (withheld.length > 0) {
-    dom.drawerHint.textContent = `Read-only. Withheld by the Command Center backend: ${withheld.join(", ")}.`;
+    dom.drawerHint.textContent = `Withheld by the Command Center backend: ${withheld.join(", ")}.`;
   }
   dom.drawerBody.replaceChildren(
     makeSection("Account", makeInfoList([
@@ -678,6 +857,7 @@ async function renderUserDrawer(name, seq) {
       makeInfoRow("Namespace", "NameSpace", textOrPlaceholder(user.NameSpace)),
       makeInfoRow("Routine", "Routine", textOrPlaceholder(user.Routine), { mono: true }),
     ])),
+    makeLoginAccessSection(name, user.Enabled),
   );
 }
 

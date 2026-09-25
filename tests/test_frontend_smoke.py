@@ -570,8 +570,14 @@ def test_tasks_view_uses_only_task_read_endpoints() -> None:
     other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks"]
     for method in other_methods:
         check(method not in tasks_js, f"tasks.js does NOT call IrisApi.{method}()")
-    for mutation in ("createNamespace", "createDatabase", "mountDatabase", "setWebAppEnabled", "fetch("):
+    for mutation in ("createNamespace", "createDatabase", "mountDatabase", "setWebAppEnabled", "setUserEnabled", "fetch("):
         check(mutation not in tasks_js, f"tasks.js does not use {mutation}")
+    # Its one mutation is task.run_now through the sanctioned api.js wrapper.
+    used = set(re.findall(r"IrisApi[.](\w+)", tasks_js))
+    check(
+        used == {"getTaskOverview", "getTaskManager", "getTaskDetail", "runTaskNow"},
+        f"tasks.js uses exactly the three task reads plus IrisApi.runTaskNow() (found: {sorted(used)})",
+    )
     # Run state comes from the backend-derived State (GET /v2/task/info),
     # never from GET /v2/tasks' own Suspended flag, which was observed wrong.
     check(
@@ -686,7 +692,16 @@ def test_security_identity_access_is_read_only_and_withholds_personal_data() -> 
         "getSecurityUsers", "getSecurityUserDetail", "getSecurityRoles", "getSecurityRoleDetail",
         "getSecurityRoleOwners", "getSecurityRoleAccessMap", "getSecurityResources", "getSecurityResourceDetail",
     }
-    check(used == expected, f"security-access.js uses exactly the eight read-only Identity & Access methods (found: {sorted(used)})")
+    # The eight reads, plus exactly one mutation: user.set_enabled through
+    # the sanctioned api.js wrapper (the user drawer's Login Access section).
+    expected.add("setUserEnabled")
+    check(
+        used == expected,
+        f"security-access.js uses exactly the eight Identity & Access reads plus IrisApi.setUserEnabled() "
+        f"(found: {sorted(used)})",
+    )
+    for other_mutation in ("setWebAppEnabled", "createNamespace", "createDatabase", "mountDatabase"):
+        check(other_mutation not in access_js, f"security-access.js does not use {other_mutation}")
     check("fetch(" not in access_js, "security-access.js makes no raw fetch() call (goes through IrisApi)")
     check(
         re.search(r'"(/api/iris/[a-z0-9\-/]*)"', access_js) is None,
@@ -1435,19 +1450,22 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except five sanctioned, scoped exceptions...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except seven sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The five sanctioned mutating calls in the entire frontend, all in
+    # The seven sanctioned mutating calls in the entire frontend, all in
     # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
     # archived, backend/app/routes/journal.py), postNamespaceCreate (POST
     # /api/iris/namespaces, backend/app/routes/namespaces.py),
     # postDatabaseCreate (POST /api/iris/databases) and postDatabaseMount
     # (POST /api/iris/databases/mount, both backend/app/routes/
     # databases.py), and postWebAppSetEnabled (POST /api/iris/web-apps/
-    # set-enabled, backend/app/routes/web_apps.py) — asserted below to be
-    # scoped to exactly those five paths, never a different/new one. PUT and PATCH
+    # set-enabled, backend/app/routes/web_apps.py), and postUserSetEnabled
+    # (POST /api/iris/security/users/set-enabled, backend/app/routes/
+    # security_users.py), and postTaskRunNow (POST /api/iris/tasks/run-now,
+    # backend/app/routes/tasks.py) — asserted below to be
+    # scoped to exactly those seven paths, never a different/new one. PUT and PATCH
     # remain forbidden everywhere, including in api.js — this project has
     # no PUT or PATCH route at all, mutating or otherwise.
     allowed_post_file = "api.js"
@@ -1495,6 +1513,16 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         '"/api/iris/web-apps/set-enabled"' in api_js and "setWebAppEnabled:" in api_js,
         "api.js's fifth sanctioned POST (postWebAppSetEnabled) is scoped to "
         "/api/iris/web-apps/set-enabled and exposed as IrisApi.setWebAppEnabled()",
+    )
+    check(
+        '"/api/iris/security/users/set-enabled"' in api_js and "setUserEnabled:" in api_js,
+        "api.js's sixth sanctioned POST (postUserSetEnabled) is scoped to "
+        "/api/iris/security/users/set-enabled and exposed as IrisApi.setUserEnabled()",
+    )
+    check(
+        '"/api/iris/tasks/run-now"' in api_js and "runTaskNow:" in api_js,
+        "api.js's seventh sanctioned POST (postTaskRunNow) is scoped to "
+        "/api/iris/tasks/run-now and exposed as IrisApi.runTaskNow()",
     )
 
     # operations.js (where the execute UI lives) must call the api.js

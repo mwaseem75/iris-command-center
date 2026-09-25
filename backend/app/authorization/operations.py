@@ -256,6 +256,45 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.MEDIUM,
         confirmation_required=True,
     ),
+    "user.set_enabled": OperationDefinition(
+        name="user.set_enabled",
+        description=(
+            "Enable or disable login for an existing IRIS user (PUT "
+            "/api/admin/v2/security/user?name=<Name> with the body "
+            "{\"Enabled\": <bool>} only — IRIS's own implementation, "
+            "%Api.Admin.Endpoints.Security.User, applies it as a partial "
+            "update and requires %Admin_Secure). Hard-denied for IRIS's "
+            "predefined accounts, the Command Center's own sign-in account, "
+            "and any user holding %All (directly or as an escalation role). "
+            "Unknown users and no-op requests are refused before any write. "
+            "Verified afterwards via fresh GET /v2/security/user reads (Enabled "
+            "as requested, roles unchanged). Personal user fields are never "
+            "returned. See app/execution/user_set_enabled_handler.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.SECURE}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
+    "task.run_now": OperationDefinition(
+        name="task.run_now",
+        description=(
+            "Ask IRIS's Task Manager to run an existing User task now (POST "
+            "/api/admin/v2/task/run?id=<Id> with the body {\"RunNow\": true} "
+            "only — IRIS's own implementation, %Api.Admin.Endpoints.Task.CRUD, "
+            "calls %SYS.Task.RunNow and requires %Admin_Task). Only tasks of "
+            "Type User are allowed: IRIS's System and Maintenance tasks are "
+            "hard-denied. Also refused: unknown ids, suspended tasks, tasks "
+            "already running, and any request while the Task Manager is not "
+            "Running. Scheduling for a later time is not offered. Verified "
+            "afterwards via fresh GET /v2/task/info reads (the Task Manager "
+            "polls every 60 seconds). See app/execution/task_run_now_handler.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.TASK}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
 }
 
 

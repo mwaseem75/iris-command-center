@@ -193,6 +193,27 @@ async function postWebAppSetEnabled(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/web-apps/set-enabled", fields, confirmed, dryRun);
 }
 
+/**
+ * user.set_enabled (POST /api/iris/security/users/set-enabled,
+ * backend/app/routes/security_users.py) — same request/response discipline
+ * as postWebAppSetEnabled: forwards only {Name, Enabled} plus the explicit,
+ * user-driven `confirmed` flag and `dry_run`; the backend alone authorizes,
+ * hard-denies protected users, executes and verifies.
+ */
+async function postUserSetEnabled(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/security/users/set-enabled", fields, confirmed, dryRun);
+}
+
+/**
+ * task.run_now (POST /api/iris/tasks/run-now, backend/app/routes/tasks.py) —
+ * same discipline: forwards only {Id} plus the explicit, user-driven
+ * `confirmed` flag and `dry_run`; the backend alone authorizes, refuses
+ * protected tasks, executes and verifies. No scheduling field exists.
+ */
+async function postTaskRunNow(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/tasks/run-now", fields, confirmed, dryRun);
+}
+
 async function postDatabaseOperation(path, fields, confirmed, dryRun) {
   let response;
   try {
@@ -371,6 +392,9 @@ export const IrisApi = {
     postDatabaseMount(fields, confirmed, dryRun),
   setWebAppEnabled: (fields, confirmed, dryRun = false) =>
     postWebAppSetEnabled(fields, confirmed, dryRun),
+  setUserEnabled: (fields, confirmed, dryRun = false) =>
+    postUserSetEnabled(fields, confirmed, dryRun),
+  runTaskNow: (fields, confirmed, dryRun = false) => postTaskRunNow(fields, confirmed, dryRun),
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),
