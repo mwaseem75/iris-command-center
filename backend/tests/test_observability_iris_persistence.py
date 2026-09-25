@@ -206,3 +206,181 @@ def test_close_swallows_errors_from_the_underlying_connection() -> None:
 
     assert writer._connection is None
     assert writer._iris is None
+
+
+# --- Startup hydration: IRISTraceWriter.load_recent_sync() + store.hydrate_traces() ---
+
+
+def _persisted(fake_iris: _FakeIrisNative, names: list[str]) -> list[ExecutionTrace]:
+    """Writes `names` (oldest first) through the real persist_sync(), so the
+    global has exactly the shape production code produces."""
+    writer = _connected_writer(fake_iris)
+    traces = [_trace(name) for name in names]
+    for trace in traces:
+        writer.persist_sync(trace)
+    return traces
+
+
+def test_load_recent_sync_returns_persisted_traces_newest_first() -> None:
+    fake_iris = _FakeIrisNative()
+    written = _persisted(fake_iris, ["one", "two", "three"])
+
+    loaded = _connected_writer(fake_iris).load_recent_sync()
+
+    assert [t.operation_name for t in loaded] == ["three", "two", "one"]
+    assert loaded[0] == written[2]  # full round trip, schema unchanged
+
+
+def test_load_recent_sync_on_an_empty_global_returns_nothing() -> None:
+    assert _connected_writer(_FakeIrisNative()).load_recent_sync() == []
+
+
+def test_load_recent_sync_reads_only_the_surviving_capped_range() -> None:
+    fake_iris = _FakeIrisNative()
+    _persisted(fake_iris, [f"op-{i}" for i in range(1, 206)])  # 205 writes, 5 evicted
+
+    loaded = _connected_writer(fake_iris).load_recent_sync()
+
+    assert len(loaded) == 200
+    assert loaded[0].operation_name == "op-205"
+    assert loaded[-1].operation_name == "op-6"
+    # It never asks for an evicted (or never-written) subscript.
+    trace_gets = [
+        call[1][2]
+        for call in fake_iris.calls
+        if call[0] == "get" and call[1][:2] == ("CommandCenterTrace", "trace")
+    ]
+    assert min(trace_gets) == 6
+
+
+def test_load_recent_sync_skips_missing_and_unparsable_entries() -> None:
+    fake_iris = _FakeIrisNative()
+    _persisted(fake_iris, ["one", "two", "three"])
+    fake_iris.values.pop(("CommandCenterTrace", "trace", 2))
+    fake_iris.values[("CommandCenterTrace", "trace", 1)] = "{not json"
+
+    loaded = _connected_writer(fake_iris).load_recent_sync()
+
+    assert [t.operation_name for t in loaded] == ["three"]
+
+
+def test_load_recent_sync_returns_empty_when_iris_is_unavailable() -> None:
+    writer = IRISTraceWriter.__new__(IRISTraceWriter)
+    writer._settings = None
+    writer._connection = None
+    writer._iris = None
+    writer._ensure_connected = MagicMock(side_effect=ConnectionError("no route to host"))  # type: ignore[method-assign]
+
+    assert writer.load_recent_sync() == []  # must not raise
+
+
+def test_hydrate_traces_fills_the_store_without_re_persisting() -> None:
+    persister = _FakePersister()
+    store.set_trace_persister(persister)
+    loaded = [_trace("newer"), _trace("older")]
+
+    assert store.hydrate_traces(loaded) == 2
+
+    assert [t.operation_name for t in store.list_traces()] == ["newer", "older"]
+    assert persister.calls == []
+    assert store._pending_persist_tasks == set()
+
+
+def test_hydrate_traces_keeps_live_traces_first_and_skips_duplicates() -> None:
+    live = _trace("recorded-this-process")
+    store.record_trace(live)
+
+    added = store.hydrate_traces([live, _trace("persisted")])
+
+    assert added == 1
+    assert [t.operation_name for t in store.list_traces()] == ["recorded-this-process", "persisted"]
+
+
+def test_hydrate_traces_preserves_the_store_cap_and_never_evicts_newer_traces() -> None:
+    live = _trace("live")
+    store.record_trace(live)
+
+    added = store.hydrate_traces([_trace(f"persisted-{i}") for i in range(250)])
+
+    traces = store.list_traces()
+    assert added == store._MAX_TRACES - 1
+    assert len(traces) == store._MAX_TRACES
+    assert traces[0] is live
+
+
+def test_hydrate_traces_with_nothing_persisted_leaves_the_store_empty() -> None:
+    assert store.hydrate_traces([]) == 0
+    assert store.list_traces() == []
+
+
+# --- app/main.py lifespan wiring ---
+
+
+class _FakeWriter:
+    """Stands in for IRISTraceWriter inside the real lifespan."""
+
+    instances: list["_FakeWriter"] = []
+    to_load: list[ExecutionTrace] = []
+
+    def __init__(self, settings: Any) -> None:
+        self.closed = False
+        _FakeWriter.instances.append(self)
+
+    def load_recent_sync(self) -> list[ExecutionTrace]:
+        return list(_FakeWriter.to_load)
+
+    def persist_sync(self, trace: ExecutionTrace) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def _lifespan_env(monkeypatch: pytest.MonkeyPatch):
+    import app.main as main_module
+    from app.config import get_settings
+
+    _FakeWriter.instances = []
+    _FakeWriter.to_load = []
+    monkeypatch.setattr(main_module, "IRISTraceWriter", _FakeWriter)
+    get_settings.cache_clear()
+    yield main_module, monkeypatch
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_hydrates_persisted_traces_when_enabled(_lifespan_env) -> None:
+    main_module, monkeypatch = _lifespan_env
+    monkeypatch.setenv("PERSIST_TRACES_TO_IRIS", "true")
+    _FakeWriter.to_load = [_trace("before-restart-2"), _trace("before-restart-1")]
+
+    async with main_module.lifespan(main_module.app):
+        assert [t.operation_name for t in store.list_traces()] == [
+            "before-restart-2",
+            "before-restart-1",
+        ]
+        assert store._persister is _FakeWriter.instances[0]
+
+    assert _FakeWriter.instances[0].closed
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_empty_when_nothing_is_persisted(_lifespan_env) -> None:
+    main_module, monkeypatch = _lifespan_env
+    monkeypatch.setenv("PERSIST_TRACES_TO_IRIS", "true")
+
+    async with main_module.lifespan(main_module.app):
+        assert store.list_traces() == []
+
+
+@pytest.mark.asyncio
+async def test_lifespan_does_not_hydrate_when_persistence_is_disabled(_lifespan_env) -> None:
+    main_module, monkeypatch = _lifespan_env
+    monkeypatch.setenv("PERSIST_TRACES_TO_IRIS", "false")
+    _FakeWriter.to_load = [_trace("should-not-load")]
+
+    async with main_module.lifespan(main_module.app):
+        assert store.list_traces() == []
+
+    assert _FakeWriter.instances == []

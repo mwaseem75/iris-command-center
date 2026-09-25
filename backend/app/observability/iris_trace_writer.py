@@ -112,6 +112,46 @@ class IRISTraceWriter:
                 exc_info=True,
             )
 
+    def load_recent_sync(self, limit: int = _MAX_IRIS_TRACES) -> list[ExecutionTrace]:
+        """Blocking. Reads back up to `limit` of the most recently persisted
+        traces from ^CommandCenterTrace, newest first — used once, at
+        startup, to hydrate the in-memory store (see app/main.py's
+        lifespan). Surviving entries are the contiguous range
+        (seq - _MAX_IRIS_TRACES, seq], so this walks down from "seq".
+        A missing or unparsable entry is skipped. Never raises: any
+        connection/read failure returns whatever was read so far (usually
+        []) — the in-memory store then simply starts empty, as before."""
+        traces: list[ExecutionTrace] = []
+        try:
+            self._ensure_connected()
+
+            raw_seq = self._iris.get(_GLOBAL_NAME, "seq")
+            seq = int(raw_seq) if raw_seq else 0
+            lowest = max(1, seq - min(limit, _MAX_IRIS_TRACES) + 1)
+            for current in range(seq, lowest - 1, -1):
+                raw = self._iris.get(_GLOBAL_NAME, "trace", current)
+                if not raw:
+                    continue
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                try:
+                    traces.append(ExecutionTrace.model_validate_json(raw))
+                except ValueError:
+                    logger.warning(
+                        "Skipping unreadable persisted execution trace ^%s(\"trace\",%d).",
+                        _GLOBAL_NAME,
+                        current,
+                    )
+        except Exception:  # noqa: BLE001 - hydration failure must never block startup
+            logger.warning(
+                "Could not load persisted execution traces from IRIS (^%s) — "
+                "starting with %d loaded.",
+                _GLOBAL_NAME,
+                len(traces),
+                exc_info=True,
+            )
+        return traces
+
     def close(self) -> None:
         """Best-effort connection close, called from app/main.py's lifespan
         shutdown. Never raises."""

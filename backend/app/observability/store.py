@@ -86,6 +86,26 @@ def record_trace(trace: ExecutionTrace) -> None:
     task.add_done_callback(_pending_persist_tasks.discard)
 
 
+def hydrate_traces(traces: list[ExecutionTrace]) -> int:
+    """Startup-only: adds previously persisted traces (newest first, as
+    IRISTraceWriter.load_recent_sync() returns them) BEHIND anything already
+    in the store — they are older than any trace recorded by this process.
+    Never re-persists them, skips trace_ids already present, and never
+    exceeds _MAX_TRACES (appending past the cap would evict the NEWEST
+    entries, so it stops instead). Returns how many were added."""
+    present = {trace.trace_id for trace in _traces}
+    added = 0
+    for trace in traces:
+        if len(_traces) >= _MAX_TRACES:
+            break
+        if trace.trace_id in present:
+            continue
+        _traces.append(trace)
+        present.add(trace.trace_id)
+        added += 1
+    return added
+
+
 def list_traces() -> list[ExecutionTrace]:
     return list(_traces)
 

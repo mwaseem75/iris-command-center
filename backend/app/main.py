@@ -12,13 +12,15 @@ the session is only obtained lazily, on first use).
 
 Optional IRIS execution-trace persistence (app/observability/
 iris_trace_writer.py): off by default (Settings.persist_traces_to_iris).
-When enabled, an IRISTraceWriter is constructed here (itself making no
-network call until first use — same lazy pattern as IRISClient above) and
-registered with app/observability/store.py, which then best-effort,
-additionally persists every trace it already records in-memory. Disabled,
+When enabled, an IRISTraceWriter is constructed here, first used to load the
+most recent persisted traces back into the in-memory store (best-effort; an
+unreachable IRIS just means starting empty), then registered with
+app/observability/store.py, which then best-effort, additionally persists
+every trace it records in-memory. Disabled,
 this app behaves exactly as it did before this feature existed.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -52,6 +54,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     trace_writer: IRISTraceWriter | None = None
     if settings.persist_traces_to_iris:
         trace_writer = IRISTraceWriter(settings)
+        # Hydrate the in-memory store from ^CommandCenterTrace so traces
+        # survive a backend restart. Blocking Native API calls run off the
+        # event loop; load_recent_sync() never raises (unavailable IRIS =
+        # start empty, as before).
+        persisted = await asyncio.get_running_loop().run_in_executor(
+            None, trace_writer.load_recent_sync
+        )
+        observability_store.hydrate_traces(persisted)
         observability_store.set_trace_persister(trace_writer)
 
     try:
