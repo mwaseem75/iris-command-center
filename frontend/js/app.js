@@ -20,6 +20,7 @@ import { loadSecurity, initSecurityControls } from "./security.js";
 import { loadSecurityAccess, initSecurityAccessControls } from "./security-access.js";
 import { initSecurityAuthControls, refreshSecurityAuthIfLoaded } from "./security-auth.js";
 import { initSecurityWalletControls, refreshSecurityWalletIfLoaded } from "./security-wallet.js";
+import { initSecurityX509Controls, refreshSecurityX509IfLoaded } from "./security-x509.js";
 import { loadJournal, initJournalControls } from "./journal.js";
 import { loadOperations, initOperationsControls } from "./operations.js";
 import { initAiAssistantControls } from "./ai-assistant.js";
@@ -48,6 +49,7 @@ function init() {
   initSecurityAccessControls();
   initSecurityAuthControls();
   initSecurityWalletControls();
+  initSecurityX509Controls();
   initJournalControls();
   initOperationsControls();
   initAiAssistantControls();
@@ -90,6 +92,7 @@ function init() {
       loadSecurityAccess();
       refreshSecurityAuthIfLoaded();
       refreshSecurityWalletIfLoaded();
+      refreshSecurityX509IfLoaded();
     } else if (view === "journal") {
       loadJournal();
     } else if (view === "operations") {

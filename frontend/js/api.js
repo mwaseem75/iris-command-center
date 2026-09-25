@@ -299,6 +299,13 @@ export const IrisApi = {
     fetchIris(`/api/iris/security/wallet/collections/detail?name=${encodeURIComponent(name)}`),
   getSecurityWalletSecrets: (collection) =>
     fetchIris(`/api/iris/security/wallet/secrets?collection=${encodeURIComponent(collection)}`),
+  // Read-only X.509 credential and certificate METADATA (same backend
+  // module). No endpoint returns key material or key passwords.
+  getSecurityX509Overview: () => fetchIris("/api/iris/security/x509/overview"),
+  getSecurityX509CredentialDetail: (alias) =>
+    fetchIris(`/api/iris/security/x509/credentials/detail?alias=${encodeURIComponent(alias)}`),
+  getSecurityX509Certificate: (alias) =>
+    fetchIris(`/api/iris/security/x509/credentials/certificate?alias=${encodeURIComponent(alias)}`),
   getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
   getOauth2ClientServerDefinitions: () =>
     fetchIris("/api/iris/security/oauth2/client/server-definitions"),

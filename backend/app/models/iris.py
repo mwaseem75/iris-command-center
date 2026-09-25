@@ -720,6 +720,54 @@ class WalletCollectionOverview(BaseModel):
     Secrets: list[WalletSecretEntry] | None
 
 
+# --- Security: X.509 credentials (GET /v2/security/x509-credentials |
+#     x509-credential | x509-credential/certificate, all %Admin_Secure:U,
+#     keyed by IRIS's own `alias` query parameter). icc-iris-dev has NO X.509
+#     credentials (live list is [], SQL %SYS.X509Credentials has 0 rows;
+#     unknown alias → 404 ERROR #914), so no populated response has been
+#     observed: these shapes follow mainspec_v2.json (X509CredentialsList,
+#     X509Credential, X509CredentialCertificate), with every field except
+#     Alias optional so a populated response missing one shows "not
+#     reported" instead of failing.
+#
+#     Strict allowlists of certificate METADATA. `HasPrivateKey` is only a
+#     boolean (the spec: "Returns if a private key is present"). Private key
+#     material, PrivateKeyPassword, PrivateKeyFile/CertificateFile and PEM
+#     contents are write-body-only in the spec (POST x509-credential) and are
+#     not modelled — any such field IRIS might send is dropped. ---
+
+
+class X509CredentialEntry(BaseModel):
+    Alias: str
+    HasPrivateKey: bool | None = None
+    OwnerList: list[str] | None = None
+    PeerNames: list[str] | None = None
+    CAFile: str | None = None
+
+
+class X509CredentialDetail(BaseModel):
+    OwnerList: list[str] | None = None
+    PeerNames: list[str] | None = None
+    CAFile: str | None = None
+
+
+class X509CertificateInfo(BaseModel):
+    HasPrivateKey: bool | None = None
+    SerialNumber: str | None = None
+    IssuerDN: str | None = None
+    SubjectDN: str | None = None
+    ValidityNotBefore: str | None = None
+    ValidityNotAfter: str | None = None
+
+
+# GET /api/iris/security/x509/overview — every credential merged with its
+# certificate's metadata; `Certificate` is None when that call failed.
+
+
+class X509CredentialOverview(X509CredentialEntry):
+    Certificate: X509CertificateInfo | None
+
+
 class ClassAccessEntry(BaseModel):
     Name: str
     AllowType: str

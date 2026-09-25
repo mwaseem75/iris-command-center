@@ -130,6 +130,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "security-access.js",
         FRONTEND_DIR / "js" / "security-auth.js",
         FRONTEND_DIR / "js" / "security-wallet.js",
+        FRONTEND_DIR / "js" / "security-x509.js",
         FRONTEND_DIR / "js" / "journal.js",
         FRONTEND_DIR / "js" / "operations.js",
         FRONTEND_DIR / "js" / "ai-assistant.js",
@@ -786,6 +787,51 @@ def test_security_wallet_tab_is_read_only_and_metadata_only() -> None:
     check(
         "initSecurityWalletControls()" in app_js and "refreshSecurityWalletIfLoaded()" in app_js,
         "app.js initializes the Wallet tab and refreshes it with the Security view",
+    )
+
+
+def test_security_x509_tab_is_read_only_and_metadata_only() -> None:
+    print("Checking the Security view's Certificates (X.509) tab and security-x509.js...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    for element_id in (
+        "security-tab-x509",
+        "security-panel-x509",
+        "security-x509-summary-grid",
+        "security-x509-none",
+        "security-x509-search",
+        "security-x509-status",
+        "security-x509-key",
+        "security-x509-table-body",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} element exists")
+
+    x509_js = (FRONTEND_DIR / "js" / "security-x509.js").read_text(encoding="utf-8")
+    used = set(re.findall(r"IrisApi[.](\w+)", x509_js))
+    expected = {"getSecurityX509Overview", "getSecurityX509CredentialDetail", "getSecurityX509Certificate"}
+    check(used == expected, f"security-x509.js uses exactly the three read-only X.509 methods (found: {sorted(used)})")
+    check("fetch(" not in x509_js, "security-x509.js makes no raw fetch() call (goes through IrisApi)")
+    check(
+        re.search(r'"(/api/iris/[a-z0-9\-/]*)"', x509_js) is None,
+        "security-x509.js references no /api/iris/* path other than via IrisApi",
+    )
+    # Metadata only: only the HasPrivateKey boolean, never key material.
+    for field in ("PrivateKey", "PrivateKeyPassword", "PrivateKeyFile", "CertificateFile", "Password"):
+        check(
+            re.search(rf"[.]{field}(?![A-Za-z])|[\"']{field}[\"']", x509_js) is None,
+            f"security-x509.js never reads a {field} field",
+        )
+    check(re.search(r"[.]innerHTML\s*=", x509_js) is None, "security-x509.js never assigns innerHTML")
+    check("console." not in x509_js, "security-x509.js never logs to the console")
+
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for method in expected:
+        match = re.search(rf"{method}: \([^)]*\) =>\s*fetchIris\(", api_js)
+        check(match is not None, f"api.js's {method} is a plain GET through fetchIris()")
+
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    check(
+        "initSecurityX509Controls()" in app_js and "refreshSecurityX509IfLoaded()" in app_js,
+        "app.js initializes the Certificates tab and refreshes it with the Security view",
     )
 
 
@@ -1506,6 +1552,7 @@ def main() -> None:
         test_security_identity_access_is_read_only_and_withholds_personal_data,
         test_security_authentication_tab_is_read_only_and_withholds_smtp_username,
         test_security_wallet_tab_is_read_only_and_metadata_only,
+        test_security_x509_tab_is_read_only_and_metadata_only,
         test_journal_nav_and_view_exist_and_use_only_journal_settings,
         test_operations_nav_and_view_exist_and_use_only_expected_endpoints,
         test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query,

@@ -4,6 +4,9 @@
   - Authentication Posture: services, system-wide web authentication,
     superservers and application class-access (GET /v2/security/services|
     service|web-auth|superservers|superserver, /v2/web-app/pct-accesses).
+  - X.509 credentials: credential and certificate METADATA only (GET
+    /v2/security/x509-credentials|x509-credential|x509-credential/
+    certificate). Key material and key passwords are never modelled.
   - Wallet: collections and their secrets' NAMES AND TYPES only (GET
     /v2/wallet/collections|collection|secrets, %Admin_Wallet:U). No route
     here requests a secret value — IRIS has no GET for one — and the
@@ -48,6 +51,10 @@ from app.models.iris import (
     WalletCollectionOverview,
     WalletSecretEntry,
     WebAuthSettings,
+    X509CertificateInfo,
+    X509CredentialDetail,
+    X509CredentialEntry,
+    X509CredentialOverview,
 )
 from app.routes.iris import _IRIS_CLIENT_ERRORS, _as_http_exception
 
@@ -72,6 +79,7 @@ _KNOWN_UNLISTED_ROLES = ("%SQLTuneTable",)
 _ROLE_DETAIL_CONCURRENCY = 8
 _SUPERSERVER_DETAIL_CONCURRENCY = 4
 _WALLET_SECRETS_CONCURRENCY = 4
+_X509_CERTIFICATE_CONCURRENCY = 4
 
 
 async def _get(client: IRISClient, path: str, params: dict[str, Any] | None, not_found: str) -> Any:
@@ -374,3 +382,69 @@ async def get_wallet_secrets(
         "IRIS reports no wallet collection with this name",
     )
     return IRISEnvelope[list[WalletSecretEntry]].model_validate(raw)
+
+
+# --- X.509 credentials (metadata only) ---
+
+
+@router.get("/x509/overview", response_model=IRISEnvelope[list[X509CredentialOverview]])
+async def get_x509_overview(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[X509CredentialOverview]]:
+    """Every X.509 credential with its certificate's metadata (subject,
+    issuer, serial, validity). A failed certificate call gives
+    Certificate=None plus a warning in status.errors (naming only the
+    alias), never a guess. Only GETs are sent."""
+    raw = await _get(client, "/v2/security/x509-credentials", None, "IRIS reports no X.509 credentials")
+    listing = IRISEnvelope[list[X509CredentialEntry]].model_validate(raw)
+    semaphore = asyncio.Semaphore(_X509_CERTIFICATE_CONCURRENCY)
+
+    async def read_certificate(alias: str) -> X509CertificateInfo | None:
+        async with semaphore:
+            try:
+                body = await client.get("/v2/security/x509-credential/certificate", params={"alias": alias})
+                return X509CertificateInfo.model_validate(body.get("result") if isinstance(body, dict) else None)
+            except (*_IRIS_CLIENT_ERRORS, ValidationError):
+                return None
+
+    certificates = await asyncio.gather(*(read_certificate(entry.Alias) for entry in listing.result))
+
+    errors = list(listing.status.errors)
+    entries: list[X509CredentialOverview] = []
+    for entry, certificate in zip(listing.result, certificates):
+        if certificate is None:
+            errors.append({"error": f"Certificate unavailable for {entry.Alias}", "alias": entry.Alias})
+        entries.append(X509CredentialOverview(**entry.model_dump(), Certificate=certificate))
+    missing = sum(1 for certificate in certificates if certificate is None)
+    summary = listing.status.summary
+    if missing and not summary:
+        summary = f"Certificate unavailable for {missing} credential{'' if missing == 1 else 's'}"
+    return IRISEnvelope[list[X509CredentialOverview]](
+        status={"errors": errors, "summary": summary}, console=listing.console, result=entries
+    )
+
+
+@router.get("/x509/credentials/detail", response_model=IRISEnvelope[X509CredentialDetail])
+async def get_x509_credential_detail(
+    alias: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[X509CredentialDetail]:
+    """One credential's owners, peer names and CA file. IRIS answers 404 for
+    an unknown alias (observed live: ERROR #914)."""
+    raw = await _get(
+        client, "/v2/security/x509-credential", {"alias": alias}, "IRIS reports no X.509 credential with this alias"
+    )
+    return IRISEnvelope[X509CredentialDetail].model_validate(raw)
+
+
+@router.get("/x509/credentials/certificate", response_model=IRISEnvelope[X509CertificateInfo])
+async def get_x509_certificate(
+    alias: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[X509CertificateInfo]:
+    """The certificate's metadata for one credential — never key material."""
+    raw = await _get(
+        client,
+        "/v2/security/x509-credential/certificate",
+        {"alias": alias},
+        "IRIS reports no X.509 credential with this alias",
+    )
+    return IRISEnvelope[X509CertificateInfo].model_validate(raw)

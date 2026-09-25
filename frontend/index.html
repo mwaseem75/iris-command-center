@@ -1399,6 +1399,7 @@
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-resources" data-tab="resources" aria-controls="security-panel-resources" aria-selected="false" tabindex="-1">Resources</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-authentication" data-tab="authentication" aria-controls="security-panel-authentication" aria-selected="false" tabindex="-1">Authentication</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-wallet" data-tab="wallet" aria-controls="security-panel-wallet" aria-selected="false" tabindex="-1">Wallet</button>
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-x509" data-tab="x509" aria-controls="security-panel-x509" aria-selected="false" tabindex="-1">Certificates</button>
               </div>
 
               <div id="security-panel-users" role="tabpanel" aria-labelledby="security-tab-users">
@@ -1737,6 +1738,74 @@
                           <tbody id="security-wallet-secrets-table-body"></tbody>
                         </table>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="security-panel-x509" role="tabpanel" aria-labelledby="security-tab-x509" hidden>
+                <p class="ns-hint">X.509 credentials and their certificates&rsquo; metadata (subject, issuer, serial number, validity). Read-only &mdash; private keys, key passwords and certificate contents are never requested or shown; only whether a private key is present.</p>
+
+                <div class="banner banner--error" id="security-x509-error-banner" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="security-x509-error-banner-text"></span>
+                </div>
+                <div class="loading-state" id="security-x509-loading" hidden>
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span>Loading X.509 credentials&hellip;</span>
+                </div>
+
+                <div id="security-x509-content" hidden>
+                  <div class="stat-grid stat-grid--compact" id="security-x509-summary-grid" aria-label="X.509 credential counts"></div>
+
+                  <p class="empty-state" id="security-x509-none" hidden>IRIS reports no X.509 credentials on this instance. Credentials imported into IRIS will appear here with their certificates&rsquo; subject, issuer, serial number and validity.</p>
+
+                  <div id="security-x509-sections">
+                    <p class="ns-hint">Validity status compares ValidityNotAfter / ValidityNotBefore, exactly as IRIS reports them (no timezone is given, so your browser&rsquo;s local time is used), with the current time. &ldquo;Expiring&rdquo; means within 30 days.</p>
+                    <form class="filter-form filter-form--toolbar" id="security-x509-filter-form" role="search" aria-label="Filter X.509 credentials">
+                      <div class="filter-field filter-field--wide">
+                        <label for="security-x509-search">Search</label>
+                        <input type="search" id="security-x509-search" placeholder="Alias, subject, issuer, serial number&hellip;" autocomplete="off" />
+                      </div>
+                      <div class="filter-field">
+                        <label for="security-x509-status">Validity</label>
+                        <select id="security-x509-status">
+                          <option value="">All</option>
+                          <option value="Valid">Valid</option>
+                          <option value="Expiring">Expiring (30 days)</option>
+                          <option value="Expired">Expired</option>
+                          <option value="Not yet valid">Not yet valid</option>
+                          <option value="Unknown">Unknown</option>
+                        </select>
+                      </div>
+                      <div class="filter-field">
+                        <label for="security-x509-key">Private Key</label>
+                        <select id="security-x509-key">
+                          <option value="">All</option>
+                          <option value="yes">Present</option>
+                          <option value="no">Not present</option>
+                        </select>
+                      </div>
+                      <div class="filter-field filter-form__actions">
+                        <button class="btn" type="button" id="security-x509-clear">Clear</button>
+                      </div>
+                    </form>
+                    <p class="info-panel__meta filter-count" id="security-x509-count" aria-live="polite"></p>
+                    <p class="empty-state" id="security-x509-empty" hidden>No credentials match the current filters.</p>
+                    <div class="table-wrapper" id="security-x509-table-wrapper">
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Alias</th>
+                            <th scope="col">Subject</th>
+                            <th scope="col">Issuer</th>
+                            <th scope="col">Valid Until</th>
+                            <th scope="col">Validity</th>
+                            <th scope="col">Private Key</th>
+                            <th scope="col">Owners</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-x509-table-body"></tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
