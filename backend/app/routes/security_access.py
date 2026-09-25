@@ -7,6 +7,9 @@
   - X.509 credentials: credential and certificate METADATA only (GET
     /v2/security/x509-credentials|x509-credential|x509-credential/
     certificate). Key material and key passwords are never modelled.
+  - OAuth 2.0: authorization server, registered clients, server
+    definitions, client configurations, resource servers and mappings
+    (GET /v2/security/oauth2/*), through explicit allowlist models.
   - Wallet: collections and their secrets' NAMES AND TYPES only (GET
     /v2/wallet/collections|collection|secrets, %Admin_Wallet:U). No route
     here requests a secret value — IRIS has no GET for one — and the
@@ -34,6 +37,18 @@ from app.iris_client.exceptions import IRISResponseError
 from app.models.iris import (
     IRISEnvelope,
     ClassAccessEntry,
+    OAuth2ClientConfigDetail,
+    OAuth2ClientConfigEntry,
+    OAuth2Overview,
+    OAuth2ResourceMappingEntry,
+    OAuth2ResourceServerDetail,
+    OAuth2ResourceServerEntry,
+    OAuth2ServerClientDetail,
+    OAuth2ServerClientEntry,
+    OAuth2ServerConfigView,
+    OAuth2ServerDefinitionDetail,
+    OAuth2ServerDefinitionEntry,
+    OAuth2ServerDefinitionOverview,
     RoleAccessEntry,
     RoleOwnerEntry,
     SecurityResourceDetail,
@@ -448,3 +463,159 @@ async def get_x509_certificate(
         "IRIS reports no X.509 credential with this alias",
     )
     return IRISEnvelope[X509CertificateInfo].model_validate(raw)
+
+
+# --- OAuth 2.0 (allowlisted metadata only) ---
+
+# The two services IRIS accepts for resource-server mappings (the spec:
+# 'Valid values are "%Service_WebGateway" and "%Service_Bindings"').
+_OAUTH_MAPPING_SERVICES = ("%Service_WebGateway", "%Service_Bindings")
+_OAUTH_CONCURRENCY = 4
+
+
+@router.get("/oauth/overview", response_model=IRISEnvelope[OAuth2Overview])
+async def get_oauth_overview(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[OAuth2Overview]:
+    """Every OAuth 2.0 area in one response: authorization server
+    configuration, registered clients, server definitions (each with its
+    client configurations), resource servers and resource-server mappings.
+
+    Only GETs are sent, and every part is built from an allowlist model. The
+    documented 404 "not configured" answer for the authorization server is
+    ServerConfigured=False, not an error. Any other failed part is None plus
+    a warning in status.errors (naming only the area), never a guess.
+    """
+    errors: list[dict[str, Any]] = []
+    semaphore = asyncio.Semaphore(_OAUTH_CONCURRENCY)
+
+    async def read(path: str, params: dict[str, Any] | None = None) -> Any:
+        async with semaphore:
+            body = await (client.get(path, params=params) if params else client.get(path))
+            return body.get("result") if isinstance(body, dict) else None
+
+    async def read_list(path: str, model: type, area: str, params: dict[str, Any] | None = None) -> list | None:
+        try:
+            result = await read(path, params)
+            if not isinstance(result, list):
+                raise ValueError("not a list")
+            return [model.model_validate(item) for item in result if isinstance(item, dict)]
+        except (*_IRIS_CLIENT_ERRORS, ValidationError, ValueError):
+            errors.append({"error": f"OAuth 2.0 {area} unavailable", "area": area})
+            return None
+
+    async def read_server() -> tuple[bool | None, OAuth2ServerConfigView | None]:
+        try:
+            result = await read("/v2/security/oauth2/server")
+            return True, OAuth2ServerConfigView.model_validate(result if isinstance(result, dict) else {})
+        except IRISResponseError as exc:
+            if exc.status_code == 404:
+                return False, None
+            errors.append({"error": "OAuth 2.0 authorization server unavailable", "area": "authorization server"})
+            return None, None
+        except (*_IRIS_CLIENT_ERRORS, ValidationError):
+            errors.append({"error": "OAuth 2.0 authorization server unavailable", "area": "authorization server"})
+            return None, None
+
+    async def read_mappings() -> list[OAuth2ResourceMappingEntry] | None:
+        parts = await asyncio.gather(
+            *(
+                read_list(
+                    "/v2/security/oauth2/resource-server/mappings",
+                    OAuth2ResourceMappingEntry,
+                    f"resource mappings for {service}",
+                    {"service": service},
+                )
+                for service in _OAUTH_MAPPING_SERVICES
+            )
+        )
+        return None if any(part is None for part in parts) else [m for part in parts for m in part]
+
+    (configured, server), server_clients, definitions, resource_servers, mappings = await asyncio.gather(
+        read_server(),
+        read_list("/v2/security/oauth2/server/clients", OAuth2ServerClientEntry, "registered clients"),
+        read_list("/v2/security/oauth2/client/server-definitions", OAuth2ServerDefinitionEntry, "server definitions"),
+        read_list("/v2/security/oauth2/resource-servers", OAuth2ResourceServerEntry, "resource servers"),
+        read_mappings(),
+    )
+
+    definition_overviews: list[OAuth2ServerDefinitionOverview] | None = None
+    if definitions is not None:
+        configurations = await asyncio.gather(
+            *(
+                read_list(
+                    "/v2/security/oauth2/client/client-configurations",
+                    OAuth2ClientConfigEntry,
+                    f"client configurations for server definition {definition.ID}",
+                    {"serverId": definition.ID},
+                )
+                if definition.ID
+                else asyncio.sleep(0, result=None)
+                for definition in definitions
+            )
+        )
+        definition_overviews = [
+            OAuth2ServerDefinitionOverview(**definition.model_dump(), ClientConfigurations=configs)
+            for definition, configs in zip(definitions, configurations)
+        ]
+
+    overview = OAuth2Overview(
+        ServerConfigured=configured,
+        Server=server,
+        ServerClients=server_clients,
+        ServerDefinitions=definition_overviews,
+        ResourceServers=resource_servers,
+        ResourceMappings=mappings,
+    )
+    summary = f"{len(errors)} OAuth 2.0 area{'' if len(errors) == 1 else 's'} unavailable" if errors else ""
+    return IRISEnvelope[OAuth2Overview](status={"errors": errors, "summary": summary}, console=[], result=overview)
+
+
+@router.get("/oauth/server-clients/detail", response_model=IRISEnvelope[OAuth2ServerClientDetail])
+async def get_oauth_server_client_detail(
+    clientId: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[OAuth2ServerClientDetail]:
+    """A client registered with this authorization server. `clientId` is the
+    IRIS parameter name. No client secret is modelled."""
+    raw = await _get(
+        client, "/v2/security/oauth2/server/client", {"clientId": clientId}, "IRIS reports no OAuth 2.0 client with this id"
+    )
+    return IRISEnvelope[OAuth2ServerClientDetail].model_validate(raw)
+
+
+@router.get("/oauth/server-definitions/detail", response_model=IRISEnvelope[OAuth2ServerDefinitionDetail])
+async def get_oauth_server_definition_detail(
+    serverId: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[OAuth2ServerDefinitionDetail]:
+    raw = await _get(
+        client,
+        "/v2/security/oauth2/client/server-definition",
+        {"serverId": serverId},
+        "IRIS reports no OAuth 2.0 server definition with this id",
+    )
+    return IRISEnvelope[OAuth2ServerDefinitionDetail].model_validate(raw)
+
+
+@router.get("/oauth/client-configurations/detail", response_model=IRISEnvelope[OAuth2ClientConfigDetail])
+async def get_oauth_client_configuration_detail(
+    applicationName: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[OAuth2ClientConfigDetail]:
+    """A client configuration. No ClientSecret / ClientPassword is modelled."""
+    raw = await _get(
+        client,
+        "/v2/security/oauth2/client/client-configuration",
+        {"applicationName": applicationName},
+        "IRIS reports no OAuth 2.0 client configuration with this name",
+    )
+    return IRISEnvelope[OAuth2ClientConfigDetail].model_validate(raw)
+
+
+@router.get("/oauth/resource-servers/detail", response_model=IRISEnvelope[OAuth2ResourceServerDetail])
+async def get_oauth_resource_server_detail(
+    name: str, client: IRISClient = Depends(get_iris_client)
+) -> IRISEnvelope[OAuth2ResourceServerDetail]:
+    raw = await _get(
+        client,
+        "/v2/security/oauth2/resource-server",
+        {"name": name},
+        "IRIS reports no OAuth 2.0 resource server with this name",
+    )
+    return IRISEnvelope[OAuth2ResourceServerDetail].model_validate(raw)

@@ -306,10 +306,20 @@ export const IrisApi = {
     fetchIris(`/api/iris/security/x509/credentials/detail?alias=${encodeURIComponent(alias)}`),
   getSecurityX509Certificate: (alias) =>
     fetchIris(`/api/iris/security/x509/credentials/certificate?alias=${encodeURIComponent(alias)}`),
-  getOauth2Server: () => fetchIris("/api/iris/security/oauth2/server"),
-  getOauth2ClientServerDefinitions: () =>
-    fetchIris("/api/iris/security/oauth2/client/server-definitions"),
-  getOauth2ServerClients: () => fetchIris("/api/iris/security/oauth2/server/clients"),
+  // Read-only OAuth 2.0 (same backend module): one allowlisted overview plus
+  // allowlisted details. No endpoint returns a client secret, key password or
+  // token — the backend models name only safe fields.
+  getSecurityOAuthOverview: () => fetchIris("/api/iris/security/oauth/overview"),
+  getSecurityOAuthServerClient: (clientId) =>
+    fetchIris(`/api/iris/security/oauth/server-clients/detail?clientId=${encodeURIComponent(clientId)}`),
+  getSecurityOAuthServerDefinition: (serverId) =>
+    fetchIris(`/api/iris/security/oauth/server-definitions/detail?serverId=${encodeURIComponent(serverId)}`),
+  getSecurityOAuthClientConfiguration: (applicationName) =>
+    fetchIris(
+      `/api/iris/security/oauth/client-configurations/detail?applicationName=${encodeURIComponent(applicationName)}`,
+    ),
+  getSecurityOAuthResourceServer: (name) =>
+    fetchIris(`/api/iris/security/oauth/resource-servers/detail?name=${encodeURIComponent(name)}`),
   getExtLangServers: () => fetchIris("/api/iris/ext-lang-servers"),
   getFsAccessPurposes: () => fetchIris("/api/iris/fs-access-purposes"),
   getWalletCollections: () => fetchIris("/api/iris/wallet/collections"),

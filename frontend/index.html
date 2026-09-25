@@ -1327,7 +1327,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="security-title">Security</h2>
-              <p class="view__subtitle">Identity &amp; access and OAuth 2.0 configuration on the connected IRIS instance.</p>
+              <p class="view__subtitle">Identity &amp; access, authentication, wallet, certificates and OAuth 2.0 on the connected IRIS instance.</p>
             </div>
             <button class="btn btn--primary" type="button" id="security-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -1400,6 +1400,7 @@
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-authentication" data-tab="authentication" aria-controls="security-panel-authentication" aria-selected="false" tabindex="-1">Authentication</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-wallet" data-tab="wallet" aria-controls="security-panel-wallet" aria-selected="false" tabindex="-1">Wallet</button>
                 <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-x509" data-tab="x509" aria-controls="security-panel-x509" aria-selected="false" tabindex="-1">Certificates</button>
+                <button class="drawer-tabs__tab" type="button" role="tab" id="security-tab-oauth" data-tab="oauth" aria-controls="security-panel-oauth" aria-selected="false" tabindex="-1">OAuth 2.0</button>
               </div>
 
               <div id="security-panel-users" role="tabpanel" aria-labelledby="security-tab-users">
@@ -1810,46 +1811,137 @@
                   </div>
                 </div>
               </div>
+              <div id="security-panel-oauth" role="tabpanel" aria-labelledby="security-tab-oauth" hidden>
+                <p class="ns-hint">OAuth 2.0 configuration exactly as IRIS reports it: this instance as an authorization server, its registered clients, the external servers it trusts as a client, and resource servers. Read-only &mdash; only allowlisted fields are shown; client secrets, key passwords, tokens and other secret values are never requested or displayed. Credential fields name X.509 credentials, not key material.</p>
+
+                <div class="banner banner--error" id="security-oauth-error-banner" hidden role="alert">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="security-oauth-error-banner-text"></span>
+                </div>
+
+                <div id="security-oauth-content" hidden>
+                  <div class="stat-grid stat-grid--compact" id="security-oauth-summary-grid" aria-label="OAuth 2.0 counts"></div>
+
+                  <form class="filter-form filter-form--toolbar" id="security-oauth-filter-form" role="search" aria-label="Filter OAuth 2.0 configuration">
+                    <div class="filter-field filter-field--wide">
+                      <label for="security-oauth-search">Search</label>
+                      <input type="search" id="security-oauth-search" placeholder="Name, client ID, issuer, scope&hellip;" autocomplete="off" />
+                    </div>
+                  </form>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Authorization Server</h4>
+                    </div>
+                    <div id="security-oauth-server"></div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Registered Clients</h4>
+                    </div>
+                    <p class="ns-hint">Clients registered with this instance acting as an authorization server.</p>
+                    <p class="empty-state" id="security-oauth-clients-empty" hidden></p>
+                    <div class="table-wrapper" id="security-oauth-clients-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">Client ID</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Redirect URLs</th>
+                            <th scope="col">Description</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-oauth-clients-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Server Definitions</h4>
+                    </div>
+                    <p class="ns-hint">External authorization servers this instance is configured to use as a client.</p>
+                    <p class="empty-state" id="security-oauth-definitions-empty" hidden></p>
+                    <div class="table-wrapper" id="security-oauth-definitions-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Issuer Endpoint</th>
+                            <th scope="col">Clients</th>
+                            <th scope="col">Resources</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-oauth-definitions-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Client Configurations</h4>
+                    </div>
+                    <p class="ns-hint">Client applications configured against each server definition.</p>
+                    <p class="empty-state" id="security-oauth-configs-empty" hidden></p>
+                    <div class="table-wrapper" id="security-oauth-configs-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Application</th>
+                            <th scope="col">Server Definition</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Default Scope</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-oauth-configs-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Resource Servers</h4>
+                    </div>
+                    <p class="empty-state" id="security-oauth-resource-servers-empty" hidden></p>
+                    <div class="table-wrapper" id="security-oauth-resource-servers-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">Server Definition</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-oauth-resource-servers-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="ns-section">
+                    <div class="ns-section__header">
+                      <h4 class="section-heading section-heading--secondary">Resource Server Mappings</h4>
+                    </div>
+                    <p class="ns-hint">Which resource server handles requests for a service and key (%Service_WebGateway and %Service_Bindings, the two services IRIS accepts).</p>
+                    <p class="empty-state" id="security-oauth-mappings-empty" hidden></p>
+                    <div class="table-wrapper" id="security-oauth-mappings-table-wrapper" hidden>
+                      <table class="data-table data-table--compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">Service</th>
+                            <th scope="col">Key</th>
+                            <th scope="col">Resource Server</th>
+                          </tr>
+                        </thead>
+                        <tbody id="security-oauth-mappings-table-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="ns-section">
-            <div class="ns-section__header">
-              <h3 class="section-heading">OAuth 2.0</h3>
-            </div>
-          </div>
-
-          <div class="info-grid">
-            <section class="info-card info-card--wide" aria-labelledby="security-oauth2-server-title">
-              <h3 class="info-card__title" id="security-oauth2-server-title">OAuth 2.0 Authorization Server</h3>
-              <p class="info-card__hint" id="security-oauth2-server-status-line"></p>
-              <dl class="info-list" id="security-oauth2-server-list"></dl>
-              <p class="info-card__empty" id="security-oauth2-server-empty" hidden></p>
-            </section>
-
-            <section class="info-card info-card--wide" aria-labelledby="security-client-defs-title">
-              <h3 class="info-card__title" id="security-client-defs-title">Client Server Definitions</h3>
-              <p class="info-card__hint">OAuth 2.0 authorization servers this instance is configured to trust as a client.</p>
-              <div class="table-wrapper" id="security-client-defs-table-wrapper" hidden>
-                <table class="data-table">
-                  <thead id="security-client-defs-thead"></thead>
-                  <tbody id="security-client-defs-table-body"></tbody>
-                </table>
-              </div>
-              <p class="empty-state" id="security-client-defs-empty" hidden>No client server definitions reported.</p>
-            </section>
-
-            <section class="info-card info-card--wide" aria-labelledby="security-server-clients-title">
-              <h3 class="info-card__title" id="security-server-clients-title">Registered OAuth 2.0 Clients</h3>
-              <div class="table-wrapper" id="security-server-clients-table-wrapper" hidden>
-                <table class="data-table">
-                  <thead id="security-server-clients-thead"></thead>
-                  <tbody id="security-server-clients-table-body"></tbody>
-                </table>
-              </div>
-              <p class="empty-state" id="security-server-clients-empty" hidden>No registered clients reported.</p>
-            </section>
-          </div>
           <div class="ns-drawer-backdrop" id="security-drawer-backdrop" hidden></div>
           <aside class="ns-drawer ns-drawer--wide" id="security-drawer" hidden aria-labelledby="security-drawer-title">
             <div class="ns-drawer__header">

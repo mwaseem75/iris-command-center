@@ -5,14 +5,14 @@ IRIS 2026.2 instance (see docs/api-capability-matrix.md), not as guessed from
 mainspec_v2.json alone. Where the spec and the observed response disagree,
 the model follows the observed response, and the discrepancy is noted below.
 
-Several of the Step 3 endpoints (fs-access-purposes, the OAuth2 client/server
-list endpoints, wallet collections) were only ever observed returning an
-EMPTY result on this instance — no populated entry was ever seen, so no
-entry shape is modeled for them; `result` is typed permissively
-(`list[Any]`) rather than inventing fields. Likewise, GET
-/v2/security/oauth2/server was only ever observed returning its documented
-404 "not configured" case, never a real success body, so its `result` is
-typed as a permissive `dict[str, Any]` rather than a guessed schema.
+Several of the Step 3 endpoints (fs-access-purposes, wallet collections)
+were only ever observed returning an EMPTY result on this instance — no
+populated entry was ever seen, so no entry shape is modeled for them;
+`result` is typed permissively (`list[Any]`) rather than inventing
+fields. The OAuth2 endpoints are the deliberate exception: they are
+also only ever empty / "not configured" here, but because IRIS's OAuth2
+classes hold secrets they use explicit, all-optional allowlist models
+(see the OAuth 2.0 section below) instead of pass-through types.
 
 Known, deliberate divergence from mainspec_v2.json's schemas:
   - The spec's `LoginResponse`/`Info` schemas describe some fields as flat
@@ -36,9 +36,9 @@ Known, deliberate divergence from mainspec_v2.json's schemas:
     from the response even though the spec's schema lists it.
 """
 
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 ResultT = TypeVar("ResultT")
 
@@ -766,6 +766,250 @@ class X509CertificateInfo(BaseModel):
 
 class X509CredentialOverview(X509CredentialEntry):
     Certificate: X509CertificateInfo | None
+
+
+# --- Security: OAuth 2.0 (GET /v2/security/oauth2/*). On icc-iris-dev every
+#     OAuth 2.0 area is empty: the authorization server answers 404 ERROR
+#     #8864 "not configured", every list is [], and every detail lookup of an
+#     unknown id is 404 ERROR #5809 — so no populated response has been
+#     observed. These shapes follow mainspec_v2.json.
+#
+#     Explicit ALLOWLISTS, not pass-through: the IRIS OAuth2 classes also hold
+#     client secrets, registration access tokens, private-key passwords and
+#     similar. Only the fields named below can reach a response; any other
+#     field is dropped by validation. Every field is optional and coerced
+#     with the _Safe* types, so a missing field or one of an unexpected type
+#     becomes None ("not reported") instead of an error — and a nested object
+#     can never be smuggled through a field declared as a string or list.
+#     `*Credentials` fields are X.509 credential ALIASES (the spec), not key
+#     material. Undocumented objects (e.g. a resource server `Authenticator`)
+#     are not modelled at all. ---
+
+
+def _only_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _only_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _only_int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _only_str_list(value: Any) -> list[str] | None:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else None
+
+
+def _only_dict(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _only_dict_list(value: Any) -> list[dict[str, Any]] | None:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else None
+
+
+_SafeStr = Annotated[str | None, BeforeValidator(_only_str)]
+_SafeBool = Annotated[bool | None, BeforeValidator(_only_bool)]
+_SafeInt = Annotated[int | None, BeforeValidator(_only_int)]
+_SafeStrList = Annotated[list[str] | None, BeforeValidator(_only_str_list)]
+
+
+class OAuth2ServerMetadataView(BaseModel):
+    """Public discovery endpoints and capabilities of an authorization
+    server: a subset of the spec OAuth2ServerMetadata."""
+
+    issuer: _SafeStr = None
+    authorization_endpoint: _SafeStr = None
+    token_endpoint: _SafeStr = None
+    userinfo_endpoint: _SafeStr = None
+    revocation_endpoint: _SafeStr = None
+    introspection_endpoint: _SafeStr = None
+    jwks_uri: _SafeStr = None
+    registration_endpoint: _SafeStr = None
+    end_session_endpoint: _SafeStr = None
+    scopes_supported: _SafeStrList = None
+    response_types_supported: _SafeStrList = None
+    grant_types_supported: _SafeStrList = None
+    code_challenge_methods_supported: _SafeStrList = None
+    token_endpoint_auth_methods_supported: _SafeStrList = None
+    id_token_signing_alg_values_supported: _SafeStrList = None
+
+
+class OAuth2ClientMetadataView(BaseModel):
+    """Client registration metadata: a subset of the spec
+    OAuth2ClientMetadata. `contacts` (email addresses) is deliberately not
+    included; no secret-bearing field exists in this model."""
+
+    client_name: _SafeStr = None
+    application_type: _SafeStr = None
+    redirect_uris: _SafeStrList = None
+    response_types: _SafeStrList = None
+    grant_types: _SafeStrList = None
+    token_endpoint_auth_method: _SafeStr = None
+    id_token_signed_response_alg: _SafeStr = None
+    client_uri: _SafeStr = None
+    logo_uri: _SafeStr = None
+    policy_uri: _SafeStr = None
+    tos_uri: _SafeStr = None
+    default_max_age: _SafeInt = None
+
+
+class OAuth2Scope(BaseModel):
+    Scope: _SafeStr = None
+    Description: _SafeStr = None
+
+
+class OAuth2ServerConfigView(BaseModel):
+    """GET /v2/security/oauth2/server (%Admin_OAuth2_Server:U)."""
+
+    IssuerEndpoint: _SafeStr = None
+    Description: _SafeStr = None
+    AccessTokenInterval: _SafeInt = None
+    AuthorizationCodeInterval: _SafeInt = None
+    RefreshTokenInterval: _SafeInt = None
+    SessionInterval: _SafeInt = None
+    ClientSecretInterval: _SafeInt = None
+    SupportedScopes: Annotated[list[OAuth2Scope] | None, BeforeValidator(_only_dict_list)] = None
+    DefaultScope: _SafeStr = None
+    AllowUnsupportedScope: _SafeBool = None
+    ReturnRefreshToken: _SafeStr = None
+    SupportSession: _SafeBool = None
+    AudRequired: _SafeBool = None
+    AllowPublicClientRefresh: _SafeBool = None
+    ForcePKCEForPublicClients: _SafeBool = None
+    ForcePKCEForConfidentialClients: _SafeBool = None
+    CustomizationRoles: _SafeStrList = None
+    CustomizationNamespace: _SafeStr = None
+    AuthenticateClass: _SafeStr = None
+    SessionClass: _SafeStr = None
+    ValidateUserClass: _SafeStr = None
+    GenerateTokenClass: _SafeStr = None
+    RevokeTokenClass: _SafeStr = None
+    ServerCredentials: _SafeStr = None
+    SigningAlgorithm: _SafeStr = None
+    EncryptionAlgorithm: _SafeStr = None
+    KeyAlgorithm: _SafeStr = None
+    SSLConfiguration: _SafeStr = None
+    Metadata: Annotated[OAuth2ServerMetadataView | None, BeforeValidator(_only_dict)] = None
+
+
+class OAuth2ServerClientEntry(BaseModel):
+    """GET /v2/security/oauth2/server/clients (%Admin_OAuth2_Registration:U).
+    ClientId is the public OAuth client identifier, not a secret."""
+
+    Name: _SafeStr = None
+    ClientId: _SafeStr = None
+    ClientType: _SafeStr = None
+    Description: _SafeStr = None
+    RedirectURL: _SafeStrList = None
+
+
+class OAuth2ServerClientDetail(BaseModel):
+    """GET /v2/security/oauth2/server/client?clientId= (no ClientSecret)."""
+
+    Name: _SafeStr = None
+    RedirectURL: _SafeStrList = None
+    LaunchURL: _SafeStr = None
+    DefaultScope: _SafeStr = None
+    Description: _SafeStr = None
+    ClientType: _SafeStr = None
+    ClientCredentials: _SafeStr = None
+    Metadata: Annotated[OAuth2ClientMetadataView | None, BeforeValidator(_only_dict)] = None
+
+
+class OAuth2ClientConfigEntry(BaseModel):
+    """GET /v2/security/oauth2/client/client-configurations?serverId=."""
+
+    ApplicationName: _SafeStr = None
+    ClientType: _SafeStr = None
+    DefaultScope: _SafeStr = None
+
+
+class OAuth2ServerDefinitionEntry(BaseModel):
+    """GET /v2/security/oauth2/client/server-definitions (%Admin_OAuth2_Client:U)."""
+
+    ID: _SafeStr = None
+    IssuerEndpoint: _SafeStr = None
+    ClientCount: _SafeInt = None
+    ResourceCount: _SafeInt = None
+
+
+class OAuth2ServerDefinitionDetail(BaseModel):
+    """GET /v2/security/oauth2/client/server-definition?serverId= (the
+    InitialAccessToken is write-only in the spec and not modelled)."""
+
+    IssuerEndpoint: _SafeStr = None
+    SSLConfiguration: _SafeStr = None
+    ServerCredentials: _SafeStr = None
+    Metadata: Annotated[OAuth2ServerMetadataView | None, BeforeValidator(_only_dict)] = None
+
+
+class OAuth2ClientConfigDetail(BaseModel):
+    """GET /v2/security/oauth2/client/client-configuration?applicationName=
+    (no ClientSecret / ClientPassword)."""
+
+    OAuth2ServerDefinition: _SafeStr = None
+    Enabled: _SafeBool = None
+    Description: _SafeStr = None
+    ClientType: _SafeStr = None
+    SSLConfiguration: _SafeStr = None
+    RedirectionEndpoint: _SafeStr = None
+    DefaultScope: _SafeStr = None
+    JWTAudience: _SafeStr = None
+    ClientCredentials: _SafeStr = None
+    Metadata: Annotated[OAuth2ClientMetadataView | None, BeforeValidator(_only_dict)] = None
+
+
+class OAuth2ResourceServerEntry(BaseModel):
+    """GET /v2/security/oauth2/resource-servers (%Admin_Secure:U)."""
+
+    Name: _SafeStr = None
+    ServerDefinition: _SafeStr = None
+
+
+class OAuth2ResourceServerDetail(BaseModel):
+    """GET /v2/security/oauth2/resource-server?name= (no client secret; the
+    undocumented `Authenticator` object is not modelled)."""
+
+    Enabled: _SafeBool = None
+    Description: _SafeStr = None
+    IssuerEndpoint: _SafeStr = None
+    ScopeRequiredToConnect: _SafeStr = None
+    Audiences: _SafeStrList = None
+    AccessTokenIsJWT: _SafeBool = None
+    AlwaysCallIntrospection: _SafeBool = None
+    ClientId: _SafeStr = None
+    IntrospectionAuthMethod: _SafeStr = None
+    UseOIDC: _SafeBool = None
+
+
+class OAuth2ResourceMappingEntry(BaseModel):
+    """GET /v2/security/oauth2/resource-server/mappings?service=."""
+
+    Service: _SafeStr = None
+    Key: _SafeStr = None
+    Resource: _SafeStr = None
+
+
+# GET /api/iris/security/oauth/overview: this backend's own aggregate. Each
+# part is None when its IRIS call failed (a warning is added to
+# status.errors). `ServerConfigured` is False on the documented IRIS 404
+# "not configured" answer, and None if that call failed for another reason.
+
+
+class OAuth2ServerDefinitionOverview(OAuth2ServerDefinitionEntry):
+    ClientConfigurations: list[OAuth2ClientConfigEntry] | None
+
+
+class OAuth2Overview(BaseModel):
+    ServerConfigured: bool | None
+    Server: OAuth2ServerConfigView | None
+    ServerClients: list[OAuth2ServerClientEntry] | None
+    ServerDefinitions: list[OAuth2ServerDefinitionOverview] | None
+    ResourceServers: list[OAuth2ResourceServerEntry] | None
+    ResourceMappings: list[OAuth2ResourceMappingEntry] | None
 
 
 class ClassAccessEntry(BaseModel):

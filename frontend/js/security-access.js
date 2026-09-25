@@ -45,6 +45,7 @@ const dom = {
     authentication: $("security-panel-authentication"),
     wallet: $("security-panel-wallet"),
     x509: $("security-panel-x509"),
+    oauth: $("security-panel-oauth"),
   },
   users: {
     form: $("security-users-filter-form"),
@@ -94,11 +95,11 @@ const dom = {
   drawerBody: $("security-drawer-body"),
 };
 
-// "authentication" (security-auth.js), "wallet" (security-wallet.js) and
-// "x509" (security-x509.js) are owned by their own modules: this module only
-// shows their panels and announces them with a "security-tab-shown" event on
-// the tab bar.
-const TABS = ["users", "roles", "resources", "authentication", "wallet", "x509"];
+// "authentication" (security-auth.js), "wallet" (security-wallet.js),
+// "x509" (security-x509.js) and "oauth" (security.js) are owned by their own
+// modules: this module only shows their panels and announces them with a
+// "security-tab-shown" event on the tab bar.
+const TABS = ["users", "roles", "resources", "authentication", "wallet", "x509", "oauth"];
 
 // Resource permission letters, per mainspec_v2.json ("a string consisting
 // only of 'R', 'W', and 'U'").

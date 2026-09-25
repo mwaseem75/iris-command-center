@@ -41,6 +41,9 @@ from app.models.iris import (
     IRISEnvelope,
     JournalSettings,
     NamespaceEntry,
+    OAuth2ServerClientEntry,
+    OAuth2ServerConfigView,
+    OAuth2ServerDefinitionEntry,
     ProcessEntry,
     RestEndpoint,
     RestEndpointParameter,
@@ -630,10 +633,21 @@ async def get_journal_settings(
     return IRISEnvelope[JournalSettings].model_validate(raw)
 
 
-@router.get("/security/oauth2/server", response_model=IRISEnvelope[dict[str, Any]])
+# The three OAuth2 routes below return allowlisted fields only (the same
+# models as app/routes/security_access.py's OAuth overview), never IRIS's
+# raw body: IRIS's OAuth2 classes also hold client secrets and tokens.
+# response_model_exclude_none keeps a field IRIS didn't report out of the
+# response, so the documented "not configured" body stays `result: {}`.
+
+
+@router.get(
+    "/security/oauth2/server",
+    response_model=IRISEnvelope[OAuth2ServerConfigView],
+    response_model_exclude_none=True,
+)
 async def get_oauth2_server(
     client: IRISClient = Depends(get_iris_client),
-) -> IRISEnvelope[dict[str, Any]]:
+) -> IRISEnvelope[OAuth2ServerConfigView]:
     """View this instance's OAuth2 Authorization Server configuration.
 
     IRIS returns a documented, valid `404` when it isn't configured to act
@@ -642,44 +656,49 @@ async def get_oauth2_server(
     treats it as a normal, successful read: it returns HTTP 200 with the
     real status/console/result body IRIS sent, rather than propagating it
     as an upstream error. A real "configured" success body has never been
-    observed on this instance, so `result` is typed permissively.
+    observed on this instance, so every allowlisted field is optional.
     """
     try:
         raw = await client.get("/v2/security/oauth2/server")
     except IRISResponseError as exc:
         if exc.status_code == 404 and exc.body is not None:
-            return IRISEnvelope[dict[str, Any]].model_validate(exc.body)
+            return IRISEnvelope[OAuth2ServerConfigView].model_validate(exc.body)
         raise _as_http_exception(exc) from exc
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
-    return IRISEnvelope[dict[str, Any]].model_validate(raw)
+    return IRISEnvelope[OAuth2ServerConfigView].model_validate(raw)
 
 
 @router.get(
     "/security/oauth2/client/server-definitions",
-    response_model=IRISEnvelope[list[Any]],
+    response_model=IRISEnvelope[list[OAuth2ServerDefinitionEntry]],
+    response_model_exclude_none=True,
 )
 async def get_oauth2_client_server_definitions(
     client: IRISClient = Depends(get_iris_client),
-) -> IRISEnvelope[list[Any]]:
+) -> IRISEnvelope[list[OAuth2ServerDefinitionEntry]]:
     # No entry shape has ever been observed populated (result was always []).
     try:
         raw = await client.get("/v2/security/oauth2/client/server-definitions")
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
-    return IRISEnvelope[list[Any]].model_validate(raw)
+    return IRISEnvelope[list[OAuth2ServerDefinitionEntry]].model_validate(raw)
 
 
-@router.get("/security/oauth2/server/clients", response_model=IRISEnvelope[list[Any]])
+@router.get(
+    "/security/oauth2/server/clients",
+    response_model=IRISEnvelope[list[OAuth2ServerClientEntry]],
+    response_model_exclude_none=True,
+)
 async def get_oauth2_server_clients(
     client: IRISClient = Depends(get_iris_client),
-) -> IRISEnvelope[list[Any]]:
+) -> IRISEnvelope[list[OAuth2ServerClientEntry]]:
     # No entry shape has ever been observed populated (result was always []).
     try:
         raw = await client.get("/v2/security/oauth2/server/clients")
     except _IRIS_CLIENT_ERRORS as exc:
         raise _as_http_exception(exc) from exc
-    return IRISEnvelope[list[Any]].model_validate(raw)
+    return IRISEnvelope[list[OAuth2ServerClientEntry]].model_validate(raw)
 
 
 @router.get("/wallet/collections", response_model=IRISEnvelope[list[Any]])

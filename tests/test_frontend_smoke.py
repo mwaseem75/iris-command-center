@@ -605,53 +605,60 @@ def test_security_nav_and_view_exist_and_are_enabled() -> None:
     )
     check(view_match is not None, 'a <section id="view-security" data-view="security"> exists')
 
-    check('id="security-oauth2-server-list"' in html, "the OAuth2 server info list element exists")
-    check(
-        'id="security-client-defs-table-body"' in html,
-        "the client server definitions table body element exists",
-    )
-    check(
-        'id="security-server-clients-table-body"' in html,
-        "the registered clients table body element exists",
-    )
+    for element_id in (
+        "security-tab-oauth",
+        "security-panel-oauth",
+        "security-oauth-summary-grid",
+        "security-oauth-search",
+        "security-oauth-server",
+        "security-oauth-clients-table-body",
+        "security-oauth-definitions-table-body",
+        "security-oauth-configs-table-body",
+        "security-oauth-resource-servers-table-body",
+        "security-oauth-mappings-table-body",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} element exists")
+    # The old pass-through OAuth2 section (which rendered whatever fields
+    # IRIS sent) is gone.
+    check('id="security-oauth2-server-list"' not in html, "the old pass-through OAuth2 section is removed")
 
 
-def test_security_view_uses_only_security_endpoints() -> None:
-    print("Checking security.js calls only the three OAuth2 endpoints and nothing else...")
+def test_security_view_oauth_tab_is_get_only_and_allowlisted() -> None:
+    print("Checking security.js (OAuth 2.0 tab) calls only the allowlisted OAuth endpoints...")
     security_js = (FRONTEND_DIR / "js" / "security.js").read_text(encoding="utf-8")
 
-    required_methods = [
-        "IrisApi.getOauth2Server",
-        "IrisApi.getOauth2ClientServerDefinitions",
-        "IrisApi.getOauth2ServerClients",
-    ]
-    for method in required_methods:
-        check(method in security_js, f"security.js calls {method}()")
-
-    other_methods = ["getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks"]
-    for method in other_methods:
-        check(method not in security_js, f"security.js does NOT call IrisApi.{method}()")
-
-    referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', security_js))
-    expected_paths = {
-        "/api/iris/security/oauth2/server",
-        "/api/iris/security/oauth2/client/server-definitions",
-        "/api/iris/security/oauth2/server/clients",
+    used = set(re.findall(r"IrisApi[.](\w+)", security_js))
+    expected = {
+        "getSecurityOAuthOverview",
+        "getSecurityOAuthServerClient",
+        "getSecurityOAuthServerDefinition",
+        "getSecurityOAuthClientConfiguration",
+        "getSecurityOAuthResourceServer",
     }
+    check(used == expected, f"security.js uses exactly the five read-only OAuth methods (found: {sorted(used)})")
+    check("fetch(" not in security_js, "security.js makes no raw fetch() call (goes through IrisApi)")
     check(
-        referenced_paths in (expected_paths, set()),
-        f"security.js references only the three OAuth2 paths as literal paths "
-        f"(found: {referenced_paths or 'none, uses IrisApi methods'})",
+        re.search(r'"(/api/iris/[a-z0-9\-/]*)"', security_js) is None,
+        "security.js references no /api/iris/* path other than via IrisApi",
     )
-    check(
-        "security-oauth2-server-list" in security_js,
-        "security.js renders into the OAuth2 server info list element",
-    )
-    check(
-        "security-client-defs-table-body" in security_js
-        and "security-server-clients-table-body" in security_js,
-        "security.js renders into both OAuth2 list table body elements",
-    )
+    # Allowlisted data only: the module never reads a secret-bearing field.
+    for field in (
+        "ClientSecret", "ClientPassword", "InitialAccessToken", "registration_access_token", "client_secret",
+        "jwks", "ServerPassword", "PrivateKeyPassword", "Authenticator", "access_token", "Password",
+    ):
+        check(
+            re.search(rf"[.]{field}(?![A-Za-z_])|[\"']{field}[\"']", security_js) is None,
+            f"security.js never reads a {field} field",
+        )
+    check(re.search(r"[.]innerHTML\s*=", security_js) is None, "security.js never assigns innerHTML")
+    check("console." not in security_js, "security.js never logs to the console")
+
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for method in expected:
+        match = re.search(rf"{method}: \([^)]*\) =>\s*fetchIris\(", api_js)
+        check(match is not None, f"api.js's {method} is a plain GET through fetchIris()")
+    for old in ("getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients"):
+        check(old not in api_js, f"api.js no longer exposes the old pass-through {old}()")
 
 
 def test_security_identity_access_is_read_only_and_withholds_personal_data() -> None:
@@ -1548,7 +1555,7 @@ def main() -> None:
         test_tasks_nav_and_view_exist_and_are_enabled,
         test_tasks_view_uses_only_task_read_endpoints,
         test_security_nav_and_view_exist_and_are_enabled,
-        test_security_view_uses_only_security_endpoints,
+        test_security_view_oauth_tab_is_get_only_and_allowlisted,
         test_security_identity_access_is_read_only_and_withholds_personal_data,
         test_security_authentication_tab_is_read_only_and_withholds_smtp_username,
         test_security_wallet_tab_is_read_only_and_metadata_only,
