@@ -304,6 +304,11 @@ export const IrisApi = {
   // the browser (see backend/app/routes/iris.py's get_web_sessions).
   getWebSessions: () => fetchIris("/api/iris/web-sessions"),
   getTasks: () => fetchIris("/api/iris/tasks"),
+  // Read-only — IRIS's own system dashboard (GET /v2/monitor/dashboard/main):
+  // performance counters, health indicators, alert counts, licensing.
+  getMonitorDashboard: () => fetchIris("/api/iris/monitor/dashboard"),
+  // Read-only — every local database's size in one read (GET /v2/database-dirs).
+  getDatabaseStorage: () => fetchIris("/api/iris/databases/storage"),
   // Read-only — every task merged with its GET /v2/task/info and a derived
   // State (see backend/app/routes/iris.py's get_tasks_overview). The list's
   // own Suspended flag is not included; it was observed to be wrong.

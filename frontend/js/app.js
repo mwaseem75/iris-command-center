@@ -9,7 +9,8 @@
 // is the only place either view's module is aware the other exists.
 
 import { initNavigation, navigateTo } from "./nav.js";
-import { loadDashboard, initDashboardControls } from "./dashboard.js";
+import { initThemeSelector } from "./theme.js";
+import { loadDashboard, initDashboardControls, onDashboardShown } from "./dashboard.js";
 import { loadSystemInfo, initSystemControls } from "./system.js";
 import { loadNamespaces, initNamespacesControls } from "./namespaces.js";
 import { loadProcesses, initProcessesControls } from "./processes.js";
@@ -38,6 +39,7 @@ import {
 import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 
 function init() {
+  initThemeSelector();
   initDashboardControls();
   initSystemControls();
   initNamespacesControls();
@@ -75,7 +77,9 @@ function init() {
   // Fetch fresh data every time a detail view is opened, so it can never
   // show stale information from an earlier visit.
   initNavigation((view) => {
-    if (view === "system") {
+    if (view === "dashboard") {
+      onDashboardShown();
+    } else if (view === "system") {
       loadSystemInfo();
     } else if (view === "namespaces") {
       loadNamespaces();

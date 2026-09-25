@@ -36,10 +36,12 @@ from app.models.iris import (
     DatabaseEntry,
     DatabaseInfoResult,
     DatabaseIntegrityCheckResult,
+    DatabaseStorageEntry,
     ExternalLanguageServerEntry,
     InfoResult,
     IRISEnvelope,
     JournalSettings,
+    MonitorDashboard,
     NamespaceEntry,
     OAuth2ServerClientEntry,
     OAuth2ServerConfigView,
@@ -223,6 +225,33 @@ async def get_database_integrity_check(
         raise _as_http_exception(exc) from exc
 
     return DatabaseIntegrityCheckResult.model_validate(task)
+
+
+@router.get("/databases/storage", response_model=IRISEnvelope[list[DatabaseStorageEntry]])
+async def get_database_storage(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[list[DatabaseStorageEntry]]:
+    """Every local database's size in one read (GET /v2/database-dirs) —
+    the Dashboard's Database Storage panel. Read-only."""
+    try:
+        raw = await client.get("/v2/database-dirs")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[list[DatabaseStorageEntry]].model_validate(raw)
+
+
+@router.get("/monitor/dashboard", response_model=IRISEnvelope[MonitorDashboard])
+async def get_monitor_dashboard(
+    client: IRISClient = Depends(get_iris_client),
+) -> IRISEnvelope[MonitorDashboard]:
+    """IRIS's own system dashboard (GET /v2/monitor/dashboard/main,
+    %Admin_Operate:U): performance, health indicators, alert counts,
+    licensing and upcoming tasks. Read-only."""
+    try:
+        raw = await client.get("/v2/monitor/dashboard/main")
+    except _IRIS_CLIENT_ERRORS as exc:
+        raise _as_http_exception(exc) from exc
+    return IRISEnvelope[MonitorDashboard].model_validate(raw)
 
 
 @router.get("/processes", response_model=IRISEnvelope[list[ProcessEntry]])

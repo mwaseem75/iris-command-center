@@ -1012,6 +1012,102 @@ class OAuth2Overview(BaseModel):
     ResourceMappings: list[OAuth2ResourceMappingEntry] | None
 
 
+# --- Monitoring: GET /v2/monitor/dashboard/main (%Admin_Operate:U, "View
+#     dashboard stats") — the data behind the Dashboard's health, resources,
+#     alerts and license panels. Shapes and types observed live on
+#     icc-iris-dev. Per the spec: LicenseUse/LicenseUseHigh are percentages
+#     "or \"\" if there is no license limit"; SystemMonitor false means "the
+#     values on this page do not get updated"; the Performance counters other
+#     than GlobalRefsPerSecond/CacheEfficiency are cumulative since startup.
+#     BusyProcesses' Process was observed both as "" and as a PID number. ---
+
+
+class DashboardPerformance(BaseModel):
+    GlobalRefsPerSecond: int
+    GlobalRefs: int
+    GlobalSetKill: int
+    RoutineRefs: int
+    LogicalRequests: int
+    DiskReads: int
+    DiskWrites: int
+    CacheEfficiency: float
+
+
+class DashboardECP(BaseModel):
+    ECPClients: str
+    ECPClientTraffic: int
+    ECPServers: str
+    ECPServerTraffic: int
+    ShadowConnections: str
+    Shadows: str
+
+
+class DashboardStatus(BaseModel):
+    UpTime: str
+    LastBackup: str
+    SystemMonitor: bool
+
+
+class DashboardBusyProcess(BaseModel):
+    Process: int | str
+    Commands: int
+
+
+class DashboardSystemUsage(BaseModel):
+    DatabaseSpace: str
+    DatabaseJournal: str
+    JournalSpace: str
+    JournalEntries: int
+    LockTable: str
+    WriteDaemon: str
+    Processes: int
+    CSPSessions: int
+    BusyProcesses: list[DashboardBusyProcess]
+
+
+class DashboardAlerts(BaseModel):
+    SeriousAlerts: int
+    ApplicationErrors: int
+
+
+class DashboardLicensing(BaseModel):
+    LicenseLimit: int
+    LicenseUse: int | str
+    LicenseUseHigh: int | str
+
+
+class DashboardUpcomingTask(BaseModel):
+    Task: str
+    Time: str
+    Status: str
+
+
+class MonitorDashboard(BaseModel):
+    Performance: DashboardPerformance
+    ECP: DashboardECP
+    Status: DashboardStatus
+    SystemUsage: DashboardSystemUsage
+    Alerts: DashboardAlerts
+    Licensing: DashboardLicensing
+    UpcomingTasks: list[DashboardUpcomingTask]
+
+
+# --- GET /v2/database-dirs ("ListLocalDBs") — one cheap read of every local
+#     database's size, used by the Dashboard's Database Storage panel instead
+#     of one async database-dir/info task per database. Observed live: Size is
+#     MB (int), MaxSize is "Unlimited" or a number. EncryptionKeyID and
+#     EncryptionVersion are deliberately not modelled. ---
+
+
+class DatabaseStorageEntry(BaseModel):
+    Directory: str
+    Size: int
+    MaxSize: int | str
+    Status: str
+    Mirrored: bool
+    Encrypted: bool
+
+
 class ClassAccessEntry(BaseModel):
     Name: str
     AllowType: str

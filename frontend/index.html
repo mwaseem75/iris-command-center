@@ -14,6 +14,14 @@
   />
 
   <link rel="stylesheet" href="css/styles.css" />
+  <script>
+    // Apply the saved theme before first paint (no flash of Midnight). Kept
+    // in sync with js/theme.js; storage may be unavailable, so it is guarded.
+    try {
+      var savedTheme = window.localStorage.getItem("icc-theme");
+      if (savedTheme === "slate" || savedTheme === "light") document.documentElement.dataset.theme = savedTheme;
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <div class="app-shell">
@@ -27,6 +35,14 @@
       </div>
 
       <div class="header-status">
+        <label class="theme-select">
+          <span class="theme-select__label">Theme</span>
+          <select id="theme-select" aria-label="Color theme">
+            <option value="midnight">Midnight</option>
+            <option value="slate">Slate</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
         <span class="header-status__version" id="header-version-meta"></span>
         <div class="connection-status" id="connection-status" data-state="checking">
           <span class="connection-status__dot" aria-hidden="true"></span>
@@ -136,12 +152,18 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="dashboard-title">Dashboard</h2>
-              <p class="view__subtitle view__subtitle--wide">Observe system health, review recent activity, and jump into investigation &mdash; a live snapshot of the connected IRIS instance.</p>
+              <p class="view__subtitle view__subtitle--wide">A live view of the connected IRIS instance &mdash; health, resources, storage, alerts and activity, from IRIS&rsquo;s own data.</p>
             </div>
-            <button class="btn btn--primary" type="button" id="refresh-button">
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Refresh
-            </button>
+            <div class="dash-header-actions">
+              <div class="dash-live" id="dashboard-live-status" data-state="checking" aria-live="polite">
+                <span class="dash-live__dot" aria-hidden="true"></span>
+                <span class="dash-live__label" id="dashboard-live-label">Connecting&hellip;</span>
+              </div>
+              <button class="btn btn--primary" type="button" id="refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+            </div>
           </div>
 
           <div class="banner banner--error" id="error-banner" hidden role="alert">
@@ -154,82 +176,104 @@
             <span>Loading dashboard data&hellip;</span>
           </div>
 
-          <div class="dashboard-section dashboard-section--observe">
-            <h3 class="section-heading section-heading--primary">Observe</h3>
-            <div class="stat-grid" id="stat-grid">
-              <article class="stat-card stat-card--interactive" data-card="namespaces" role="button" tabindex="0" aria-label="View Namespaces">
-                <h3 class="stat-card__label">Namespaces</h3>
-                <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
-                <span class="stat-card__link">View details &rarr;</span>
-              </article>
+          <div class="stat-grid" id="stat-grid" aria-label="Key figures">
+            <article class="stat-card stat-card--interactive" data-card="namespaces" role="button" tabindex="0" aria-label="View Namespaces">
+              <h3 class="stat-card__label">Namespaces</h3>
+              <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
+              <span class="stat-card__link">View details &rarr;</span>
+            </article>
 
-              <article class="stat-card stat-card--interactive" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
-                <h3 class="stat-card__label">Databases</h3>
-                <p class="stat-card__value" id="stat-databases">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
-                <span class="stat-card__link">View details &rarr;</span>
-              </article>
+            <article class="stat-card stat-card--interactive" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
+              <h3 class="stat-card__label">Databases</h3>
+              <p class="stat-card__value" id="stat-databases">&mdash;</p>
+              <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
+              <span class="stat-card__link">View details &rarr;</span>
+            </article>
 
-              <article class="stat-card stat-card--interactive" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
-                <h3 class="stat-card__label">Processes</h3>
-                <p class="stat-card__value" id="stat-processes">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
-                <span class="stat-card__link">View details &rarr;</span>
-              </article>
+            <article class="stat-card stat-card--interactive" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
+              <h3 class="stat-card__label">Processes</h3>
+              <p class="stat-card__value" id="stat-processes">&mdash;</p>
+              <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
+              <span class="stat-card__link">View details &rarr;</span>
+            </article>
 
-              <article class="stat-card stat-card--interactive" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
-                <h3 class="stat-card__label">Web Applications</h3>
-                <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
-                <span class="stat-card__link">View details &rarr;</span>
-              </article>
+            <article class="stat-card stat-card--interactive" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
+              <h3 class="stat-card__label">Web Applications</h3>
+              <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
+              <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
+              <span class="stat-card__link">View details &rarr;</span>
+            </article>
 
-              <article class="stat-card stat-card--interactive" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
-                <h3 class="stat-card__label">Tasks</h3>
-                <p class="stat-card__value" id="stat-tasks">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
-                <span class="stat-card__link">View details &rarr;</span>
-              </article>
-            </div>
+            <article class="stat-card stat-card--interactive" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
+              <h3 class="stat-card__label">Tasks</h3>
+              <p class="stat-card__value" id="stat-tasks">&mdash;</p>
+              <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
+              <span class="stat-card__link">View details &rarr;</span>
+            </article>
+
+            <article class="stat-card" title="Elapsed time since IRIS started (GET /v2/monitor/dashboard/main)">
+              <h3 class="stat-card__label">Uptime</h3>
+              <p class="stat-card__value stat-card__value--mono" id="stat-uptime">&mdash;</p>
+            </article>
+
+            <article class="stat-card" title="License usage as a percentage of available license units">
+              <h3 class="stat-card__label">License Use</h3>
+              <p class="stat-card__value" id="stat-license">&mdash;</p>
+              <p class="stat-card__meta" id="stat-license-meta"></p>
+            </article>
           </div>
 
-          <div class="dashboard-section dashboard-section--insights">
-            <h3 class="section-heading section-heading--secondary">Insights</h3>
-            <div class="info-grid" id="dashboard-insights-grid">
-              <section class="info-card info-card--compact" aria-labelledby="dashboard-operations-title">
-                <h4 class="info-card__title" id="dashboard-operations-title">Operations Overview</h4>
-                <p class="info-card__hint">Risk-level distribution</p>
-                <div id="dashboard-operations-viz"></div>
-                <p class="info-card__empty" id="dashboard-operations-empty" hidden>Could not load the operations registry.</p>
-                <p class="stat-card__meta" id="dashboard-operations-summary"></p>
-              </section>
+          <div class="dash-grid">
+            <section class="info-card dash-panel" aria-labelledby="dashboard-health-title">
+              <h3 class="info-card__title" id="dashboard-health-title">System Health</h3>
+              <p class="info-card__hint">IRIS&rsquo;s own status indicators (System Dashboard).</p>
+              <div class="banner banner--warning" id="dashboard-monitor-warning" hidden role="status">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span>IRIS&rsquo;s System Monitor is not running. Per IRIS, the dashboard&rsquo;s status indicators and alert counts are not updated while it is stopped &mdash; they may not be current.</span>
+              </div>
+              <p class="info-card__empty" id="dashboard-health-empty" hidden>Could not load IRIS&rsquo;s system dashboard.</p>
+              <ul class="dash-indicators" id="dashboard-health-indicators"></ul>
+              <dl class="info-list" id="dashboard-health-facts"></dl>
+            </section>
 
-              <section class="info-card info-card--compact" aria-labelledby="dashboard-traces-title">
-                <h4 class="info-card__title" id="dashboard-traces-title">Execution Health</h4>
-                <p class="info-card__hint">Outcome distribution, this session</p>
-                <div id="dashboard-traces-viz"></div>
-                <p class="info-card__empty info-card__empty--quiet" id="dashboard-traces-empty" hidden>No execution traces recorded yet.</p>
-                <p class="stat-card__meta" id="dashboard-traces-summary"></p>
-              </section>
+            <section class="info-card dash-panel" aria-labelledby="dashboard-resources-title">
+              <h3 class="info-card__title" id="dashboard-resources-title">Resources</h3>
+              <p class="info-card__hint" id="dashboard-resources-hint">Trends from samples taken by this page every 15 s (kept for the last 60 samples).</p>
+              <p class="info-card__empty" id="dashboard-resources-empty" hidden>Could not load IRIS&rsquo;s performance counters.</p>
+              <div class="dash-sparks" id="dashboard-resources"></div>
+            </section>
 
-              <section class="info-card info-card--compact" aria-labelledby="dashboard-capabilities-title">
-                <h4 class="info-card__title" id="dashboard-capabilities-title">API Coverage</h4>
-                <p class="info-card__hint">Verification status</p>
-                <div id="dashboard-capabilities-viz"></div>
-                <p class="info-card__empty" id="dashboard-capabilities-empty" hidden>Could not load capability data.</p>
-                <p class="stat-card__meta" id="dashboard-capabilities-summary"></p>
-              </section>
-            </div>
-          </div>
+            <section class="info-card dash-panel" aria-labelledby="dashboard-storage-title">
+              <h3 class="info-card__title" id="dashboard-storage-title">Database Storage</h3>
+              <p class="info-card__hint" id="dashboard-storage-hint">Allocated size of each local database (GET /v2/database-dirs).</p>
+              <p class="info-card__empty" id="dashboard-storage-empty" hidden>Could not load database sizes.</p>
+              <div class="dash-storage" id="dashboard-storage"></div>
+            </section>
 
-          <div class="dashboard-section dashboard-section--activity">
-            <h3 class="section-heading section-heading--secondary">Recent Activity</h3>
-            <section class="info-card info-card--wide info-card--compact" aria-labelledby="dashboard-activity-title">
-              <h4 class="info-card__title" id="dashboard-activity-title">Recent Executions</h4>
-              <p class="info-card__hint">Most recent operations run through this Command Center</p>
+            <section class="info-card dash-panel" aria-labelledby="dashboard-alerts-title">
+              <h3 class="info-card__title" id="dashboard-alerts-title">Recent Alerts</h3>
+              <p class="info-card__hint">IRIS&rsquo;s own alert counters and any indicator that is not Normal. IRIS&rsquo;s REST API reports alert counts, not the alert log itself.</p>
+              <p class="info-card__empty" id="dashboard-alerts-empty" hidden>Could not load IRIS&rsquo;s alert counters.</p>
+              <div class="dash-alert-counts" id="dashboard-alert-counts"></div>
+              <ul class="dash-alert-list" id="dashboard-alert-list"></ul>
+            </section>
 
+            <section class="info-card dash-panel" aria-labelledby="dashboard-process-title">
+              <h3 class="info-card__title" id="dashboard-process-title">Process Distribution</h3>
+              <p class="info-card__hint">Current IRIS processes by state and namespace (GET /v2/processes).</p>
+              <p class="info-card__empty" id="dashboard-process-empty" hidden>Could not load processes.</p>
+              <div class="dash-process" id="dashboard-process-state"></div>
+              <p class="stat-card__label dash-subtitle">By namespace</p>
+              <div id="dashboard-process-namespace"></div>
+              <p class="stat-card__label dash-subtitle">Busiest processes (commands executed)</p>
+              <dl class="info-list" id="dashboard-process-busy"></dl>
+            </section>
+
+            <section class="info-card dash-panel" aria-labelledby="dashboard-activity-title">
+              <h3 class="info-card__title" id="dashboard-activity-title">Recent Operations</h3>
+              <p class="info-card__hint">Most recent operations run through this Command Center.</p>
+              <p class="stat-card__meta" id="dashboard-operations-summary"></p>
               <p class="info-card__empty info-card__empty--quiet" id="dashboard-activity-empty" hidden>No operations have been executed yet through this Command Center. Try the Operations view.</p>
-
               <div class="table-wrapper" id="dashboard-activity-table-wrapper" hidden>
                 <table class="data-table data-table--compact">
                   <thead>
@@ -243,7 +287,6 @@
                   <tbody id="dashboard-activity-table-body"></tbody>
                 </table>
               </div>
-
               <div class="btn-row">
                 <button class="btn" type="button" id="dashboard-view-observability-button">View all in Observability &rarr;</button>
               </div>
@@ -255,14 +298,20 @@
             <div class="quicklink-grid" id="dashboard-quicklinks">
               <article class="quicklink-card">
                 <h4 class="quicklink-card__title">Investigation</h4>
-                <p class="quicklink-card__description">Search IRIS's own security audit log &mdash; filter by time, event type, or username to investigate an issue.</p>
+                <p class="quicklink-card__description">Search IRIS&rsquo;s own security audit log &mdash; filter by time, event type, or username to investigate an issue.</p>
                 <button class="btn" type="button" data-quicklink="investigation">Open &rarr;</button>
               </article>
 
               <article class="quicklink-card">
                 <h4 class="quicklink-card__title">Operations</h4>
-                <p class="quicklink-card__description">Execute the journal.update_purge_archived operation through the full authorization &rarr; confirmation &rarr; execution &rarr; verification framework.</p>
+                <p class="quicklink-card__description">Run controlled operations through the authorization &rarr; confirmation &rarr; execution &rarr; verification framework.</p>
                 <button class="btn" type="button" data-quicklink="operations">Open &rarr;</button>
+              </article>
+
+              <article class="quicklink-card">
+                <h4 class="quicklink-card__title">Security</h4>
+                <p class="quicklink-card__description">Users, roles, authentication posture, wallet, certificates and OAuth 2.0.</p>
+                <button class="btn" type="button" data-quicklink="security">Open &rarr;</button>
               </article>
 
               <article class="quicklink-card">
@@ -274,12 +323,11 @@
               <article class="quicklink-card">
                 <h4 class="quicklink-card__title">API Capability Explorer</h4>
                 <p class="quicklink-card__description">See which IRIS SysAdmin REST API capabilities this Command Center has verified and wired up.</p>
+                <p class="stat-card__meta" id="dashboard-capabilities-summary"></p>
                 <button class="btn" type="button" data-quicklink="capabilities">Open &rarr;</button>
               </article>
             </div>
           </div>
-
-          <p class="last-updated" id="last-updated"></p>
         </section>
 
         <section class="view" id="view-system" data-view="system" aria-labelledby="system-title" hidden>

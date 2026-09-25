@@ -138,6 +138,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "extensions.js",
         FRONTEND_DIR / "js" / "investigation.js",
         FRONTEND_DIR / "js" / "capabilities.js",
+        FRONTEND_DIR / "js" / "theme.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -1471,6 +1472,66 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
     check("fetch(" not in dashboard_js, "dashboard.js makes no raw fetch() call (goes through IrisApi)")
 
 
+def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
+    print("Checking the Dashboard's live panels read only real monitoring data and pause when hidden...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    for element_id in (
+        "dashboard-live-status",
+        "dashboard-live-label",
+        "stat-uptime",
+        "stat-license",
+        "dashboard-monitor-warning",
+        "dashboard-health-indicators",
+        "dashboard-resources",
+        "dashboard-storage",
+        "dashboard-alert-counts",
+        "dashboard-alert-list",
+        "dashboard-process-state",
+        "dashboard-process-namespace",
+        "dashboard-process-busy",
+    ):
+        check(f'id="{element_id}"' in html, f"the {element_id!r} dashboard element exists")
+
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    check('"/api/iris/monitor/dashboard"' in api_js, "api.js wraps GET /api/iris/monitor/dashboard")
+    check('"/api/iris/databases/storage"' in api_js, "api.js wraps GET /api/iris/databases/storage")
+
+    dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+    for method in ("getMonitorDashboard", "getDatabaseStorage", "getProcesses"):
+        check(f"IrisApi.{method}()" in dashboard_js, f"dashboard.js calls IrisApi.{method}()")
+    check("REFRESH_INTERVAL_MS = 15000" in dashboard_js, "dashboard.js refreshes every 15 s")
+    check(
+        re.search(r"MAX_SAMPLES = (\d+)", dashboard_js) is not None
+        and 30 <= int(re.search(r"MAX_SAMPLES = (\d+)", dashboard_js).group(1)) <= 60,
+        "dashboard.js keeps 30-60 resource samples",
+    )
+    check(
+        "visibilitychange" in dashboard_js and "document.hidden" in dashboard_js,
+        "dashboard.js pauses polling while the tab is hidden and resumes when visible",
+    )
+    check("setInterval(" not in dashboard_js, "dashboard.js chains setTimeout so refreshes never overlap")
+    check("Math.random" not in dashboard_js, "dashboard.js never generates synthetic values")
+
+
+def test_theme_selector_offers_three_persisted_themes() -> None:
+    print("Checking the theme selector offers Midnight/Slate/Light and persists the choice...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    check('id="theme-select"' in html, "the header has a theme selector")
+    for theme in ("midnight", "slate", "light"):
+        check(f'value="{theme}"' in html, f"the theme selector offers {theme!r}")
+    check('"icc-theme"' in html, "index.html applies the saved theme before first paint")
+
+    css = (FRONTEND_DIR / "css" / "styles.css").read_text(encoding="utf-8")
+    for theme in ("slate", "light"):
+        check(f':root[data-theme="{theme}"]' in css, f"styles.css defines the {theme!r} theme tokens")
+
+    theme_js = (FRONTEND_DIR / "js" / "theme.js").read_text(encoding="utf-8")
+    check('STORAGE_KEY = "icc-theme"' in theme_js, "theme.js persists under the icc-theme key")
+    check(theme_js.count("try {") >= 2, "theme.js guards every localStorage access")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    check("initThemeSelector()" in app_js, "app.js initialises the theme selector")
+
+
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except nine sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
@@ -1635,6 +1696,8 @@ def main() -> None:
         test_capabilities_view_uses_only_expected_endpoint,
         test_observability_investigation_cross_link_exists,
         test_dashboard_is_the_landing_screen_with_activity_and_quicklinks,
+        test_dashboard_live_monitoring_uses_real_read_only_sources,
+        test_theme_selector_offers_three_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:
