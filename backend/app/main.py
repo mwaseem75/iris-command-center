@@ -34,6 +34,7 @@ from app.observability.iris_trace_writer import IRISTraceWriter
 from app.routes.assistant import router as assistant_router
 from app.routes.capabilities import router as capabilities_router
 from app.routes.databases import router as databases_router
+from app.routes.demo import router as demo_router
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
 from app.routes.security_access import router as security_access_router
@@ -91,6 +92,7 @@ app.include_router(tasks_router)
 app.include_router(journal_router)
 app.include_router(namespaces_router)
 app.include_router(databases_router)
+app.include_router(demo_router)
 app.include_router(web_apps_router)
 app.include_router(operations_router)
 app.include_router(assistant_router)
