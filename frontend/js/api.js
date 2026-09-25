@@ -194,6 +194,17 @@ async function postWebAppSetEnabled(fields, confirmed, dryRun = false) {
 }
 
 /**
+ * web_app.update_description (POST /api/iris/web-apps/update-description,
+ * backend/app/routes/web_apps.py) — same discipline as postWebAppSetEnabled:
+ * forwards only {Name, Description} plus the explicit, user-driven
+ * `confirmed` flag and `dry_run`; the backend alone authorizes, refuses
+ * protected apps, executes and verifies.
+ */
+async function postWebAppUpdateDescription(fields, confirmed, dryRun = false) {
+  return postDatabaseOperation("/api/iris/web-apps/update-description", fields, confirmed, dryRun);
+}
+
+/**
  * user.set_enabled (POST /api/iris/security/users/set-enabled,
  * backend/app/routes/security_users.py) — same request/response discipline
  * as postWebAppSetEnabled: forwards only {Name, Enabled} plus the explicit,
@@ -392,6 +403,8 @@ export const IrisApi = {
     postDatabaseMount(fields, confirmed, dryRun),
   setWebAppEnabled: (fields, confirmed, dryRun = false) =>
     postWebAppSetEnabled(fields, confirmed, dryRun),
+  updateWebAppDescription: (fields, confirmed, dryRun = false) =>
+    postWebAppUpdateDescription(fields, confirmed, dryRun),
   setUserEnabled: (fields, confirmed, dryRun = false) =>
     postUserSetEnabled(fields, confirmed, dryRun),
   runTaskNow: (fields, confirmed, dryRun = false) => postTaskRunNow(fields, confirmed, dryRun),

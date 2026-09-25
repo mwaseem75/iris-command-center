@@ -12,12 +12,14 @@
 //   - GET /api/iris/web-sessions (active sessions, fetched alongside the
 //     list; IrisApi.getWebSessions()). The backend strips every session's
 //     IRIS ID before responding, and this module never reads or shows one.
-// It also offers exactly one MUTATING action, web_app.set_enabled (Enabled
-// State section of the drawer), through POST /api/iris/web-apps/set-enabled
-// via IrisApi.setWebAppEnabled() — dry run, explicit confirmation,
-// execution and verification all happen in the backend's operation
-// framework (see "Enabled State" below). There are no other web-app actions
-// (edit/delete), and no session actions.
+// It also offers exactly two MUTATING actions, both through the backend's
+// operation framework (dry run, explicit confirmation, execution and
+// verification all happen there): web_app.set_enabled (Enabled State
+// section, POST /api/iris/web-apps/set-enabled via
+// IrisApi.setWebAppEnabled()) and web_app.update_description (Description
+// section, POST /api/iris/web-apps/update-description via
+// IrisApi.updateWebAppDescription()). There are no other web-app actions
+// (other edits/delete), and no session actions.
 //
 // Every value shown is a field IRIS actually returned: the table uses
 // backend/app/models/iris.py's WebAppEntry, the drawer's configuration
@@ -133,6 +135,18 @@ const dom = {
   enableAckText: document.getElementById("web-apps-enable-ack-text"),
   enableConfirmButton: document.getElementById("web-apps-enable-confirm-button"),
   enableResult: document.getElementById("web-apps-enable-result"),
+  descriptionInput: document.getElementById("web-apps-description-input"),
+  descriptionCheckButton: document.getElementById("web-apps-description-check-button"),
+  descriptionLoading: document.getElementById("web-apps-description-loading"),
+  descriptionLoadingText: document.getElementById("web-apps-description-loading-text"),
+  descriptionError: document.getElementById("web-apps-description-error"),
+  descriptionErrorText: document.getElementById("web-apps-description-error-text"),
+  descriptionConfirm: document.getElementById("web-apps-description-confirm"),
+  descriptionPreviewText: document.getElementById("web-apps-description-preview-text"),
+  descriptionAckCheckbox: document.getElementById("web-apps-description-ack-checkbox"),
+  descriptionAckText: document.getElementById("web-apps-description-ack-text"),
+  descriptionConfirmButton: document.getElementById("web-apps-description-confirm-button"),
+  descriptionResult: document.getElementById("web-apps-description-result"),
 };
 
 // [label, WebAppEntry field, value kind] — the list-endpoint facts shown at
@@ -637,6 +651,8 @@ async function loadDrawerDetail(name) {
       return;
     }
     renderDrawerConfig(detail);
+    const app = allWebApps.find((entry) => entry.Name === name);
+    if (app) syncDescriptionFromDetail(app, detail);
   } catch (err) {
     if (seq !== detailRequestSeq) return;
     dom.drawerErrorText.textContent =
@@ -803,6 +819,153 @@ async function submitEnable() {
   if (result.status === "success" || result.status === "verification_failed") {
     // Re-read the real list rather than patching local state — the drawer
     // re-renders from it (same app, so the result above stays visible).
+    await loadWebApps();
+  }
+}
+
+// --- Description (web_app.update_description — the drawer's second
+// MUTATING action) ---
+//
+// The same flow as Enabled State above: "Check" sends a dry run
+// (IrisApi.updateWebAppDescription(fields, true, true) — the handler's
+// dry_run() never sends the PUT); only a successful preview offers the
+// confirm control, enabled only after the acknowledgment checkbox; the real
+// request is sent only from submitDescription(). The backend alone
+// authorizes, refuses protected apps, executes and verifies. The input is
+// prefilled with the app's real Description from the detail load.
+
+// The fields the operator previewed — set only by a successful dry run,
+// cleared whenever the drawer's app or the typed text changes.
+let pendingDescriptionFields = null;
+// Whether the operator has edited the input since it was last prefilled.
+let descriptionEdited = false;
+
+function updateDescriptionConfirmEnabled() {
+  dom.descriptionConfirmButton.disabled = !(pendingDescriptionFields && dom.descriptionAckCheckbox.checked);
+}
+
+function clearDescriptionPreview() {
+  pendingDescriptionFields = null;
+  dom.descriptionConfirm.hidden = true;
+  dom.descriptionAckCheckbox.checked = false;
+  updateDescriptionConfirmEnabled();
+}
+
+function resetDescriptionControls() {
+  clearDescriptionPreview();
+  descriptionEdited = false;
+  dom.descriptionInput.value = "";
+  dom.descriptionInput.disabled = true;
+  dom.descriptionLoading.hidden = true;
+  dom.descriptionError.hidden = true;
+  dom.descriptionResult.hidden = true;
+  dom.descriptionResult.replaceChildren();
+  dom.descriptionCheckButton.disabled = true;
+}
+
+/** Prefills the input with the app's real Description (from GET
+ * /api/iris/web-apps/detail), unless the operator is mid-edit. */
+function syncDescriptionFromDetail(app, detail) {
+  const current = detail && typeof detail.Description === "string" ? detail.Description : null;
+  dom.descriptionInput.disabled = current === null;
+  dom.descriptionCheckButton.disabled = current === null;
+  if (!descriptionEdited) dom.descriptionInput.value = current ?? "";
+  dom.descriptionAckText.textContent = `I understand this will change the Description of ${app.Name} on the IRIS instance.`;
+}
+
+function showDescriptionError(message) {
+  dom.descriptionErrorText.textContent = message;
+  dom.descriptionError.hidden = false;
+}
+
+async function handleDescriptionCheckClick() {
+  const app = allWebApps.find((entry) => entry.Name === currentDrawerName);
+  if (!app) return;
+
+  const fields = { Name: app.Name, Description: dom.descriptionInput.value };
+  clearDescriptionPreview();
+  dom.descriptionError.hidden = true;
+  dom.descriptionResult.hidden = true;
+  dom.descriptionCheckButton.disabled = true;
+  dom.descriptionLoadingText.textContent = "Checking with IRIS (dry run)…";
+  dom.descriptionLoading.hidden = false;
+
+  try {
+    const preview = await IrisApi.updateWebAppDescription(fields, true, true);
+    if (currentDrawerName !== fields.Name || dom.descriptionInput.value !== fields.Description) return;
+    const handlerResult = preview && preview.handler_result;
+    if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
+      pendingDescriptionFields = fields;
+      dom.descriptionPreviewText.textContent = handlerResult.detail;
+      dom.descriptionConfirm.hidden = false;
+      updateDescriptionConfirmEnabled();
+    } else {
+      // Unauthorized, protected, no-op, too long, unknown app… shown exactly
+      // as the backend explained it.
+      showDescriptionError(
+        (handlerResult && handlerResult.detail) || preview.detail || "This change could not be validated against IRIS.",
+      );
+    }
+  } catch (err) {
+    showDescriptionError(
+      err instanceof ApiError
+        ? "Could not reach the Command Center backend to check this change."
+        : "An unexpected error occurred while checking this change.",
+    );
+  } finally {
+    dom.descriptionLoading.hidden = true;
+    dom.descriptionCheckButton.disabled = false;
+  }
+}
+
+function renderDescriptionResult(result) {
+  const rows = [
+    ["Status", textOrPlaceholder(result.status)],
+    ["Detail", textOrPlaceholder(result.detail)],
+  ];
+  if (result.handler_result) rows.push(["Execution Detail", textOrPlaceholder(result.handler_result.detail)]);
+  if (result.verification) {
+    rows.push(["Verification Status", textOrPlaceholder(result.verification.status)]);
+    rows.push(["Verification Detail", textOrPlaceholder(result.verification.detail)]);
+  }
+  dom.descriptionResult.replaceChildren(...rows.map(([label, value]) => makeInfoRow(label, null, value, "text")));
+  dom.descriptionResult.hidden = false;
+}
+
+/**
+ * The ONLY place in this file that sends a real Description change —
+ * reachable only via the confirm button, which is enabled only after a
+ * successful preview of exactly the typed text and the acknowledgment.
+ */
+async function submitDescription() {
+  const fields = pendingDescriptionFields;
+  if (!fields) return;
+
+  clearDescriptionPreview();
+  dom.descriptionCheckButton.disabled = true;
+  dom.descriptionLoadingText.textContent = "Updating description…";
+  dom.descriptionLoading.hidden = false;
+
+  let result;
+  try {
+    result = await IrisApi.updateWebAppDescription(fields, true, false);
+  } catch (err) {
+    result = {
+      status: "request_failed",
+      detail:
+        err instanceof ApiError
+          ? "Could not reach the Command Center backend to change this web application."
+          : "An unexpected error occurred while changing this web application.",
+    };
+  }
+  dom.descriptionLoading.hidden = true;
+  dom.descriptionCheckButton.disabled = false;
+  if (currentDrawerName === fields.Name) renderDescriptionResult(result);
+
+  if (result.status === "success" || result.status === "verification_failed") {
+    // Re-read the real data; the drawer re-renders (same app, so the result
+    // above stays visible) and the input is refilled from IRIS.
+    descriptionEdited = false;
     await loadWebApps();
   }
 }
@@ -1064,6 +1227,7 @@ function openDrawer(name) {
   if (!isSameApp) {
     resetRestPanel();
     resetEnableControls();
+    resetDescriptionControls();
     activeDrawerTab = "config";
   }
   syncEnableControls(app);
@@ -1082,6 +1246,7 @@ function closeDrawer() {
   detailRequestSeq += 1; // discard any in-flight detail response
   resetRestPanel();
   resetEnableControls();
+  resetDescriptionControls();
   activeDrawerTab = "config";
   dom.drawer.classList.remove("ns-drawer--xwide");
   dom.drawerLoading.hidden = true;
@@ -1486,6 +1651,23 @@ export function initWebAppsControls() {
   dom.enableAckCheckbox.addEventListener("change", updateEnableConfirmEnabled);
   dom.enableConfirmButton.addEventListener("click", () => {
     submitEnable();
+  });
+
+  // Description (web_app.update_description): dry-run check of the typed
+  // text, acknowledgment, then the one real request. Editing the text
+  // discards a preview of different text.
+  dom.descriptionInput.addEventListener("input", () => {
+    descriptionEdited = true;
+    if (pendingDescriptionFields && pendingDescriptionFields.Description !== dom.descriptionInput.value) {
+      clearDescriptionPreview();
+    }
+  });
+  dom.descriptionCheckButton.addEventListener("click", () => {
+    handleDescriptionCheckClick();
+  });
+  dom.descriptionAckCheckbox.addEventListener("change", updateDescriptionConfirmEnabled);
+  dom.descriptionConfirmButton.addEventListener("click", () => {
+    submitDescription();
   });
 
   // Web Sessions: client-side filtering over the last fetched list, and a

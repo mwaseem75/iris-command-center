@@ -482,6 +482,10 @@ def test_web_apps_nav_and_view_exist_and_are_enabled() -> None:
     check('id="web-apps-enable-check-button"' in html, "the drawer's Enabled State dry-run check exists")
     check('id="web-apps-enable-ack-checkbox"' in html, "the Enabled State acknowledgment checkbox exists")
     check('id="web-apps-enable-confirm-button"' in html, "the Enabled State confirm button exists")
+    check('id="web-apps-description-input"' in html, "the drawer's Description input exists")
+    check('id="web-apps-description-check-button"' in html, "the Description dry-run check exists")
+    check('id="web-apps-description-ack-checkbox"' in html, "the Description acknowledgment checkbox exists")
+    check('id="web-apps-description-confirm-button"' in html, "the Description confirm button exists")
 
 
 def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
@@ -505,9 +509,13 @@ def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
     # raw fetch or another operation's wrapper.
     check(
         "IrisApi.setWebAppEnabled" in web_apps_js,
-        "web-apps.js's only mutation is IrisApi.setWebAppEnabled() (web_app.set_enabled)",
+        "web-apps.js's first mutation is IrisApi.setWebAppEnabled() (web_app.set_enabled)",
     )
-    for other_mutation in ("createNamespace", "createDatabase", "mountDatabase", "fetch("):
+    check(
+        "IrisApi.updateWebAppDescription" in web_apps_js,
+        "web-apps.js's second mutation is IrisApi.updateWebAppDescription() (web_app.update_description)",
+    )
+    for other_mutation in ("createNamespace", "createDatabase", "mountDatabase", "setUserEnabled", "runTaskNow", "fetch("):
         check(other_mutation not in web_apps_js, f"web-apps.js does not use {other_mutation}")
     # IRIS's web-session ID (what DELETE /v2/web-session?id= takes) is
     # stripped by the backend; the frontend must never try to read one.
@@ -1450,11 +1458,11 @@ def test_dashboard_is_the_landing_screen_with_activity_and_quicklinks() -> None:
 
 
 def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
-    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except seven sanctioned, scoped exceptions...")
+    print("Checking no mutating HTTP method appears anywhere in frontend/js/*.js, except eight sanctioned, scoped exceptions...")
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The seven sanctioned mutating calls in the entire frontend, all in
+    # The eight sanctioned mutating calls in the entire frontend, all in
     # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
     # archived, backend/app/routes/journal.py), postNamespaceCreate (POST
     # /api/iris/namespaces, backend/app/routes/namespaces.py),
@@ -1464,8 +1472,10 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     # set-enabled, backend/app/routes/web_apps.py), and postUserSetEnabled
     # (POST /api/iris/security/users/set-enabled, backend/app/routes/
     # security_users.py), and postTaskRunNow (POST /api/iris/tasks/run-now,
-    # backend/app/routes/tasks.py) — asserted below to be
-    # scoped to exactly those seven paths, never a different/new one. PUT and PATCH
+    # backend/app/routes/tasks.py), and postWebAppUpdateDescription (POST
+    # /api/iris/web-apps/update-description, backend/app/routes/web_apps.py)
+    # — asserted below to be
+    # scoped to exactly those eight paths, never a different/new one. PUT and PATCH
     # remain forbidden everywhere, including in api.js — this project has
     # no PUT or PATCH route at all, mutating or otherwise.
     allowed_post_file = "api.js"
@@ -1523,6 +1533,11 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         '"/api/iris/tasks/run-now"' in api_js and "runTaskNow:" in api_js,
         "api.js's seventh sanctioned POST (postTaskRunNow) is scoped to "
         "/api/iris/tasks/run-now and exposed as IrisApi.runTaskNow()",
+    )
+    check(
+        '"/api/iris/web-apps/update-description"' in api_js and "updateWebAppDescription:" in api_js,
+        "api.js's eighth sanctioned POST (postWebAppUpdateDescription) is scoped to "
+        "/api/iris/web-apps/update-description and exposed as IrisApi.updateWebAppDescription()",
     )
 
     # operations.js (where the execute UI lives) must call the api.js

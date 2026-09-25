@@ -256,6 +256,27 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.MEDIUM,
         confirmation_required=True,
     ),
+    "web_app.update_description": OperationDefinition(
+        name="web_app.update_description",
+        description=(
+            "Change the Description of an existing IRIS web application (PUT "
+            "/api/admin/v2/web-app?name=<Name> with the body {\"Description\": "
+            "<string>} only — IRIS applies it as a partial update). Same rules as "
+            "web_app.set_enabled: Manage here plus Secure in the handler (IRIS "
+            "checks %Admin_Secure), and hard-denied for the Command Center's own "
+            "/api/admin and /api/mgmnt apps and for every System-type app (IRIS's "
+            "PUT always resets Type to plain CSP). Unknown apps, unchanged "
+            "descriptions and descriptions over IRIS's 256-character limit or with "
+            "control characters are refused before any write. Verified afterwards "
+            "via fresh GET /v2/web-app and GET /v2/web-apps reads (Description as "
+            "requested, Enabled and Type unchanged). See "
+            "app/execution/web_app_update_description_handler.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.LOW,
+        confirmation_required=True,
+    ),
     "user.set_enabled": OperationDefinition(
         name="user.set_enabled",
         description=(
