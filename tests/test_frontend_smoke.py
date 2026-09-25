@@ -140,6 +140,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "capabilities.js",
         FRONTEND_DIR / "js" / "theme.js",
         FRONTEND_DIR / "js" / "demo-activity.js",
+        FRONTEND_DIR / "js" / "detail-workspace.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -1055,13 +1056,29 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
         "ai-assistant.js calls IrisApi.queryAssistant()",
     )
 
-    other_methods = [
-        "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
-        "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
-        "getJournalSettings", "getOperations",
+    # The redesigned assistant answers from live data, so it may call a
+    # fixed allowlist of READ-ONLY GET wrappers — and nothing else. Every
+    # mutating wrapper stays forbidden (mutations go through Operations).
+    allowed_reads = {
+        "queryAssistant", "getInfo", "getProcesses", "getDatabases", "getDatabaseStorage",
+        "getWebApps", "getTaskOverview", "getExecutionTraces", "getJournalSettings", "getMonitorDashboard",
+    }
+    called = set(re.findall(r"IrisApi\.([A-Za-z]+)\(", ai_js))
+    check(called <= allowed_reads, f"ai-assistant.js calls only read-only IrisApi methods (found: {sorted(called)})")
+    mutating_methods = [
+        "executeJournalPurgeArchived", "createNamespace", "createDatabase", "mountDatabase", "dismountDatabase",
+        "setWebAppEnabled", "updateWebAppDescription", "setUserEnabled", "runTaskNow", "runDemoRehearsal",
     ]
-    for method in other_methods:
-        check(method not in ai_js, f"ai-assistant.js does NOT call IrisApi.{method}() directly")
+    for method in mutating_methods:
+        check(method not in ai_js, f"ai-assistant.js does NOT call the mutating IrisApi.{method}()")
+    check(
+        "isMutationRequest(" in ai_js and "answerMutation(" in ai_js,
+        "ai-assistant.js answers mutation requests locally (pointing to Operations) instead of forwarding them",
+    )
+    check(
+        "if (/purge/.test(text)) return answerMutation(text);" in ai_js,
+        "ai-assistant.js never forwards a purge/journal-change message to the backend assistant",
+    )
 
     referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', ai_js))
     check(
@@ -1102,7 +1119,8 @@ def test_observability_nav_and_view_exist_and_use_only_traces_endpoint() -> None
         view_match is not None,
         'a <section id="view-observability" data-view="observability"> exists',
     )
-    check('id="observability-table-body"' in html, "the traces table body element exists")
+    check('id="observability-trace-list"' in html, "the Trace Explorer list element exists")
+    check('id="observability-detail-body"' in html, "the selected-trace details workspace exists")
 
     observability_js = (FRONTEND_DIR / "js" / "observability.js").read_text(encoding="utf-8")
     check(
@@ -1718,6 +1736,40 @@ def test_demo_activity_is_confirmed_and_uses_only_real_traces() -> None:
           "Demo Activity is not part of the registry-driven operations catalog")
 
 
+def test_detail_views_use_one_centered_workspace_pattern() -> None:
+    print("Checking every detail panel uses the shared centered detail-workspace pattern...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    css = (FRONTEND_DIR / "css" / "styles.css").read_text(encoding="utf-8")
+    js_dir = FRONTEND_DIR / "js"
+
+    panels = re.findall(r'<aside class="(ns-drawer[^"]*)" id="([^"]+)"', html)
+    check(len(panels) >= 10, f"found {len(panels)} detail panels using the shared .ns-drawer markup")
+    check(
+        not re.search(r'<aside class="(?![^"]*ns-drawer)[^"]*drawer', html),
+        "no detail panel uses a separate, non-shared drawer implementation",
+    )
+
+    block_start = css.find("/* --- Detail workspace:")
+    check(block_start != -1, "styles.css has the shared detail-workspace block")
+    block = css[block_start:css.find("/* --- Responsive --- */", block_start)]
+    check("transform: translate(-50%, -50%)" in block, "detail workspaces are centered on the page")
+    check("calc(100vw - 48px)" in block and "calc(100vw - 24px)" in block,
+          "workspace width is responsive, with safe margins on small screens")
+    check("overflow-x: hidden" in block, "workspaces never scroll horizontally")
+
+    module = (js_dir / "detail-workspace.js").read_text(encoding="utf-8")
+    check("fetch(" not in module and "IrisApi" not in module, "detail-workspace.js makes no network call")
+    check('"aria-modal", "true"' in module and '"role", "dialog"' in module, "panels get dialog semantics")
+    check("trapTab" in module and "target.focus(" in module and "identitySelector" in module,
+          "focus is kept inside and returned to the opener (or its re-rendered replacement)")
+    app_js = (js_dir / "app.js").read_text(encoding="utf-8")
+    check("initDetailWorkspaces();" in app_js, "app.js initialises the shared detail-workspace behaviour")
+
+    for name in ("namespaces", "databases", "processes", "web-apps", "tasks", "security-access", "demo-activity"):
+        content = (js_dir / f"{name}.js").read_text(encoding="utf-8")
+        check('"Escape"' in content, f"{name}.js still closes its detail workspace on Escape")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -1755,6 +1807,7 @@ def main() -> None:
         test_dashboard_is_the_landing_screen_with_activity,
         test_dashboard_live_monitoring_uses_real_read_only_sources,
         test_demo_activity_is_confirmed_and_uses_only_real_traces,
+        test_detail_views_use_one_centered_workspace_pattern,
         test_theme_selector_offers_three_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

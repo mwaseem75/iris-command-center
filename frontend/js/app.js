@@ -24,7 +24,7 @@ import { initSecurityWalletControls, refreshSecurityWalletIfLoaded } from "./sec
 import { initSecurityX509Controls, refreshSecurityX509IfLoaded } from "./security-x509.js";
 import { loadJournal, initJournalControls } from "./journal.js";
 import { loadOperations, initOperationsControls } from "./operations.js";
-import { initAiAssistantControls } from "./ai-assistant.js";
+import { initAiAssistantControls, loadAssistantContext } from "./ai-assistant.js";
 import {
   loadExecutionTraces,
   initObservabilityControls,
@@ -32,6 +32,7 @@ import {
   focusTrace as focusObservabilityTrace,
 } from "./observability.js";
 import { initDemoActivity } from "./demo-activity.js";
+import { initDetailWorkspaces } from "./detail-workspace.js";
 import { loadExtensions, initExtensionsControls } from "./extensions.js";
 import {
   loadInvestigation,
@@ -42,6 +43,9 @@ import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 
 function init() {
   initThemeSelector();
+  // Shared modal behaviour for every detail workspace (dialog semantics,
+  // scroll lock, focus trap and focus return) — see detail-workspace.js.
+  initDetailWorkspaces();
   // Opening a trace from the Dashboard or Demo Activity reuses the
   // existing Observability detail: focus the trace, then navigate, so the
   // view's normal view-opened load renders the real, fresh trace list.
@@ -72,7 +76,7 @@ function init() {
   initSecurityX509Controls();
   initJournalControls();
   initOperationsControls();
-  initAiAssistantControls();
+  initAiAssistantControls({ onOpenTrace: openTrace });
   // These two cross-links are the only coupling between Observability and
   // Investigation: each just sets the OTHER view's own filter fields
   // (never re-implementing the other's rendering) and then navigates,
@@ -119,6 +123,8 @@ function init() {
       loadJournal();
     } else if (view === "operations") {
       loadOperations();
+    } else if (view === "ai-assistant") {
+      loadAssistantContext();
     } else if (view === "observability") {
       loadExecutionTraces();
     } else if (view === "extensions") {

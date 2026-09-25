@@ -1,83 +1,107 @@
-// Observability view: fetches GET /api/iris/observability/traces ONLY —
-// a read-only listing of the in-memory execution traces the backend's
-// OperationExecutor records for every operation attempt (see
+// Observability view: an OpenTelemetry-inspired trace explorer over the
+// Command Center's own execution traces. It fetches GET
+// /api/iris/observability/traces ONLY — a read-only listing of the traces
+// the backend's OperationExecutor records for every operation attempt (see
 // backend/app/observability/). No other endpoint is called from this
 // module, and no mutating HTTP method is used anywhere in it. This view
-// never triggers an operation itself — it only displays traces that
-// already exist because something else (e.g. the Operations view) ran
-// one.
+// never triggers an operation itself.
 //
-// The Begin/End time filter below is entirely client-side (the same
-// fetch-once-then-filter-in-memory approach capabilities.js already uses)
-// — filtering never re-fetches from the backend.
+// Everything shown comes from the real ExecutionTrace/Span schema:
+//   trace: trace_id, operation_name, status, start_time, end_time,
+//          duration_ms, authorization/confirmation/execution/
+//          verification_result, spans[]
+//   span:  name, status ("ok" | "error" | "skipped"), start_time, end_time,
+//          duration_ms, attributes{}, events[]
+// Nothing is invented. Notably, a trace has no "target" field, so none is
+// shown, and span events are listed only when a span actually recorded
+// some.
 //
-// Cross-links with Investigation (frontend/js/investigation.js): the only
-// correlation drawn between an execution trace and an IRIS audit record is
-// TIME PROXIMITY — there is no shared ID between the Command Center's own
-// execution traces and IRIS's own audit log. "Investigate audit records"
-// below uses this trace's own start_time/end_time; investigation.js's
-// "Traces" button does the reverse using an audit record's UTCTimeStamp.
-// Neither direction invents or assumes any IRIS-side link.
+// Waterfall timing, honestly: each span's `duration_ms` is measured with a
+// high-resolution timer, while its `start_time`/`end_time` are wall-clock
+// timestamps with the OS clock's resolution. So bar WIDTHS use the precise
+// duration and bar POSITIONS use the recorded start offset from the trace's
+// start; the scale grows to fit if a recorded start plus its duration runs
+// past the trace total, rather than clipping or re-deriving positions.
+//
+// The Begin/End time filter and the search box are client-side only —
+// filtering never re-fetches.
+//
+// Cross-links: with Investigation, correlation is TIME PROXIMITY only
+// ("Investigate audit records" uses this trace's own start/end time);
+// Dashboard and Demo Activity call focusTrace() to open one trace here.
 
 import { IrisApi, ApiError } from "./api.js";
-import { countBy, renderStackedBar } from "./viz.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const STAGE_ORDER = ["authorization", "confirmation", "execution", "verification"];
 
 const dom = {
   loadingState: document.getElementById("observability-loading-state"),
   errorBanner: document.getElementById("observability-error-banner"),
   errorBannerText: document.getElementById("observability-error-banner-text"),
   refreshButton: document.getElementById("observability-refresh-button"),
-  connectionStatus: document.getElementById("observability-connection-status"),
-  connectionStatusLabel: document.getElementById("observability-connection-status-label"),
-  countLabel: document.getElementById("observability-count"),
-  overview: document.getElementById("observability-overview"),
-  overviewViz: document.getElementById("observability-overview-viz"),
+  statTotal: document.getElementById("observability-stat-total"),
+  statSuccess: document.getElementById("observability-stat-success"),
+  statDryRun: document.getElementById("observability-stat-dryrun"),
+  statOther: document.getElementById("observability-stat-other"),
+  statOtherLabel: document.getElementById("observability-stat-other-label"),
   filterForm: document.getElementById("observability-filter-form"),
   filterBegin: document.getElementById("observability-filter-begin"),
   filterEnd: document.getElementById("observability-filter-end"),
   filterClearButton: document.getElementById("observability-filter-clear-button"),
-  tableWrapper: document.getElementById("observability-table-wrapper"),
-  tableBody: document.getElementById("observability-table-body"),
+  unavailable: document.getElementById("observability-unavailable"),
+  workspace: document.getElementById("observability-workspace"),
+  countLabel: document.getElementById("observability-count"),
+  search: document.getElementById("observability-search"),
+  traceList: document.getElementById("observability-trace-list"),
   empty: document.getElementById("observability-empty"),
+  emptyText: document.getElementById("observability-empty-text"),
+  detailEmpty: document.getElementById("observability-detail-empty"),
+  detailBody: document.getElementById("observability-detail-body"),
 };
 
-// Which trace/span each expanded detail row belongs to, so a Refresh can
-// re-render without losing which rows the user had open.
-const expandedTraceIds = new Set();
-
-// A trace another view asked to open (focusTrace()); scrolled into view and
-// highlighted once the next render contains it, then cleared.
-let pendingFocusTraceId = null;
-
-// The full list from the last successful fetch — the time filter only
-// ever re-renders a subset of this, never re-fetches it.
+// The full list from the last successful fetch (newest first, as the
+// backend returns it) — filters only ever re-render a subset of this.
 let allTraces = [];
-
+let visibleTraces = [];
+let selectedTraceId = null;
+let loadFailed = false;
+// A trace another view asked to open (focusTrace()); scrolled into view
+// once the next render contains it, then cleared.
+let pendingFocusTraceId = null;
 let onInvestigateTimeWindow = null;
 
-// How far either side of a trace's own start/end time the cross-link
-// window extends — wide enough to absorb normal clock/processing skew
-// between this backend and IRIS, without being so wide it defeats the
-// point of narrowing the search.
+// How far either side of a trace's own start/end time the Investigation
+// cross-link window extends — wide enough to absorb normal clock skew.
 const CROSS_LINK_PADDING_MS = 30_000;
+
+// --- formatting ---
 
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-// Formats a JS Date as "YYYY-MM-DD HH:MM:SS" in UTC — matches both this
-// view's own (UTC) time filter and, separately, what is sent to
-// investigation.js's setTimeWindow() (IRIS's server-LOCAL time filter —
-// this app never converts between the two timezones, since a trace's
-// start/end time carries no information about the connected IRIS
-// instance's own clock/timezone; see investigation.js's module header).
+// "YYYY-MM-DD HH:MM:SS" in UTC — this view's own filter format, and what
+// is sent to investigation.js's setTimeWindow().
 function formatUtc(date) {
   return (
     `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
     `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`
   );
+}
+
+function formatUtcIso(iso) {
+  if (typeof iso !== "string" || !iso) return PLACEHOLDER;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : formatUtc(date);
+}
+
+// HH:MM:SS.mmm (UTC) straight from the ISO string, so sub-second digits
+// are the recorded ones, not re-rounded.
+function formatUtcTimeOfDay(iso) {
+  if (typeof iso !== "string") return PLACEHOLDER;
+  const match = /T(\d{2}:\d{2}:\d{2})(\.\d{1,3})?/.exec(iso);
+  return match ? `${match[1]}${match[2] || ""}` : formatUtcIso(iso);
 }
 
 function parseFilterInput(value) {
@@ -98,29 +122,6 @@ function computeInvestigationTimeWindow(startIso, endIso) {
   };
 }
 
-function setLoading(isLoading) {
-  dom.loadingState.hidden = !isLoading;
-  // Disabling synchronously, before any await, is what makes a second
-  // rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in every other view.
-  dom.refreshButton.disabled = isLoading;
-  dom.refreshButton.classList.toggle("btn--spinning", isLoading);
-}
-
-function setErrorBanner(message) {
-  if (!message) {
-    dom.errorBanner.hidden = true;
-    return;
-  }
-  dom.errorBannerText.textContent = message;
-  dom.errorBanner.hidden = false;
-}
-
-function setConnectionState(state, label) {
-  dom.connectionStatus.dataset.state = state;
-  dom.connectionStatusLabel.textContent = label;
-}
-
 function textOrPlaceholder(value) {
   if (value === null || value === undefined) return PLACEHOLDER;
   const str = String(value);
@@ -128,16 +129,39 @@ function textOrPlaceholder(value) {
 }
 
 function formatDuration(ms) {
-  if (typeof ms !== "number") return PLACEHOLDER;
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return PLACEHOLDER;
   if (ms < 1000) return `${ms.toFixed(2)} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-function formatTimestamp(iso) {
-  if (typeof iso !== "string" || !iso) return PLACEHOLDER;
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+function formatTick(ms) {
+  if (ms === 0) return "0 ms";
+  if (ms < 1) return `${ms.toFixed(2)} ms`;
+  if (ms < 1000) return `${Number(ms.toFixed(1))} ms`;
+  return `${Number((ms / 1000).toFixed(2))} s`;
 }
+
+function shortId(id) {
+  const text = textOrPlaceholder(id);
+  return text.length > 12 ? `${text.slice(0, 12)}…` : text;
+}
+
+function capitalize(text) {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+function humanizeKey(key) {
+  return String(key).replace(/_/g, " ");
+}
+
+function formatAttributeValue(value) {
+  if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : PLACEHOLDER;
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (value !== null && typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+// --- status badges (same status -> color mapping used across the app) ---
 
 const STATUS_BADGE_CLASS = {
   success: "status-badge--ok",
@@ -154,9 +178,8 @@ function statusBadgeClass(status) {
   return STATUS_BADGE_CLASS[status] || "status-badge--error";
 }
 
-// Badges/cells are always built via document.createElement + .textContent
-// — never innerHTML — so a status/attribute value can never be
-// interpreted as markup.
+// Built via document.createElement + .textContent — never innerHTML — so a
+// status/attribute value can never be interpreted as markup.
 function makeStatusBadge(status) {
   const badge = document.createElement("span");
   badge.className = `status-badge ${statusBadgeClass(status)}`;
@@ -164,211 +187,65 @@ function makeStatusBadge(status) {
   return badge;
 }
 
-function makeCell(content) {
-  const cell = document.createElement("td");
-  cell.className = "data-table__cell";
-  if (content instanceof Node) {
-    cell.append(content);
-  } else {
-    cell.textContent = content;
-    cell.title = content;
-  }
-  return cell;
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
 
-function formatAttributeValue(value) {
-  if (value === null || value === undefined) return PLACEHOLDER;
-  if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : PLACEHOLDER;
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
+// --- page state helpers ---
+
+function setLoading(isLoading) {
+  dom.loadingState.hidden = !isLoading;
+  // Disabling synchronously, before any await, makes a second rapid
+  // Refresh click a no-op — the same pattern used in every other view.
+  dom.refreshButton.disabled = isLoading;
+  dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
 
-function buildInfoRow(label, value) {
-  const row = document.createElement("div");
-  row.className = "info-list__row";
-
-  const dt = document.createElement("dt");
-  dt.textContent = label;
-
-  const dd = document.createElement("dd");
-  dd.className = "info-list__value info-list__value--mono";
-  dd.textContent = value;
-
-  row.append(dt, dd);
-  return row;
+function setErrorBanner(message) {
+  dom.errorBanner.hidden = !message;
+  dom.errorBannerText.textContent = message || "";
 }
 
-function buildSpanCard(span) {
-  const card = document.createElement("div");
-  card.className = "trace-detail__span";
-
-  const title = document.createElement("div");
-  title.className = "trace-detail__span-title";
-  const nameEl = document.createElement("span");
-  nameEl.textContent = textOrPlaceholder(span.name);
-  title.append(nameEl, makeStatusBadge(span.status));
-  card.append(title);
-
-  const meta = document.createElement("p");
-  meta.className = "trace-detail__span-meta";
-  meta.textContent = `${formatDuration(span.duration_ms)} · ${formatTimestamp(span.start_time)}`;
-  card.append(meta);
-
-  const attributes = span.attributes && typeof span.attributes === "object" ? span.attributes : {};
-  const list = document.createElement("dl");
-  list.className = "info-list";
-  const attrEntries = Object.entries(attributes);
-  if (attrEntries.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "info-card__empty";
-    empty.textContent = "No attributes recorded.";
-    card.append(empty);
-  } else {
-    for (const [key, value] of attrEntries) {
-      list.append(buildInfoRow(key, formatAttributeValue(value)));
-    }
-    card.append(list);
-  }
-
-  if (Array.isArray(span.events) && span.events.length > 0) {
-    const eventsList = document.createElement("dl");
-    eventsList.className = "info-list";
-    for (const evt of span.events) {
-      eventsList.append(buildInfoRow(evt.name, formatTimestamp(evt.timestamp)));
-    }
-    card.append(eventsList);
-  }
-
-  return card;
+function setUnavailable(unavailable) {
+  loadFailed = unavailable;
+  dom.unavailable.hidden = !unavailable;
+  dom.workspace.hidden = unavailable;
 }
 
-// Fixed stage order for the waterfall below — matches the order
-// app/observability/tracer.py always records spans in (authorization ->
-// confirmation -> execution -> verification), but this is looked up by
-// name, not assumed by array position.
-const WATERFALL_STAGES = ["authorization", "confirmation", "execution", "verification"];
+// --- summary bar: real counts over the currently filtered traces ---
 
-/** A compact, proportional-by-duration visual timeline for the same four
- * spans buildSpanCard() below already renders as detail cards — this is
- * an additional, purely visual summary of the exact same trace/span data
- * already fetched from GET /api/iris/observability/traces, nothing new is
- * fetched or invented. Each segment's width (via CSS flex-grow) is
- * proportional to that span's real `duration_ms`; a small flex-grow floor
- * only keeps an exactly-zero-duration (e.g. skipped) stage visibly
- * present in the track — the duration shown in its tooltip/legend text is
- * always the real, unrounded value from the trace itself. Returns null if
- * the trace has none of the four expected spans (defensive; every real
- * trace recorded by TraceRecorder.finish() has all four).
- */
-function buildWaterfall(trace) {
-  const spans = Array.isArray(trace.spans) ? trace.spans : [];
-  const spansByName = new Map(spans.map((span) => [span.name, span]));
-
-  const track = document.createElement("div");
-  track.className = "trace-detail__waterfall-track";
-
-  const legend = document.createElement("div");
-  legend.className = "trace-detail__waterfall-legend";
-
-  let stageCount = 0;
-  for (const stageName of WATERFALL_STAGES) {
-    const span = spansByName.get(stageName);
-    if (!span) continue;
-    stageCount += 1;
-
-    const duration = typeof span.duration_ms === "number" ? span.duration_ms : 0;
-    // Reuses the exact same status -> badge-color mapping already used for
-    // every other status badge in this file, so a segment's color always
-    // means the same thing here as it does everywhere else in the app.
-    const colorSuffix = statusBadgeClass(span.status).replace("status-badge--", "");
-
-    const segment = document.createElement("div");
-    segment.className = `trace-detail__waterfall-segment trace-detail__waterfall-segment--${colorSuffix}`;
-    segment.style.flexGrow = String(Math.max(duration, 0.05));
-    segment.title = `${stageName} — ${textOrPlaceholder(span.status)} — ${formatDuration(duration)}`;
-    track.append(segment);
-
-    const legendItem = document.createElement("span");
-    legendItem.className = "trace-detail__waterfall-legend-item";
-    const dot = document.createElement("span");
-    dot.className = `trace-detail__waterfall-dot trace-detail__waterfall-dot--${colorSuffix}`;
-    legendItem.append(dot, document.createTextNode(`${stageName} ${formatDuration(duration)}`));
-    legend.append(legendItem);
+function renderSummary(traces) {
+  if (loadFailed) {
+    for (const node of [dom.statTotal, dom.statSuccess, dom.statDryRun, dom.statOther]) node.textContent = PLACEHOLDER;
+    dom.statOtherLabel.textContent = "Other Outcomes";
+    dom.statOtherLabel.title = "";
+    return;
   }
-
-  if (stageCount === 0) return null;
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "trace-detail__waterfall";
-  wrapper.append(track, legend);
-  return wrapper;
+  const counts = new Map();
+  for (const trace of traces) {
+    const key = typeof trace.status === "string" ? trace.status : "unknown";
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const success = counts.get("success") || 0;
+  const dryRun = counts.get("dry_run") || 0;
+  const other = [...counts.entries()].filter(([status]) => status !== "success" && status !== "dry_run");
+  dom.statTotal.textContent = String(traces.length);
+  dom.statSuccess.textContent = String(success);
+  dom.statDryRun.textContent = String(dryRun);
+  dom.statOther.textContent = String(other.reduce((sum, [, n]) => sum + n, 0));
+  // The backend's own status names, never a made-up category.
+  dom.statOtherLabel.textContent =
+    other.length === 1 ? capitalize(humanizeKey(other[0][0])) : "Other Outcomes";
+  dom.statOtherLabel.title = other.length
+    ? other.map(([status, n]) => `${humanizeKey(status)}: ${n}`).join(" · ")
+    : "Every trace is a success or a dry run.";
 }
 
-function buildTraceDetail(trace) {
-  const container = document.createElement("div");
-  container.className = "trace-detail";
+// --- trace explorer (left) ---
 
-  const summary = document.createElement("dl");
-  summary.className = "info-list";
-  summary.append(
-    buildInfoRow("Authorization", textOrPlaceholder(trace.authorization_result)),
-    buildInfoRow("Confirmation", textOrPlaceholder(trace.confirmation_result)),
-    buildInfoRow("Execution", textOrPlaceholder(trace.execution_result)),
-    buildInfoRow("Verification", textOrPlaceholder(trace.verification_result)),
-  );
-  container.append(summary);
-
-  const waterfall = buildWaterfall(trace);
-  if (waterfall) {
-    container.append(waterfall);
-  }
-
-  const window_ = computeInvestigationTimeWindow(trace.start_time, trace.end_time);
-  if (onInvestigateTimeWindow && window_) {
-    const actions = document.createElement("div");
-    actions.className = "btn-row";
-    const investigateButton = document.createElement("button");
-    investigateButton.className = "btn";
-    investigateButton.type = "button";
-    investigateButton.textContent = "Investigate audit records";
-    investigateButton.title =
-      "View IRIS audit records within 30 seconds of this trace (assumes the IRIS server clock is close to UTC)";
-    investigateButton.addEventListener("click", () => onInvestigateTimeWindow(window_));
-    actions.append(investigateButton);
-    container.append(actions);
-  }
-
-  const spansGrid = document.createElement("div");
-  spansGrid.className = "trace-detail__spans";
-  const spans = Array.isArray(trace.spans) ? trace.spans : [];
-  if (spans.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "info-card__empty";
-    empty.textContent = "No spans recorded for this trace.";
-    container.append(empty);
-  } else {
-    for (const span of spans) {
-      spansGrid.append(buildSpanCard(span));
-    }
-    container.append(spansGrid);
-  }
-
-  return container;
-}
-
-function toggleTraceDetail(traceId) {
-  if (expandedTraceIds.has(traceId)) {
-    expandedTraceIds.delete(traceId);
-  } else {
-    expandedTraceIds.add(traceId);
-  }
-  applyFilters();
-}
-
-// `null` for either bound means "unfiltered" on that side. Compares
-// against `trace.start_time` — a trace with no start_time (should never
-// happen; every trace records one) is excluded rather than guessed into
-// matching or not.
 function matchesTimeWindow(trace, begin, end) {
   if (!begin && !end) return true;
   const start = new Date(trace.start_time);
@@ -378,92 +255,379 @@ function matchesTimeWindow(trace, begin, end) {
   return true;
 }
 
+function matchesSearch(trace, query) {
+  if (!query) return true;
+  const name = typeof trace.operation_name === "string" ? trace.operation_name.toLowerCase() : "";
+  const id = typeof trace.trace_id === "string" ? trace.trace_id.toLowerCase() : "";
+  return name.includes(query) || id.includes(query);
+}
+
+function buildTraceItem(trace) {
+  const item = document.createElement("li");
+  const button = el("button", "obs-trace");
+  button.type = "button";
+  button.dataset.traceId = textOrPlaceholder(trace.trace_id);
+  button.setAttribute("aria-pressed", String(trace.trace_id === selectedTraceId));
+  button.title = `Trace ${textOrPlaceholder(trace.trace_id)}`;
+
+  const top = el("span", "obs-trace__row");
+  top.append(el("span", "obs-trace__name", textOrPlaceholder(trace.operation_name)), makeStatusBadge(trace.status));
+  const bottom = el("span", "obs-trace__row obs-trace__meta");
+  bottom.append(
+    el("span", "obs-trace__time", formatUtcIso(trace.start_time)),
+    el("span", "obs-trace__duration", formatDuration(trace.duration_ms)),
+  );
+  const id = el("span", "obs-trace__id", shortId(trace.trace_id));
+
+  button.append(top, bottom, id);
+  button.addEventListener("click", () => selectTrace(trace.trace_id));
+  item.append(button);
+  return item;
+}
+
+function renderList() {
+  dom.traceList.replaceChildren();
+  const filtered = visibleTraces.length !== allTraces.length;
+  dom.countLabel.textContent = allTraces.length
+    ? filtered
+      ? `Showing ${visibleTraces.length} of ${allTraces.length} traces · times in UTC`
+      : `${allTraces.length} trace${allTraces.length === 1 ? "" : "s"} · newest first · times in UTC`
+    : "Select a trace to view its execution details.";
+
+  dom.empty.hidden = visibleTraces.length > 0;
+  if (visibleTraces.length === 0) {
+    dom.emptyText.textContent = allTraces.length
+      ? "No traces match the current time range or search."
+      : "No operation attempts have been recorded yet.";
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const trace of visibleTraces) fragment.append(buildTraceItem(trace));
+  dom.traceList.append(fragment);
+}
+
+function markSelectedInList() {
+  dom.traceList.querySelectorAll(".obs-trace").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.traceId === selectedTraceId));
+  });
+}
+
+// --- trace details (right) ---
+
+function buildMetaItem(label, value, { mono = false, title = "" } = {}) {
+  const item = el("div", "obs-meta__item");
+  const valueEl = el("dd", mono ? "obs-meta__value obs-meta__value--mono" : "obs-meta__value");
+  if (value instanceof Node) valueEl.append(value);
+  else valueEl.textContent = value;
+  if (title) valueEl.title = title;
+  item.append(el("dt", "obs-meta__label", label), valueEl);
+  return item;
+}
+
+function buildTraceIdValue(traceId) {
+  const wrap = el("span", "obs-traceid");
+  wrap.append(el("span", "", shortId(traceId)));
+  if (typeof traceId === "string" && navigator.clipboard) {
+    const copy = el("button", "obs-icon-btn", "Copy");
+    copy.type = "button";
+    copy.title = "Copy the full trace ID";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(traceId);
+        copy.textContent = "Copied";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+      setTimeout(() => {
+        copy.textContent = "Copy";
+      }, 1500);
+    });
+    wrap.append(copy);
+  }
+  return wrap;
+}
+
+function orderedSpans(trace) {
+  const spans = Array.isArray(trace.spans) ? trace.spans.filter((s) => s && typeof s === "object") : [];
+  const rank = (name) => {
+    const index = STAGE_ORDER.indexOf(name);
+    return index === -1 ? STAGE_ORDER.length : index;
+  };
+  // Stable: known stages in pipeline order, any other span after them in
+  // its recorded order.
+  return spans.map((span, i) => [span, i]).sort((a, b) => rank(a[0].name) - rank(b[0].name) || a[1] - b[1]).map(([s]) => s);
+}
+
+function spanOffsetMs(trace, span) {
+  const traceStart = new Date(trace.start_time).getTime();
+  const spanStart = new Date(span.start_time).getTime();
+  if (Number.isNaN(traceStart) || Number.isNaN(spanStart)) return null;
+  return Math.max(0, spanStart - traceStart);
+}
+
+// A rounded axis ceiling so tick labels read cleanly (1, 2, 2.5, 5 × 10^n).
+function niceCeiling(value) {
+  if (!(value > 0)) return 1;
+  const power = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 2, 2.5, 5, 10]) if (step * power >= value) return step * power;
+  return 10 * power;
+}
+
+function spanTone(span, index) {
+  if (span.status === "error") return "error";
+  if (span.status === "skipped") return "skipped";
+  const stageIndex = STAGE_ORDER.indexOf(span.name);
+  return `stage-${(stageIndex === -1 ? index : stageIndex) % 6 + 1}`;
+}
+
+function buildWaterfall(trace, spans) {
+  const section = el("section", "obs-section");
+  const head = el("div", "obs-section__head");
+  const titles = el("div");
+  titles.append(
+    el("h4", "obs-section__title", "Execution Timeline"),
+    el("p", "obs-section__subtitle", "Time spent in each recorded stage of the execution pipeline."),
+  );
+  head.append(titles, el("span", "obs-section__meta", `Total ${formatDuration(trace.duration_ms)}`));
+  section.append(head);
+
+  if (spans.length === 0) {
+    section.append(el("p", "obs-detail__placeholder", "No spans were recorded for this trace."));
+    return section;
+  }
+
+  // Scale: the trace total, grown if any recorded start + duration exceeds it.
+  const rows = spans.map((span, index) => {
+    const duration = typeof span.duration_ms === "number" && Number.isFinite(span.duration_ms) ? span.duration_ms : null;
+    return { span, index, duration, offset: spanOffsetMs(trace, span) };
+  });
+  const traceTotal = typeof trace.duration_ms === "number" && Number.isFinite(trace.duration_ms) ? trace.duration_ms : 0;
+  const extent = Math.max(traceTotal, ...rows.map((r) => (r.offset ?? 0) + (r.duration ?? 0)));
+  // A round tick step (1, 2, 2.5, 5 x 10^n) giving about five intervals;
+  // the scale is a whole number of steps, so ticks and gridlines line up.
+  const step = niceCeiling(extent / 5);
+  const intervals = Math.max(1, Math.ceil(extent / step - 1e-9));
+  const scale = step * intervals;
+  const pct = (ms) => `${Math.min(100, Math.max(0, (ms / scale) * 100))}%`;
+
+  const chart = el("div", "obs-waterfall");
+  chart.style.setProperty("--obs-grid-step", `${100 / intervals}%`);
+  chart.setAttribute("role", "img");
+  chart.setAttribute(
+    "aria-label",
+    `Execution timeline: ${rows.map((r) => `${r.span.name} ${r.span.status}, ${formatDuration(r.duration)}`).join("; ")}`,
+  );
+
+  const axis = el("div", "obs-waterfall__axis");
+  axis.append(el("span", "obs-waterfall__label"));
+  const ticks = el("div", "obs-waterfall__ticks");
+  for (let i = 0; i <= intervals; i += 1) {
+    const tick = el("span", "obs-waterfall__tick", formatTick(step * i));
+    tick.style.left = `${(i / intervals) * 100}%`;
+    ticks.append(tick);
+  }
+  axis.append(ticks);
+  chart.append(axis);
+
+  for (const { span, index, duration, offset } of rows) {
+    const row = el("div", "obs-waterfall__row");
+    const label = el("span", "obs-waterfall__label");
+    label.append(el("span", `obs-dot obs-dot--${spanTone(span, index)}`), el("span", "", capitalize(textOrPlaceholder(span.name))));
+    const track = el("div", "obs-waterfall__track");
+
+    if (span.status === "skipped") {
+      const reason = span.attributes && span.attributes.reason ? ` · ${humanizeKey(span.attributes.reason)}` : "";
+      track.append(el("span", "obs-waterfall__skipped", `skipped${reason}`));
+    } else if (duration === null || offset === null) {
+      track.append(el("span", "obs-waterfall__skipped", "no timing recorded"));
+    } else {
+      const bar = el("span", `obs-waterfall__bar obs-waterfall__bar--${spanTone(span, index)}`);
+      bar.style.left = pct(offset);
+      bar.style.width = pct(duration);
+      bar.title = `${span.name}: ${formatDuration(duration)} (starts ${formatDuration(offset)} after the trace start) · ${span.status}`;
+      // Always just after the bar; the track reserves a right margin for it,
+      // and the scale never ends before the last bar.
+      const value = el("span", "obs-waterfall__value", formatDuration(duration));
+      value.style.left = pct(offset + duration);
+      track.append(bar, value);
+    }
+    row.append(label, track);
+    chart.append(row);
+  }
+  section.append(
+    chart,
+    el(
+      "p",
+      "obs-section__note",
+      "Bar widths are each span's measured duration; positions are its recorded start time relative to the trace start (wall-clock resolution).",
+    ),
+  );
+  return section;
+}
+
+function spanDetails(span) {
+  const attributes = span.attributes && typeof span.attributes === "object" ? span.attributes : {};
+  const parts = Object.entries(attributes)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `${humanizeKey(key)}: ${formatAttributeValue(value)}`);
+  return parts.length ? parts.join(" · ") : PLACEHOLDER;
+}
+
+function buildStagesTable(spans) {
+  const section = el("section", "obs-section");
+  const head = el("div", "obs-section__head");
+  const titles = el("div");
+  titles.append(
+    el("h4", "obs-section__title", "Execution Events"),
+    el("p", "obs-section__subtitle", "Each recorded stage, with the attributes the framework recorded for it."),
+  );
+  head.append(titles);
+  section.append(head);
+
+  const wrapper = el("div", "table-wrapper obs-events");
+  const table = el("table", "data-table data-table--compact");
+  const thead = el("thead");
+  const headRow = el("tr");
+  for (const label of ["Time (UTC)", "Stage", "Status", "Details", "Duration"]) {
+    const th = el("th", "", label);
+    th.scope = "col";
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  const tbody = el("tbody");
+
+  const cell = (content, className = "") => {
+    const td = el("td", `data-table__cell ${className}`.trim());
+    if (content instanceof Node) td.append(content);
+    else {
+      td.textContent = content;
+      td.title = content;
+    }
+    return td;
+  };
+
+  for (const span of spans) {
+    const row = el("tr");
+    row.append(
+      cell(formatUtcTimeOfDay(span.start_time), "obs-events__mono"),
+      cell(capitalize(textOrPlaceholder(span.name))),
+      cell(makeStatusBadge(span.status)),
+      cell(spanDetails(span), "obs-events__details"),
+      cell(formatDuration(span.duration_ms), "obs-events__mono obs-events__num"),
+    );
+    tbody.append(row);
+    // Span events, only when the span actually recorded any.
+    for (const event of Array.isArray(span.events) ? span.events : []) {
+      const eventRow = el("tr", "obs-events__event");
+      eventRow.append(
+        cell(formatUtcTimeOfDay(event.timestamp), "obs-events__mono"),
+        cell(`↳ ${textOrPlaceholder(event.name)}`),
+        cell(""),
+        cell(spanDetails({ attributes: event.attributes }), "obs-events__details"),
+        cell(""),
+      );
+      tbody.append(eventRow);
+    }
+  }
+  table.append(thead, tbody);
+  wrapper.append(table);
+  section.append(wrapper);
+  return section;
+}
+
+function buildRawData(trace) {
+  const details = el("details", "obs-raw");
+  details.append(el("summary", "obs-raw__summary", "View raw trace data"));
+  // Exactly the sanitized trace the backend returned — no extra fields.
+  details.append(el("pre", "obs-raw__pre", JSON.stringify(trace, null, 2)));
+  return details;
+}
+
+function renderDetail() {
+  const trace = visibleTraces.find((t) => t.trace_id === selectedTraceId) || null;
+  dom.detailBody.replaceChildren();
+  dom.detailBody.hidden = !trace;
+  dom.detailEmpty.hidden = Boolean(trace);
+  dom.detailEmpty.textContent = visibleTraces.length
+    ? "Select a trace to view its execution details."
+    : "No trace to show.";
+  if (!trace) return;
+
+  const spans = orderedSpans(trace);
+
+  const header = el("div", "obs-detail__header");
+  const titleRow = el("div", "obs-detail__titlerow");
+  const name = el("h4", "obs-detail__name", textOrPlaceholder(trace.operation_name));
+  titleRow.append(name, makeStatusBadge(trace.status));
+  const actions = el("div", "obs-detail__actions");
+  const window_ = computeInvestigationTimeWindow(trace.start_time, trace.end_time);
+  if (onInvestigateTimeWindow && window_) {
+    const investigate = el("button", "btn", "Investigate audit records");
+    investigate.type = "button";
+    investigate.title =
+      "View IRIS audit records within 30 seconds of this trace (assumes the IRIS server clock is close to UTC)";
+    investigate.addEventListener("click", () => onInvestigateTimeWindow(window_));
+    actions.append(investigate);
+  }
+  titleRow.append(actions);
+
+  const meta = el("dl", "obs-meta");
+  meta.append(
+    buildMetaItem("Duration", formatDuration(trace.duration_ms), { mono: true }),
+    buildMetaItem("Started (UTC)", formatUtcIso(trace.start_time), { mono: true, title: textOrPlaceholder(trace.start_time) }),
+    buildMetaItem("Trace ID", buildTraceIdValue(trace.trace_id), { mono: true, title: textOrPlaceholder(trace.trace_id) }),
+  );
+
+  // The trace's own per-stage result summary, exactly as recorded.
+  const results = el("dl", "obs-results");
+  for (const [label, value] of [
+    ["Authorization", trace.authorization_result],
+    ["Confirmation", trace.confirmation_result],
+    ["Execution", trace.execution_result],
+    ["Verification", trace.verification_result],
+  ]) {
+    const item = el("div", "obs-results__item");
+    item.append(el("dt", "", label), el("dd", "", textOrPlaceholder(value).replace(/_/g, " ")));
+    results.append(item);
+  }
+
+  header.append(titleRow, meta, results);
+  dom.detailBody.append(header, buildWaterfall(trace, spans), buildStagesTable(spans), buildRawData(trace));
+}
+
+// --- selection / rendering ---
+
+function selectTrace(traceId) {
+  if (traceId === selectedTraceId) return;
+  selectedTraceId = traceId;
+  markSelectedInList();
+  renderDetail();
+}
+
 /** Re-renders from the already-fetched `allTraces` list using the current
- * time filter values — never triggers a network request. */
+ * time filter and search — never triggers a network request. */
 function applyFilters() {
   const begin = parseFilterInput(dom.filterBegin.value);
   const end = parseFilterInput(dom.filterEnd.value);
-  renderTable(allTraces.filter((trace) => matchesTimeWindow(trace, begin, end)));
-}
+  const query = dom.search.value.trim().toLowerCase();
+  visibleTraces = allTraces.filter((trace) => matchesTimeWindow(trace, begin, end) && matchesSearch(trace, query));
 
-/** A real status distribution over the currently-filtered `traces` list
- * (the same set renderTable() below renders as rows) — no extra fetch, no
- * invented category, and it reflects the active time filter exactly like
- * the table and count label already do. Hidden entirely when there's
- * nothing to show. */
-function renderOverview(traces) {
-  if (!Array.isArray(traces) || traces.length === 0) {
-    dom.overview.hidden = true;
-    return;
-  }
-  dom.overview.hidden = false;
-  const entries = countBy(traces, (t) => textOrPlaceholder(t.status).replace(/_/g, " "));
-  renderStackedBar(dom.overviewViz, entries);
-}
-
-function renderTable(traces) {
-  dom.tableBody.replaceChildren();
-  renderOverview(traces);
-
-  if (!Array.isArray(traces) || traces.length === 0) {
-    dom.tableWrapper.hidden = true;
-    dom.empty.hidden = false;
-    dom.empty.textContent =
-      allTraces.length > 0
-        ? "No traces fall within this time window."
-        : "No execution traces recorded yet. Traces appear here after an operation is attempted (e.g. from the Operations view).";
-    dom.countLabel.textContent = "";
-    return;
+  // Keep the selection when it is still visible; otherwise select the
+  // newest visible trace, so the workspace always shows something real.
+  if (!visibleTraces.some((t) => t.trace_id === selectedTraceId)) {
+    selectedTraceId = visibleTraces.length ? visibleTraces[0].trace_id : null;
   }
 
-  dom.tableWrapper.hidden = false;
-  dom.empty.hidden = true;
-  dom.countLabel.textContent =
-    traces.length === allTraces.length
-      ? `${traces.length} trace${traces.length === 1 ? "" : "s"}`
-      : `Showing ${traces.length} of ${allTraces.length} traces`;
+  renderSummary(visibleTraces);
+  renderList();
+  renderDetail();
 
-  for (const trace of traces) {
-    const isExpanded = expandedTraceIds.has(trace.trace_id);
-
-    const row = document.createElement("tr");
-    if (trace.trace_id === pendingFocusTraceId) row.classList.add("data-table__row--focused");
-    const traceIdText = textOrPlaceholder(trace.trace_id);
-    row.append(
-      makeCell(traceIdText.length > 12 ? `${traceIdText.slice(0, 12)}…` : traceIdText),
-      makeCell(textOrPlaceholder(trace.operation_name)),
-      makeCell(makeStatusBadge(trace.status)),
-      makeCell(formatDuration(trace.duration_ms)),
-      makeCell(formatTimestamp(trace.start_time)),
-    );
-    row.children[0].title = textOrPlaceholder(trace.trace_id);
-
-    const toggleCell = document.createElement("td");
-    toggleCell.className = "data-table__cell";
-    const toggleButton = document.createElement("button");
-    toggleButton.className = "btn";
-    toggleButton.type = "button";
-    toggleButton.textContent = isExpanded ? "Hide" : "Details";
-    toggleButton.addEventListener("click", () => toggleTraceDetail(trace.trace_id));
-    toggleCell.append(toggleButton);
-    row.append(toggleCell);
-
-    dom.tableBody.append(row);
-
-    if (isExpanded) {
-      const detailRow = document.createElement("tr");
-      detailRow.className = "trace-detail-row";
-      const detailCell = document.createElement("td");
-      detailCell.className = "data-table__cell";
-      detailCell.colSpan = 6;
-      detailCell.append(buildTraceDetail(trace));
-      detailRow.append(detailCell);
-      dom.tableBody.append(detailRow);
-    }
-
-    if (trace.trace_id === pendingFocusTraceId) {
-      pendingFocusTraceId = null;
-      row.scrollIntoView({ block: "center" });
+  if (pendingFocusTraceId && visibleTraces.some((t) => t.trace_id === pendingFocusTraceId)) {
+    const target = dom.traceList.querySelector(`.obs-trace[data-trace-id="${CSS.escape(pendingFocusTraceId)}"]`);
+    pendingFocusTraceId = null;
+    if (target) {
+      target.scrollIntoView({ block: "nearest" });
+      target.focus({ preventScroll: true });
     }
   }
 }
@@ -476,7 +640,6 @@ function renderTable(traces) {
 export async function loadExecutionTraces() {
   setLoading(true);
   setErrorBanner(null);
-  setConnectionState("checking", "Checking connection…");
 
   let response;
   try {
@@ -484,43 +647,40 @@ export async function loadExecutionTraces() {
   } catch (err) {
     // ApiError messages are already generic (see api.js) — never a stack
     // trace, header, or credential value.
-    const message =
+    setErrorBanner(
       err instanceof ApiError
         ? "Could not load execution traces. The Command Center backend may be unreachable."
-        : "An unexpected error occurred while loading execution traces.";
-    setConnectionState("error", "Could not reach the backend");
-    setErrorBanner(message);
+        : "An unexpected error occurred while loading execution traces.",
+    );
     allTraces = [];
-    renderTable(null);
+    visibleTraces = [];
+    setUnavailable(true);
+    renderSummary([]);
     setLoading(false);
     return;
   }
 
   const traces = response && Array.isArray(response.traces) ? response.traces : null;
-
   if (traces === null) {
-    setConnectionState("error", "Backend returned no data");
     setErrorBanner("The backend did not return the expected traces list.");
     allTraces = [];
-    renderTable(null);
+    visibleTraces = [];
+    setUnavailable(true);
+    renderSummary([]);
     setLoading(false);
     return;
   }
 
-  setConnectionState("connected", "Connected");
-  setErrorBanner(null);
+  setUnavailable(false);
   allTraces = traces;
   applyFilters();
   setLoading(false);
 }
 
 /**
- * Sets the Begin/End (UTC) filter fields and re-renders from the
- * already-fetched trace list — never fetches anything itself. Called by
- * app.js right before nav.navigateTo("observability"), so the
- * navigation's own view-opened callback performs the one real fetch,
- * after which this filter is naturally re-applied by loadExecutionTraces()
- * -> applyFilters().
+ * Sets the Begin/End (UTC) filter fields — never fetches anything itself.
+ * Called by app.js right before nav.navigateTo("observability"), whose
+ * view-opened load renders the fresh list with this filter applied.
  */
 export function setTimeWindow(begin, end) {
   dom.filterBegin.value = begin;
@@ -528,45 +688,45 @@ export function setTimeWindow(begin, end) {
 }
 
 /**
- * Asks this view to open one trace's existing detail: clears the time
- * filter, expands that trace's detail row, and scrolls to it on the next
- * render. Never fetches anything itself — like setTimeWindow(), it is
- * called right before nav.navigateTo("observability"), whose view-opened
- * load renders the real, freshly fetched trace list.
+ * Asks this view to open one trace: clears the time filter and search,
+ * selects that trace, and scrolls/focuses it in the explorer on the next
+ * render. Never fetches anything itself — called right before
+ * nav.navigateTo("observability"), whose view-opened load renders the real,
+ * freshly fetched trace list.
  */
 export function focusTrace(traceId) {
   if (typeof traceId !== "string" || !traceId) return;
   dom.filterBegin.value = "";
   dom.filterEnd.value = "";
-  expandedTraceIds.add(traceId);
+  dom.search.value = "";
+  selectedTraceId = traceId;
   pendingFocusTraceId = traceId;
 }
 
 /**
- * `onInvestigateTimeWindow`, when provided, is called with
- * `{ begin, end }` (IRIS server local time, formatted for
- * investigation.js's own filters) whenever the operator clicks a trace's
- * "Investigate audit records" button — see app.js for how it's wired to
- * actually switch views.
+ * `onInvestigateTimeWindow`, when provided, is called with `{ begin, end }`
+ * whenever the operator clicks a trace's "Investigate audit records" button
+ * — see app.js for how it switches views.
  */
 export function initObservabilityControls({ onInvestigateTimeWindow: callback } = {}) {
   onInvestigateTimeWindow = typeof callback === "function" ? callback : null;
   dom.refreshButton.addEventListener("click", () => {
     loadExecutionTraces();
   });
-
-  // Filtering is client-side and instant — no network request, so every
-  // input re-renders immediately rather than waiting for a submit/click.
-  dom.filterBegin.addEventListener("input", applyFilters);
-  dom.filterEnd.addEventListener("input", applyFilters);
+  dom.filterBegin.addEventListener("input", () => {
+    if (!loadFailed) applyFilters();
+  });
+  dom.filterEnd.addEventListener("input", () => {
+    if (!loadFailed) applyFilters();
+  });
+  dom.search.addEventListener("input", () => {
+    if (!loadFailed) applyFilters();
+  });
   dom.filterClearButton.addEventListener("click", () => {
     dom.filterBegin.value = "";
     dom.filterEnd.value = "";
-    applyFilters();
+    if (!loadFailed) applyFilters();
   });
-  // Pressing Enter in a filter field would otherwise submit this <form>
-  // and reload the page; filtering already happens live via the "input"
-  // listeners above, so submitting just needs to be a harmless no-op.
   dom.filterForm.addEventListener("submit", (event) => {
     event.preventDefault();
   });

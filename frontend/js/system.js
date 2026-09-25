@@ -29,6 +29,14 @@ const dom = {
   namespacesEmpty: document.getElementById("system-namespaces-empty"),
   privilegesList: document.getElementById("system-privileges-list"),
   privilegesEmpty: document.getElementById("system-privileges-empty"),
+  kpiVersion: document.getElementById("system-kpi-version"),
+  kpiVersionMeta: document.getElementById("system-kpi-version-meta"),
+  kpiApi: document.getElementById("system-kpi-api"),
+  kpiNamespaces: document.getElementById("system-kpi-namespaces"),
+  kpiPrivileges: document.getElementById("system-kpi-privileges"),
+  kpiPrivilegesMeta: document.getElementById("system-kpi-privileges-meta"),
+  namespacesCount: document.getElementById("system-namespaces-count"),
+  privilegesCount: document.getElementById("system-privileges-count"),
 };
 
 function setLoading(isLoading) {
@@ -62,6 +70,53 @@ function clearFields() {
   dom.apiVersion.textContent = PLACEHOLDER;
   dom.systemMode.textContent = PLACEHOLDER;
   dom.username.textContent = PLACEHOLDER;
+  renderOverview(null);
+}
+
+// The release number and build, read out of IRIS's own serverVersion string
+// (e.g. "... 2026.2 (Build 221U) ..."). If the string does not contain them,
+// the full reported string is shown instead — nothing is guessed.
+function parseServerVersion(serverVersion) {
+  if (typeof serverVersion !== "string" || !serverVersion) return null;
+  const release = /\b(\d{4}\.\d+(?:\.\d+)?)\b/.exec(serverVersion);
+  const build = /\(Build ([^)]+)\)/.exec(serverVersion);
+  return { release: release ? release[1] : null, build: build ? build[1] : null };
+}
+
+/** System Overview KPIs and card counts — all from the same GET /info. */
+function renderOverview(info) {
+  if (!info) {
+    for (const node of [dom.kpiVersion, dom.kpiApi, dom.kpiNamespaces, dom.kpiPrivileges]) node.textContent = PLACEHOLDER;
+    dom.kpiVersion.title = "";
+    dom.kpiVersionMeta.textContent = "";
+    dom.kpiPrivilegesMeta.textContent = "";
+    dom.namespacesCount.textContent = "";
+    dom.privilegesCount.textContent = "";
+    return;
+  }
+  const parsed = parseServerVersion(info.serverVersion);
+  dom.kpiVersion.textContent = parsed && parsed.release ? parsed.release : info.serverVersion || PLACEHOLDER;
+  dom.kpiVersion.title = info.serverVersion || "";
+  dom.kpiVersionMeta.textContent = [info.product, parsed && parsed.build ? `Build ${parsed.build}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  dom.kpiApi.textContent = info.apiVersion !== undefined && info.apiVersion !== null ? `v${info.apiVersion}` : PLACEHOLDER;
+
+  const namespaces = Array.isArray(info.namespaces) ? info.namespaces.length : null;
+  dom.kpiNamespaces.textContent = namespaces === null ? PLACEHOLDER : String(namespaces);
+  dom.namespacesCount.textContent = namespaces === null ? "" : String(namespaces);
+
+  const privileges = info.privileges && typeof info.privileges === "object" ? Object.values(info.privileges) : null;
+  if (!privileges) {
+    dom.kpiPrivileges.textContent = PLACEHOLDER;
+    dom.kpiPrivilegesMeta.textContent = "";
+    dom.privilegesCount.textContent = "";
+    return;
+  }
+  const granted = privileges.filter((flag) => Boolean(flag && flag.use)).length;
+  dom.kpiPrivileges.textContent = String(granted);
+  dom.kpiPrivilegesMeta.textContent = `of ${privileges.length} reported`;
+  dom.privilegesCount.textContent = `${granted} of ${privileges.length} granted`;
 }
 
 // DOM nodes are always created via document.createElement + .textContent
@@ -106,6 +161,8 @@ function renderPrivileges(privileges) {
     valueEl.className = `privilege-list__value privilege-list__value--${held ? "granted" : "denied"}`;
     valueEl.textContent = held ? "Granted" : "Not granted";
 
+    item.dataset.held = String(held);
+    item.title = `${name}: ${held ? "granted" : "not granted"} for this session`;
     item.append(nameEl, valueEl);
     dom.privilegesList.append(item);
   }
@@ -174,6 +231,7 @@ export async function loadSystemInfo() {
 
   renderNamespaces(info.namespaces);
   renderPrivileges(info.privileges);
+  renderOverview(info);
 
   setLoading(false);
 }

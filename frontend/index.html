@@ -357,7 +357,33 @@
             <p class="info-panel__meta" id="system-connection-detail"></p>
           </div>
 
-          <div class="info-grid">
+          <section class="system-overview" aria-labelledby="system-overview-title">
+            <h3 class="system-overview__title" id="system-overview-title">System Overview</h3>
+            <div class="stat-grid system-kpis" id="system-kpis">
+              <article class="stat-card" data-card="system-version">
+                <p class="stat-card__label">Version</p>
+                <p class="stat-card__value" id="system-kpi-version">&mdash;</p>
+                <p class="stat-card__meta" id="system-kpi-version-meta"></p>
+              </article>
+              <article class="stat-card" data-card="system-api">
+                <p class="stat-card__label">API Version</p>
+                <p class="stat-card__value" id="system-kpi-api">&mdash;</p>
+                <p class="stat-card__meta">IRIS Admin REST API</p>
+              </article>
+              <article class="stat-card" data-card="system-namespaces">
+                <p class="stat-card__label">Namespaces</p>
+                <p class="stat-card__value" id="system-kpi-namespaces">&mdash;</p>
+                <p class="stat-card__meta">visible to this session</p>
+              </article>
+              <article class="stat-card" data-card="system-privileges">
+                <p class="stat-card__label">Privileges Granted</p>
+                <p class="stat-card__value" id="system-kpi-privileges">&mdash;</p>
+                <p class="stat-card__meta" id="system-kpi-privileges-meta"></p>
+              </article>
+            </div>
+          </section>
+
+          <div class="info-grid system-grid">
             <section class="info-card" aria-labelledby="system-info-title">
               <h3 class="info-card__title" id="system-info-title">IRIS Information</h3>
               <dl class="info-list">
@@ -385,13 +411,13 @@
             </section>
 
             <section class="info-card" aria-labelledby="system-namespaces-title">
-              <h3 class="info-card__title" id="system-namespaces-title">Namespaces</h3>
+              <h3 class="info-card__title" id="system-namespaces-title">Namespaces <span class="system-count" id="system-namespaces-count"></span></h3>
               <ul class="tag-list" id="system-namespaces-list"></ul>
               <p class="info-card__empty" id="system-namespaces-empty" hidden>No namespaces reported.</p>
             </section>
 
             <section class="info-card info-card--wide" aria-labelledby="system-privileges-title">
-              <h3 class="info-card__title" id="system-privileges-title">Session Privileges</h3>
+              <h3 class="info-card__title" id="system-privileges-title">Session Privileges <span class="system-count" id="system-privileges-count"></span></h3>
               <p class="info-card__hint">
                 Admin privileges held by the backend&rsquo;s current IRIS session &mdash; informational only, not a credential.
               </p>
@@ -2227,27 +2253,113 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="ai-assistant-title">AI Assistant</h2>
-              <p class="view__subtitle">Ask about the connected IRIS instance&rsquo;s status, processes, databases, web apps, tasks, or the journal purge-archived setting.</p>
+              <p class="view__subtitle view__subtitle--wide">Ask about the connected IRIS instance using live data from the system.</p>
             </div>
+            <button class="btn btn--primary" type="button" id="ai-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
           </div>
 
-          <div class="chat">
-            <div class="chat__messages" id="ai-chat-messages" aria-live="polite">
-              <div class="chat__message chat__message--assistant">
-                <p class="chat__message-text">Hi! I can answer questions about this IRIS instance using live data &mdash; try a suggestion below, or ask about system status, processes, databases, web apps, tasks, or the journal purge-archived setting.</p>
+          <div class="ai-context" id="ai-context" aria-label="Connected instance summary" aria-live="polite">
+            <div class="ai-context__item ai-context__item--status">
+              <span class="ai-context__dot" id="ai-context-dot" data-state="checking" aria-hidden="true"></span>
+              <div><p class="ai-context__value" id="ai-context-status">Checking&hellip;</p><p class="ai-context__label" id="ai-context-user"></p></div>
+            </div>
+            <div class="ai-context__item"><div><p class="ai-context__label">IRIS Version</p><p class="ai-context__value" id="ai-context-version">&mdash;</p><p class="ai-context__meta" id="ai-context-build"></p></div></div>
+            <div class="ai-context__item"><div><p class="ai-context__label">Namespaces</p><p class="ai-context__value" id="ai-context-namespaces">&mdash;</p></div></div>
+            <div class="ai-context__item"><div><p class="ai-context__label">Databases</p><p class="ai-context__value" id="ai-context-databases">&mdash;</p><p class="ai-context__meta" id="ai-context-databases-meta"></p></div></div>
+            <div class="ai-context__item"><div><p class="ai-context__label">Processes</p><p class="ai-context__value" id="ai-context-processes">&mdash;</p></div></div>
+            <div class="ai-context__item"><div><p class="ai-context__label">Web Apps</p><p class="ai-context__value" id="ai-context-webapps">&mdash;</p><p class="ai-context__meta" id="ai-context-webapps-meta"></p></div></div>
+            <div class="ai-context__item"><div><p class="ai-context__label">Tasks</p><p class="ai-context__value" id="ai-context-tasks">&mdash;</p><p class="ai-context__meta">defined</p></div></div>
+          </div>
+
+          <div class="ai-workspace">
+            <div class="ai-main">
+              <div class="chat">
+                <div class="chat__messages ai-messages" id="ai-chat-messages" aria-live="polite">
+                  <div class="chat__message chat__message--assistant">
+                    <p class="chat__message-text">Hi! I answer questions about this IRIS instance from live, read-only data &mdash; try a Quick Action or a suggested question, or ask about system status, processes, databases, web apps, tasks, privileges, recent operations or the journal.</p>
+                  </div>
+                </div>
+
+                <form class="chat__composer" id="ai-chat-composer">
+                  <textarea class="chat__input" id="ai-chat-input" rows="1" placeholder="Ask about your IRIS instance&hellip;" aria-label="Message"></textarea>
+                  <button class="btn btn--primary" type="submit" id="ai-chat-send-button">Send</button>
+                </form>
+
+                <div class="chat__suggestions" id="ai-chat-suggestions">
+                  <button class="chat__suggestion" type="button" data-prompt="Show me the current IRIS system status">Show me the current IRIS system status</button>
+                  <button class="chat__suggestion" type="button" data-prompt="How many processes are running?">How many processes are running?</button>
+                  <button class="chat__suggestion" type="button" data-prompt="Show database status">Show database status</button>
+                  <button class="chat__suggestion" type="button" data-prompt="List web applications">List web applications</button>
+                  <button class="chat__suggestion" type="button" data-prompt="Show recent operations">Show recent operations</button>
+                  <button class="chat__suggestion" type="button" data-prompt="What are my privileges?">What are my privileges?</button>
+                </div>
+                <p class="ai-note"><span aria-hidden="true">&#9432;</span> The assistant answers from live data of the connected instance. It is read-only and never executes changes &mdash; changes go through the Operations page.</p>
               </div>
             </div>
 
-            <div class="chat__suggestions" id="ai-chat-suggestions">
-              <button class="chat__suggestion" type="button" data-prompt="Show me the current IRIS system status">Show me the current IRIS system status</button>
-              <button class="chat__suggestion" type="button" data-prompt="How many processes are running?">How many processes are running?</button>
-              <button class="chat__suggestion" type="button" data-prompt="Show database status">Show database status</button>
-            </div>
+            <aside class="ai-side" aria-label="Quick actions and suggested questions">
+              <section class="ai-panel">
+                <h3 class="ai-panel__title">Quick Actions</h3>
+                <p class="ai-panel__subtitle">Ask about common IRIS information.</p>
+                <div class="ai-quick" id="ai-quick-actions">
+                  <button class="ai-quick__btn" type="button" data-prompt="Show me the current IRIS system status"><span class="ai-quick__icon" aria-hidden="true">&#9881;</span>System Status</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="How many processes are running?"><span class="ai-quick__icon" aria-hidden="true">&#9646;&#9646;</span>Processes</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="Show database status"><span class="ai-quick__icon" aria-hidden="true">&#9921;</span>Databases</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="List web applications"><span class="ai-quick__icon" aria-hidden="true">&#127760;</span>Web Applications</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="Show tasks"><span class="ai-quick__icon" aria-hidden="true">&#128197;</span>Tasks</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="Show recent operations"><span class="ai-quick__icon" aria-hidden="true">&#9776;</span>Recent Operations</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="What are my privileges?"><span class="ai-quick__icon" aria-hidden="true">&#128737;</span>Security</button>
+                  <button class="ai-quick__btn" type="button" data-prompt="Show journal status"><span class="ai-quick__icon" aria-hidden="true">&#9998;</span>Journal</button>
+                </div>
+              </section>
 
-            <form class="chat__composer" id="ai-chat-composer">
-              <textarea class="chat__input" id="ai-chat-input" rows="1" placeholder="Ask about your IRIS instance&hellip;" aria-label="Message"></textarea>
-              <button class="btn btn--primary" type="submit" id="ai-chat-send-button">Send</button>
-            </form>
+              <section class="ai-panel">
+                <h3 class="ai-panel__title">Suggested Questions</h3>
+                <p class="ai-panel__subtitle">Click a question or type your own.</p>
+                <div class="ai-questions" id="ai-suggested-questions">
+                  <details class="ai-group" open>
+                    <summary>System</summary>
+                    <button type="button" data-prompt="Is IRIS healthy?">Is IRIS healthy?</button>
+                    <button type="button" data-prompt="What is the IRIS version?">What is the IRIS version?</button>
+                    <button type="button" data-prompt="How many namespaces are there?">How many namespaces are there?</button>
+                  </details>
+                  <details class="ai-group">
+                    <summary>Processes</summary>
+                    <button type="button" data-prompt="How many processes are running?">How many processes are running?</button>
+                    <button type="button" data-prompt="Show the top processes by CPU time">Show the top processes by CPU time</button>
+                    <button type="button" data-prompt="Which namespace has the most processes?">Which namespace has the most processes?</button>
+                  </details>
+                  <details class="ai-group">
+                    <summary>Databases</summary>
+                    <button type="button" data-prompt="Show database status">Show database status</button>
+                    <button type="button" data-prompt="Which databases are largest?">Which databases are largest?</button>
+                  </details>
+                  <details class="ai-group">
+                    <summary>Web Applications</summary>
+                    <button type="button" data-prompt="List web applications">List web applications</button>
+                    <button type="button" data-prompt="Which web applications are disabled?">Which web applications are disabled?</button>
+                  </details>
+                  <details class="ai-group">
+                    <summary>Tasks</summary>
+                    <button type="button" data-prompt="Show tasks">Show tasks</button>
+                    <button type="button" data-prompt="Which tasks are suspended?">Which tasks are suspended?</button>
+                  </details>
+                  <details class="ai-group">
+                    <summary>Security</summary>
+                    <button type="button" data-prompt="What are my privileges?">What are my privileges?</button>
+                    <button type="button" data-prompt="Show journal status">Show journal status</button>
+                  </details>
+                  <details class="ai-group">
+                    <summary>Recent Operations</summary>
+                    <button type="button" data-prompt="Show recent operations">Show recent operations</button>
+                    <button type="button" data-prompt="Did any operation fail recently?">Did any operation fail recently?</button>
+                  </details>
+                </div>
+              </section>
+            </aside>
           </div>
         </section>
 
@@ -2255,7 +2367,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="observability-title">Observability</h2>
-              <p class="view__subtitle">Execution traces for every operation attempt, recorded in-memory by the authorization and execution framework.</p>
+              <p class="view__subtitle view__subtitle--wide">Execution traces for every operation attempt, recorded by the authorization and execution framework.</p>
             </div>
             <button class="btn btn--primary" type="button" id="observability-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -2268,58 +2380,67 @@
             <span id="observability-error-banner-text"></span>
           </div>
 
+          <div class="obs-summary" aria-label="Trace summary">
+            <div class="obs-stat">
+              <span class="obs-stat__icon obs-stat__icon--total" aria-hidden="true">&#9776;</span>
+              <div><p class="obs-stat__value" id="observability-stat-total">&mdash;</p><p class="obs-stat__label">Total Traces</p></div>
+            </div>
+            <div class="obs-stat">
+              <span class="obs-stat__icon obs-stat__icon--ok" aria-hidden="true">&#10003;</span>
+              <div><p class="obs-stat__value" id="observability-stat-success">&mdash;</p><p class="obs-stat__label">Successful</p></div>
+            </div>
+            <div class="obs-stat">
+              <span class="obs-stat__icon obs-stat__icon--dry" aria-hidden="true">&#9675;</span>
+              <div><p class="obs-stat__value" id="observability-stat-dryrun">&mdash;</p><p class="obs-stat__label">Dry Run</p></div>
+            </div>
+            <div class="obs-stat">
+              <span class="obs-stat__icon obs-stat__icon--other" aria-hidden="true">&#10005;</span>
+              <div><p class="obs-stat__value" id="observability-stat-other">&mdash;</p><p class="obs-stat__label" id="observability-stat-other-label">Other Outcomes</p></div>
+            </div>
+            <form class="obs-timefilter" id="observability-filter-form" aria-label="Time range (UTC)">
+              <span class="obs-timefilter__label">Time Range (UTC) &middot; start &ndash; end</span>
+              <label class="visually-hidden" for="observability-filter-begin">Begin (UTC, YYYY-MM-DD HH:MM:SS)</label>
+              <input type="text" id="observability-filter-begin" placeholder="YYYY-MM-DD HH:MM:SS" title="Start (UTC)" autocomplete="off" />
+              <label class="visually-hidden" for="observability-filter-end">End (UTC, YYYY-MM-DD HH:MM:SS)</label>
+              <input type="text" id="observability-filter-end" placeholder="YYYY-MM-DD HH:MM:SS" title="End (UTC)" autocomplete="off" />
+              <button class="btn" type="button" id="observability-filter-clear-button">Clear</button>
+            </form>
+          </div>
+
           <div class="loading-state" id="observability-loading-state" hidden>
             <span class="spinner" aria-hidden="true"></span>
             <span>Loading execution traces&hellip;</span>
           </div>
 
-          <div class="info-panel">
-            <div class="connection-status" id="observability-connection-status" data-state="checking">
-              <span class="connection-status__dot" aria-hidden="true"></span>
-              <span class="connection-status__label" id="observability-connection-status-label">Checking connection&hellip;</span>
-            </div>
-            <p class="info-panel__meta" id="observability-count"></p>
+          <div class="obs-unavailable" id="observability-unavailable" hidden>
+            <p class="obs-unavailable__title">Traces unavailable</p>
+            <p class="obs-unavailable__text">The Command Center backend could not be reached, so the trace list cannot be shown. This is not the same as having no traces &mdash; try Refresh.</p>
           </div>
 
-          <section class="info-card info-card--wide" aria-labelledby="observability-filters-title">
-            <h3 class="info-card__title" id="observability-filters-title">Filter by Time (UTC)</h3>
-            <p class="info-card__hint">Optional. Leaving both fields blank shows every recorded trace. Filtering happens instantly, without re-fetching.</p>
-            <form class="filter-form" id="observability-filter-form">
-              <div class="filter-field">
-                <label for="observability-filter-begin">Begin (UTC, YYYY-MM-DD HH:MM:SS)</label>
-                <input type="text" id="observability-filter-begin" placeholder="2026-09-19 00:00:00" autocomplete="off" />
+          <div class="obs-workspace" id="observability-workspace">
+            <section class="obs-panel obs-explorer" aria-labelledby="observability-explorer-title">
+              <header class="obs-panel__head">
+                <div>
+                  <h3 class="obs-panel__title" id="observability-explorer-title">Trace Explorer</h3>
+                  <p class="obs-panel__subtitle" id="observability-count">Select a trace to view its execution details.</p>
+                </div>
+              </header>
+              <label class="visually-hidden" for="observability-search">Search operations or trace ID</label>
+              <input class="obs-search" type="search" id="observability-search" placeholder="Search operations or trace ID&hellip;" autocomplete="off" />
+              <ul class="obs-trace-list" id="observability-trace-list" aria-label="Execution traces"></ul>
+              <div class="obs-empty" id="observability-empty" hidden>
+                <p class="obs-empty__title">No execution traces</p>
+                <p class="obs-empty__text" id="observability-empty-text">No operation attempts have been recorded yet.</p>
               </div>
-              <div class="filter-field">
-                <label for="observability-filter-end">End (UTC, YYYY-MM-DD HH:MM:SS)</label>
-                <input type="text" id="observability-filter-end" placeholder="2026-09-19 23:59:59" autocomplete="off" />
-              </div>
-              <div class="filter-field filter-form__actions">
-                <button class="btn" type="button" id="observability-filter-clear-button">Clear</button>
-              </div>
-            </form>
-          </section>
+            </section>
 
-          <div class="view-overview" id="observability-overview" hidden>
-            <p class="stat-card__label">Outcome Distribution</p>
-            <div id="observability-overview-viz"></div>
-          </div>
-
-          <p class="empty-state" id="observability-empty" hidden>No execution traces recorded yet. Traces appear here after an operation is attempted (e.g. from the Operations view).</p>
-
-          <div class="table-wrapper" id="observability-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Trace ID</th>
-                  <th scope="col">Operation</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Duration</th>
-                  <th scope="col">Started</th>
-                  <th scope="col"></th>
-                </tr>
-              </thead>
-              <tbody id="observability-table-body"></tbody>
-            </table>
+            <section class="obs-panel obs-detail" id="observability-detail" aria-labelledby="observability-detail-title" aria-live="polite">
+              <header class="obs-panel__head">
+                <h3 class="obs-panel__title" id="observability-detail-title">Trace Details</h3>
+              </header>
+              <p class="obs-detail__placeholder" id="observability-detail-empty">Select a trace to view its execution details.</p>
+              <div id="observability-detail-body" hidden></div>
+            </section>
           </div>
         </section>
 
