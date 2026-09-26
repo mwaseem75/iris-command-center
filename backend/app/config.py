@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # /api/iris/knowledge/search then answers from IRIS. ---
     enable_knowledge_search: bool = False
 
+    # --- Optional one-time automatic Demo Activity (see
+    # app/execution/demo_autorun.py). Off by default. When enabled, the
+    # existing Demo Activity rehearsal runs once in the background after
+    # startup; completion is marked in iris_namespace so it never repeats. ---
+    auto_run_demo_activity: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

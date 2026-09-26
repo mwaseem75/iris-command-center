@@ -28,6 +28,11 @@ Knowledge search (app/knowledge/store.py): off by default
 (Settings.enable_knowledge_search). When enabled, startup creates
 CommandCenter.Knowledge if missing and reindexes the corpus into it
 (best-effort; failures are retried on the first search).
+
+Automatic Demo Activity (app/execution/demo_autorun.py): off by default
+(Settings.auto_run_demo_activity). When enabled, the existing Demo Activity
+rehearsal runs once in the background after startup; a marker in the USER
+database keeps it from ever repeating once it has completed.
 """
 
 import asyncio
@@ -40,6 +45,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.embedded_python.diagnostics import EmbeddedPythonDiagnostics
+from app.execution.demo_autorun import DemoAutoRunMarker, StartupDemoActivity
 from app.iris_client.client import IRISClient
 from app.knowledge.store import IRISKnowledgeStore, KnowledgeStoreUnavailableError
 from app.observability import store as observability_store
@@ -95,9 +101,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning("Knowledge search enabled, but IRIS indexing failed at startup; will retry on first search.")
     app.state.knowledge_store = knowledge_store
 
+    # One-time automatic Demo Activity: runs in the background (never blocks
+    # startup), waits for IRIS itself, and is stopped before the IRIS client
+    # it uses is closed.
+    demo_activity: StartupDemoActivity | None = None
+    if settings.auto_run_demo_activity:
+        demo_activity = StartupDemoActivity(app.state.iris_client, DemoAutoRunMarker(settings))
+        demo_activity.start()
+
     try:
         yield
     finally:
+        if demo_activity is not None:
+            await demo_activity.stop()
         await app.state.iris_client.aclose()
         app.state.python_diagnostics.close()
         if knowledge_store is not None:

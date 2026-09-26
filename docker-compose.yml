@@ -68,6 +68,9 @@ services:
       IRIS_SUPERSERVER_PORT: "1972"
       ENABLE_KNOWLEDGE_SEARCH: "true"
       PERSIST_TRACES_TO_IRIS: "true"
+      # Run the existing Demo Activity rehearsal once, on the first successful
+      # startup (marked done in the USER database; never repeats after that).
+      AUTO_RUN_DEMO_ACTIVITY: "true"
 
   frontend:
     image: nginx:alpine
