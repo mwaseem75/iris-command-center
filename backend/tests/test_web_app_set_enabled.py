@@ -1,12 +1,8 @@
-"""Tests for web_app.set_enabled. Every test uses a fake/mock IRISClient —
-no real network call is made, and no test (or anything else in this
-project) performs a real PUT /v2/web-app.
+"""Tests for web_app.set_enabled, using a fake IRIS client.
 
-The fake IRIS keeps a tiny amount of state so a PUT is observable by the
-verification reads, mirroring what IRIS's own implementation does (see
-app/execution/web_app_set_enabled_handler.py's docstring): the PUT changes
-only Enabled. List entries are real GET /v2/web-apps entries captured from
-icc-iris-dev.
+The fake keeps a little state so the verify reads see the PUT, and like
+the real thing the PUT only changes Enabled. List entries are copied from
+a real GET /v2/web-apps.
 """
 
 from typing import Any
@@ -29,7 +25,7 @@ from app.observability.store import clear_traces, list_traces
 _OPERATION_NAME = "web_app.set_enabled"
 _ENVELOPE = {"status": {"errors": [], "summary": ""}, "console": []}
 
-# Real GET /v2/web-apps entries (subset) from icc-iris-dev.
+# Real GET /v2/web-apps entries (a subset).
 _LIVE_ENTRIES: list[dict[str, Any]] = [
     {"Name": "/api/admin", "Namespace": "%SYS", "NamespaceDefault": False, "Enabled": True,
      "Type": "CSP", "Resource": "", "AuthenticationMethods": ["Password"],
@@ -52,8 +48,7 @@ _PRIVILEGES = frozenset({"Manage", "Secure"})
 
 
 class FakeIris:
-    """Answers the handler's reads from `entries`; a PUT changes only the
-    named app's Enabled, like IRIS's MergeJsonAndProperties()."""
+    """Answers reads from `entries`; a PUT only changes that app's Enabled."""
 
     def __init__(self, entries: list[dict[str, Any]] | None = None):
         self.entries = [dict(e) for e in (entries or _LIVE_ENTRIES)]
@@ -115,7 +110,7 @@ def _context(
     )
 
 
-# --- authorization / confirmation (the executor never reaches the handler) ---
+# --- authorization / confirmation (handler never reached) ---
 
 
 @pytest.mark.asyncio
@@ -140,8 +135,7 @@ async def test_no_confirmation_blocks_before_any_iris_call(executor: OperationEx
 async def test_manage_without_secure_is_rejected_before_any_iris_call(
     executor: OperationExecutor, iris: FakeIris
 ) -> None:
-    """IRIS enforces %Admin_Secure for PUT /v2/web-app — without it the
-    handler refuses rather than letting IRIS 403 mid-execution."""
+    """Without %Admin_Secure the handler refuses up front instead of getting a 403."""
     result = await executor.execute(_request(), _context(privileges=frozenset({"Manage"})))
 
     assert result.status is OperationResultStatus.EXECUTION_FAILED
@@ -176,7 +170,7 @@ async def test_dry_run_previews_exact_partial_request_without_writing(
     assert iris._entry("/csp/user")["Enabled"] is True
 
 
-# --- hard denies and validation (never a write) ---
+# --- refusals and validation (no write) ---
 
 
 @pytest.mark.parametrize("name", ["/api/admin", "/API/Admin/", "/api/mgmnt", "/api/mgmnt/"])
@@ -194,8 +188,9 @@ async def test_command_center_dependencies_are_hard_denied(
 
 @pytest.mark.asyncio
 async def test_system_type_app_is_hard_denied(executor: OperationExecutor, iris: FakeIris) -> None:
-    """IRIS's PUT always resets Type to plain CSP, which would clear the
-    System flag of a "System,CSP" app such as the Management Portal."""
+    """The PUT always resets Type to CSP, which would drop the System flag of
+    an app like the Management Portal.
+    """
     result = await executor.execute(_request(name="/csp/sys"), _context())
 
     assert result.status is OperationResultStatus.EXECUTION_FAILED

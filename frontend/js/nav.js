@@ -1,17 +1,11 @@
-// Minimal client-side view switching. No URL/hash routing, no framework —
-// each nav button's data-view attribute is matched against a <section>
-// carrying the same data-view attribute; exactly one view is shown at a
-// time. This is the first navigation logic in the app (Step 1 had only
-// one functional view), so there is no prior convention to preserve
-// beyond the existing `.nav-item`/`.view`/`disabled` markup it reads.
+// Simple page switching, no routing. Each nav button's data-view matches a
+// <section data-view="..."> and only one is shown at a time.
 
 const NAV_SELECTOR = ".nav-item[data-view]";
 const VIEW_SELECTOR = ".view[data-view]";
 
-// Set once by initNavigation() so navigateTo() (used by cross-view links,
-// e.g. Observability <-> Investigation) can trigger the exact same
-// view-opened callback a real nav click would — a programmatic click,
-// not a second, parallel navigation mechanism.
+// Saved by initNavigation() so navigateTo() can run the same callback as a
+// real nav click.
 let activeOnNavigate = null;
 
 function showView(name) {
@@ -30,11 +24,8 @@ function showView(name) {
 }
 
 /**
- * Wires every ENABLED nav button to switch views on click and calls
- * `onNavigate(viewName)` afterward. Still-`disabled` items (Processes,
- * Databases, ...) are left exactly as index.html already has them —
- * this never attaches a handler to a disabled button, so they remain
- * inert placeholders with no behavior change.
+ * Hook up every enabled nav button to switch pages and call
+ * `onNavigate(viewName)`. Disabled buttons are left alone.
  */
 export function initNavigation(onNavigate) {
   activeOnNavigate = typeof onNavigate === "function" ? onNavigate : null;
@@ -47,13 +38,9 @@ export function initNavigation(onNavigate) {
 }
 
 /**
- * Switches to `viewName` exactly as clicking its nav button would —
- * updates the visible section/active nav state and invokes the same
- * onNavigate(viewName) callback passed to initNavigation(). Exists so one
- * view can send the operator to another already-loaded view (e.g.
- * Observability's "Investigate around this time" cross-link) without
- * duplicating nav.js's own view-switching logic or introducing URL
- * routing this app deliberately doesn't have.
+ * Switch to `viewName` as if its nav button was clicked (same onNavigate
+ * callback). Used for links between pages, e.g. Observability's
+ * "Investigate around this time".
  */
 export function navigateTo(viewName) {
   showView(viewName);

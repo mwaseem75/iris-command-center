@@ -1,23 +1,16 @@
-// Demo Activity: the UI for the backend's controlled rehearsal
-// (POST /api/iris/demo/rehearsal, backend/app/execution/demo_rehearsal.py).
+// Demo Activity: UI for POST /api/iris/demo/rehearsal.
 //
-// The backend runs existing, registered operations through the existing
-// authorization -> confirmation -> execution -> verification framework and
-// restores every temporary change itself. This file only:
-//   1. opens a drawer that explains what will happen (opening never runs
-//      anything, and nothing runs on page load),
-//   2. sends `confirmed: true` ONLY from the drawer's own Confirm & Run
-//      button click handler,
-//   3. renders the backend's own step results — nothing is invented, and
-//      no trace or activity data is created here — and
-//   4. asks the caller (app.js) to refresh the views that read the real
-//      traces afterwards.
-// It is not a registered operation and never touches the operation
-// registry.
+// The backend runs real operations through the normal framework and puts
+// everything back itself. This file:
+// 1. opens a panel explaining what will happen (nothing runs on open or on
+//    page load),
+// 2. sends `confirmed: true` only from the panel's Confirm & Run button,
+// 3. shows the step results the backend returns, and
+// 4. asks app.js to refresh the pages that show traces.
 
 import { IrisApi, ApiError } from "./api.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   backdrop: document.getElementById("demo-activity-backdrop"),
@@ -51,7 +44,7 @@ const STEP_BADGE = {
   failed: "status-badge--error",
 };
 
-// Friendly labels for the backend's own step ids (unknown ids are shown as-is).
+// Labels for the backend's step ids (unknown ids are shown as-is).
 const STEP_LABEL = {
   "journal.read": "Read journal setting",
   "journal.change": "Change journal setting",
@@ -101,9 +94,9 @@ function showStage(stage) {
   dom.confirmButton.disabled = busy;
 }
 
-/** Opens the drawer at its explanation stage. Never sends a request. */
+/** Open the panel at the explanation step. Doesn't send anything. */
 export function openDemoActivity() {
-  if (running) return; // a run in progress keeps showing its own stage
+  if (running) return;  // keep showing a run that's in progress
   showStage("intro");
   dom.backdrop.hidden = false;
   dom.drawer.hidden = false;
@@ -111,7 +104,7 @@ export function openDemoActivity() {
 }
 
 function closeDemoActivity() {
-  if (running) return; // never hide an in-flight rehearsal's outcome
+  if (running) return;  // don't hide the result of a running rehearsal
   dom.backdrop.hidden = true;
   dom.drawer.hidden = true;
 }
@@ -173,9 +166,8 @@ function renderResult(result) {
 }
 
 /**
- * The ONLY place that calls IrisApi.runDemoRehearsal — reachable only via
- * the two Confirm & Run buttons' click handlers below, never on load.
- * `scenario` picks the standard rehearsal or the Issue Resolution Rehearsal.
+ * Only called from the two Confirm & Run buttons. `scenario` is the
+ * standard rehearsal or the Issue Resolution Rehearsal.
  */
 async function runConfirmed(scenario = "standard") {
   if (running) return;
@@ -195,16 +187,14 @@ async function runConfirmed(scenario = "standard") {
           : "An unexpected error occurred while running the rehearsal.";
     showStage("error");
   } finally {
-    // Whatever happened, the real traces may have changed — let the views
-    // that read them refresh from the backend.
+    // Traces may have changed either way, so let those pages refresh.
     if (onCompleted) onCompleted();
   }
 }
 
 /**
- * `onCompleted()` is called after every attempt (success or not) so the
- * caller can refresh the views that read real traces. `onOpenTrace(id)`
- * opens a trace in the existing Observability detail view.
+ * `onCompleted()` runs after every attempt so the caller can refresh
+ * traces. `onOpenTrace(id)` opens a trace in Observability.
  */
 export function initDemoActivity({ onCompleted: completed, onOpenTrace: openTrace } = {}) {
   onCompleted = typeof completed === "function" ? completed : null;

@@ -1,10 +1,4 @@
-"""Tests for the namespace.create operation — this project's first
-Namespace mutation. ALL tests here use a fake/mock IRISClient (an
-AsyncMock with .get/.put/.post_async_task/.wait_for_async_task), exactly
-like test_journal_purge_archived.py. No test in this file makes, or could
-make, a real network call, and no test performs a real namespace creation
-— there is no real IRISClient constructed anywhere in this file.
-"""
+"""Tests for namespace.create. Everything runs against a mocked IRISClient."""
 
 from typing import Any
 from unittest.mock import AsyncMock
@@ -30,9 +24,7 @@ _OPERATION_NAME = "namespace.create"
 
 
 def _namespaces_body(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    """A real-shaped GET /v2/namespaces envelope (matches
-    docs/api-capability-matrix.md's verified response shape) listing
-    whichever namespaces a test needs to already exist."""
+    """GET /v2/namespaces response listing the given namespaces."""
     return {
         "status": {"errors": [], "summary": ""},
         "console": [],
@@ -52,8 +44,7 @@ def _namespaces_body(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _databases_body(names: list[str]) -> dict[str, Any]:
-    """A real-shaped GET /v2/databases envelope listing whichever
-    databases a test needs to already exist."""
+    """GET /v2/databases response listing the given databases."""
     return {
         "status": {"errors": [], "summary": ""},
         "console": [],
@@ -81,11 +72,9 @@ _DEFAULT_EXISTING_DATABASES = _databases_body(["USER", "IRISTEMP", "IRISLIB", "I
 
 @pytest.fixture
 def fake_iris_client() -> AsyncMock:
-    """A fake client whose GET reports two pre-existing namespaces
-    (%SYS, USER) and four pre-existing databases, whose PUT succeeds with
-    the documented (Globals/Routines/TempGlobals) response shape, and
-    whose post_async_task/wait_for_async_task (the enable-interop path)
-    succeed by default — unless a test overrides any of these."""
+    """Fake client: GET lists %SYS and USER plus four databases; PUT and the
+    enable-interop task succeed. Tests override as needed.
+    """
     client = AsyncMock()
     client.get.side_effect = [_DEFAULT_EXISTING_NAMESPACES, _DEFAULT_EXISTING_DATABASES]
     client.put.return_value = {
@@ -212,8 +201,8 @@ async def test_confirmation_and_dry_run_never_calls_put_or_enable_interop(
 async def test_confirmation_and_execution_calls_put_with_correct_body(
     fake_iris_client: AsyncMock,
 ) -> None:
-    # GET is called three times by a real execution: namespaces + databases
-    # (validation), then namespaces again (post-action verification).
+    # A real run does three GETs: namespaces + databases to validate, then
+    # namespaces again to verify.
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_NAMESPACES,
         _DEFAULT_EXISTING_DATABASES,
@@ -237,7 +226,7 @@ async def test_confirmation_and_execution_calls_put_with_correct_body(
     fake_iris_client.put.assert_awaited_once_with(
         "/v2/namespace?name=NEWAPP", json={"Globals": "USER", "Routines": "USER"}
     )
-    fake_iris_client.post_async_task.assert_not_awaited()  # Interop defaulted to False
+    fake_iris_client.post_async_task.assert_not_awaited()  # Interop defaults to False
 
 
 @pytest.mark.asyncio
@@ -296,20 +285,16 @@ async def test_verification_succeeds_when_namespace_appears_with_matching_fields
 async def test_verification_fails_when_namespace_not_found_after_creation(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """Genuinely absent across every retry attempt — the bounded-retry
-    policy must not turn this into a false success. One GET per attempt:
-    1 immediate + 3 retries (see _VERIFY_RETRY_DELAYS_SECONDS) = 4 total,
-    all still missing NEWAPP."""
+    """NEWAPP missing on every retry (1 + 3 = 4 GETs) must fail, not pass."""
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_NAMESPACES,
         _DEFAULT_EXISTING_DATABASES,
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 1 — still absent
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 2 (1st retry) — still absent
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 3 (2nd retry) — still absent
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 4 (3rd retry) — still absent
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 1: missing
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 2: missing
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 3: missing
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 4: missing
     ]
-    # Zero delays: exercises the exact same retry COUNT/logic as production
-    # without the test actually sleeping ~1.7 real seconds.
+    # Zero delays so the test doesn't actually sleep; the retry count is the same.
     handler = NamespaceCreateHandler(fake_iris_client, verify_retry_delays_seconds=(0.0, 0.0, 0.0))
     executor = OperationExecutor({_OPERATION_NAME: handler})
 
@@ -323,9 +308,7 @@ async def test_verification_fails_when_namespace_not_found_after_creation(
     assert result.verification is not None
     assert result.verification.status is PostActionVerificationStatus.VERIFICATION_FAILED
     assert "4 attempts" in result.verification.detail
-    # Exactly 4 GET /v2/namespaces calls during verification (plus the 2
-    # from _validate() during execute()) — never more than the bounded
-    # policy allows.
+    # 2 GETs from _validate() + 4 from verify, no more.
     assert fake_iris_client.get.await_count == 6
 
 
@@ -355,14 +338,9 @@ async def test_verification_fails_when_fields_do_not_match_request(
 async def test_verification_succeeds_when_iris_returns_a_different_casing(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """Regression test for a live bug: creating Name="tttt" against a real
-    IRIS instance (icc-iris-dev) resulted in IRIS storing and returning
-    the namespace as "TTTT" — confirmed via a direct, independent GET
-    /v2/namespaces call through this project's own authenticated
-    IRISClient. verify()'s original case-sensitive `==` comparison
-    reported this genuinely-successful creation as VERIFICATION_FAILED.
-    Namespace names are case-insensitive IRIS identifiers, so this must
-    verify successfully."""
+    """IRIS stores "tttt" as "TTTT" (seen on a real instance). verify() used to
+    compare case-sensitively and fail here; it should pass.
+    """
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_NAMESPACES,
         _DEFAULT_EXISTING_DATABASES,
@@ -381,10 +359,7 @@ async def test_verification_succeeds_when_iris_returns_a_different_casing(
     assert result.status is OperationResultStatus.SUCCESS
     assert result.verification is not None
     assert result.verification.status is PostActionVerificationStatus.VERIFIED
-    # The success detail reports IRIS's own real, canonical name (as
-    # returned by the follow-up GET), not just the caller's original
-    # input casing — the whole point of a *post-action* verification is
-    # to report what IRIS actually has.
+    # The detail shows the name as IRIS returned it, not the input casing.
     assert "TTTT" in result.verification.detail
 
 
@@ -392,14 +367,13 @@ async def test_verification_succeeds_when_iris_returns_a_different_casing(
 async def test_verification_still_fails_when_namespace_genuinely_absent_under_any_casing(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """The case-insensitive fix must not weaken verification into always
-    passing — a namespace that truly never appears (under ANY casing)
-    must still report VERIFICATION_FAILED, even after the bounded-retry
-    policy exhausts every attempt."""
+    """Case-insensitive matching must not make verify always pass: a
+    namespace that never appears still fails.
+    """
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_NAMESPACES,
         _DEFAULT_EXISTING_DATABASES,
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 1 — NEWAPP absent under any casing
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 1: missing
         _DEFAULT_EXISTING_NAMESPACES,  # attempt 2
         _DEFAULT_EXISTING_NAMESPACES,  # attempt 3
         _DEFAULT_EXISTING_NAMESPACES,  # attempt 4
@@ -421,18 +395,15 @@ async def test_verification_still_fails_when_namespace_genuinely_absent_under_an
 async def test_verification_succeeds_when_namespace_appears_on_a_later_retry(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """Regression test for the observed live propagation delay: an
-    immediate GET /v2/namespaces right after a successful PUT did not yet
-    list the new namespace, but a normal Refresh moments later did. Here
-    NEWAPP is absent on the first two attempts and only appears on the
-    third — verification must retry and succeed, not give up after the
-    first miss."""
+    """Namespace only shows up on the third check (IRIS can be slow to list a
+    new namespace). verify() should keep trying and pass.
+    """
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_NAMESPACES,
         _DEFAULT_EXISTING_DATABASES,
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 1 — not yet propagated
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 2 (1st retry) — still not yet
-        _namespaces_body(  # attempt 3 (2nd retry) — now present
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 1: not there yet
+        _DEFAULT_EXISTING_NAMESPACES,  # attempt 2: not there yet
+        _namespaces_body(  # attempt 3: found
             [{"Name": "%SYS"}, {"Name": "USER"}, {"Name": "NEWAPP", "Globals": "USER", "Routines": "USER"}]
         ),
     ]
@@ -448,24 +419,22 @@ async def test_verification_succeeds_when_namespace_appears_on_a_later_retry(
     assert result.verification is not None
     assert result.verification.status is PostActionVerificationStatus.VERIFIED
     assert "3 attempts" in result.verification.detail
-    # Stopped the instant it was found — the 4th (never-needed) retry
-    # attempt's response was never consumed.
+    # Stopped as soon as it was found; the 4th response was never used.
     assert fake_iris_client.get.await_count == 5
 
 
 @pytest.mark.asyncio
 async def test_verification_retries_perform_no_mutation(fake_iris_client: AsyncMock) -> None:
-    """The retry loop must only ever re-read (GET /v2/namespaces) — never
-    re-attempt the creation itself. PUT (and, since Interop is exercised
-    too, the enable-interop async task) must each still be called exactly
-    once, no matter how many times verification retries its GET."""
+    """Retries only re-read; the PUT and the enable-interop task still run
+    exactly once.
+    """
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_NAMESPACES,
         _DEFAULT_EXISTING_DATABASES,
         _DEFAULT_EXISTING_NAMESPACES,  # attempt 1 — absent
         _DEFAULT_EXISTING_NAMESPACES,  # attempt 2 — absent
         _DEFAULT_EXISTING_NAMESPACES,  # attempt 3 — absent
-        _DEFAULT_EXISTING_NAMESPACES,  # attempt 4 — absent (exhausted)
+        _DEFAULT_EXISTING_NAMESPACES,  # absent (out of retries)
     ]
     handler = NamespaceCreateHandler(fake_iris_client, verify_retry_delays_seconds=(0.0, 0.0, 0.0))
     executor = OperationExecutor({_OPERATION_NAME: handler})
@@ -479,7 +448,7 @@ async def test_verification_retries_perform_no_mutation(fake_iris_client: AsyncM
     fake_iris_client.put.assert_awaited_once()
     fake_iris_client.post_async_task.assert_awaited_once()
     fake_iris_client.wait_for_async_task.assert_awaited_once()
-    # 2 (validate) + 4 (verify retries) GETs — no PUT/POST among them.
+    # 2 (validate) + 4 (verify) GETs, and no extra PUT/POST.
     assert fake_iris_client.get.await_count == 6
 
 
@@ -538,7 +507,7 @@ async def test_missing_field_never_reaches_iris(
     fake_iris_client.put.assert_not_awaited()
 
 
-# --- validation against live data: existing namespace / referenced databases ---
+# --- validation against live data: existing namespace, databases ---
 
 
 @pytest.mark.asyncio
@@ -546,7 +515,7 @@ async def test_existing_namespace_name_is_rejected(
     executor: OperationExecutor, fake_iris_client: AsyncMock
 ) -> None:
     result = await executor.execute(
-        _request(name="USER"),  # already exists per _DEFAULT_EXISTING_NAMESPACES
+        _request(name="USER"),  # already exists
         _context(privileges=frozenset({"Manage"}), confirmed=True, dry_run=True),
     )
 
@@ -560,11 +529,9 @@ async def test_existing_namespace_name_is_rejected(
 async def test_existing_namespace_name_is_rejected_regardless_of_casing(
     executor: OperationExecutor, fake_iris_client: AsyncMock
 ) -> None:
-    """Same root cause as verify()'s casing bug: IRIS namespace names are
-    case-insensitive identifiers (see NamespaceCreateHandler module
-    docstring), so a request for "user" must be recognized as colliding
-    with the already-existing "USER" (per _DEFAULT_EXISTING_NAMESPACES),
-    not treated as a distinct, available name."""
+    """"user" collides with the existing "USER", since names are
+    case-insensitive.
+    """
     result = await executor.execute(
         _request(name="user"),
         _context(privileges=frozenset({"Manage"}), confirmed=True, dry_run=True),

@@ -1,6 +1,6 @@
-"""Tests for the knowledge corpus (app/knowledge/corpus.py) and the
-deterministic hashed bag-of-words embedder (app/knowledge/embedding.py).
-Pure Python — no IRIS, no network."""
+"""Tests for the knowledge corpus and the hashed bag-of-words embedder.
+Pure Python, no IRIS.
+"""
 
 import math
 import os
@@ -47,8 +47,7 @@ def test_embedding_is_deterministic_within_a_process() -> None:
 
 
 def test_embedding_is_deterministic_across_processes_and_hash_seeds() -> None:
-    # Python's built-in hash() is randomized per process; the embedder
-    # must not depend on it.
+    # Python's hash() is randomized per process, so the embedder can't use it.
     script = "from app.knowledge.embedding import embed; print(repr(embed('Mount database USER')))"
     outputs = set()
     for seed in ("1", "2"):
@@ -114,8 +113,8 @@ def test_corpus_is_deterministic() -> None:
 
 
 def test_corpus_contains_no_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Words like "JWT" or "password" legitimately appear in capability
-    # descriptions; what must never appear is a secret VALUE.
+    # Words like "JWT" or "password" are fine in descriptions; actual secret
+    # values aren't.
     text = "\n".join(f"{doc.title}\n{doc.body}" for doc in build_corpus())
 
     assert os.environ["IRIS_PASSWORD"] not in text  # conftest's configured password

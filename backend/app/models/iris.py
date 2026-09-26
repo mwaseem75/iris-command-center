@@ -1,39 +1,17 @@
-"""Pydantic models for IRIS SysAdmin REST API responses.
+"""Pydantic models for IRIS Admin REST API responses.
 
-These model the response shapes as actually VERIFIED against a real running
-IRIS 2026.2 instance (see docs/api-capability-matrix.md), not as guessed from
-mainspec_v2.json alone. Where the spec and the observed response disagree,
-the model follows the observed response, and the discrepancy is noted below.
+These follow what IRIS 2026.2 actually returns, which doesn't always match
+mainspec_v2.json. Where they differ we go with the real response:
+- Every response is wrapped in {"status", "console", "result"}
+  (IRISEnvelope), even where the spec shows a flat body.
+- The key is `status.errors` (lowercase), not `Errors`. We've only seen it
+  empty, so it and `console` are list[Any].
+- `Info.privileges` is a dict of name -> {"use": bool}, since which keys
+  show up depends on the account's privileges.
 
-Several of the Step 3 endpoints (fs-access-purposes, wallet collections)
-were only ever observed returning an EMPTY result on this instance — no
-populated entry was ever seen, so no entry shape is modeled for them;
-`result` is typed permissively (`list[Any]`) rather than inventing
-fields. The OAuth2 endpoints are the deliberate exception: they are
-also only ever empty / "not configured" here, but because IRIS's OAuth2
-classes hold secrets they use explicit, all-optional allowlist models
-(see the OAuth 2.0 section below) instead of pass-through types.
-
-Known, deliberate divergence from mainspec_v2.json's schemas:
-  - The spec's `LoginResponse`/`Info` schemas describe some fields as flat
-    (no wrapper) or unwrapped; the actually observed response for every
-    endpoint wired up so far (/info, /v2/namespaces, /v2/databases,
-    /v2/processes) wraps its payload in {"status": ..., "console": ...,
-    "result": ...}. That wrapper is modeled here as `IRISEnvelope`.
-  - The spec's `BaseResponse` schema (used elsewhere in the spec) declares
-    `status.Errors` (capitalized) as an array of strings. Every response
-    observed for these four endpoints had an EMPTY errors array, so the
-    element type was never actually confirmed for them — `errors` is
-    modeled permissively (`list[Any]`) rather than assuming either shape.
-    The lowercase key `errors` (not `Errors`) is what was actually observed.
-  - `console` was always an empty array in every observed response for
-    these endpoints; also modeled permissively for the same reason.
-  - `Info.privileges` is modeled as a dict of privilege name -> {"use": bool}
-    rather than fixed named fields, because the exact set of keys present
-    depends on which privileges the authenticated account holds (only
-    observed for `_SYSTEM`, which holds nearly all of them) — see
-    docs/api-capability-matrix.md's note that `ConfigStore` was absent
-    from the response even though the spec's schema lists it.
+Endpoints we've only ever seen return an empty list get list[Any] rather
+than made-up fields. The OAuth2 models are the exception: those IRIS
+classes hold secrets, so they use all-optional allowlist models.
 """
 
 from typing import Annotated, Any, Generic, Literal, TypeVar
@@ -102,17 +80,10 @@ class DatabaseEntry(BaseModel):
     Status: str
 
 
-# --- POST /v2/database-dir/info (async-task-backed; see
-#     app/iris_client/client.py's post_async_task/wait_for_async_task) —
-#     "View a variety of non-configurable info, such as block size and
-#     available free space" per mainspec_v2.json's own summary, which
-#     documents no result schema at all. All 19 fields below were directly
-#     observed, populated, in a real response from icc-iris-dev (database
-#     USER) — nothing here is guessed from the spec alone. Unlike
-#     DatabaseEntry above, there is no Name/Directory/Status field — the
-#     caller already knows the Directory it queried (it's the request's own
-#     `dir` parameter), and this endpoint reports storage facts, not
-#     identity/mount-summary ones.
+# --- POST /v2/database-dir/info (async task) ---
+# Storage facts for one database; the spec has no result schema, so these
+# fields come from a real response. No Name/Directory: the caller already
+# knows the directory it asked about.
 
 
 class DatabaseInfoResult(BaseModel):
@@ -137,26 +108,11 @@ class DatabaseInfoResult(BaseModel):
     MirrorFailoverDB: bool
 
 
-# --- POST /v2/database-dir/integrity-check (async-task-backed; see
-#     app/iris_client/client.py's post_async_task/wait_for_async_task) —
-#     "Run an integrity check on a local database" per mainspec_v2.json's
-#     own summary. UNLIKE DatabaseInfoResult above, this operation has
-#     deliberately NEVER been executed against a real IRIS instance (an
-#     integrity check is a real, resource-intensive scan of live data, not
-#     a quick metadata read — executing one was explicitly out of scope
-#     for this implementation pass). mainspec_v2.json documents no result
-#     schema for it either. `Result` below is therefore typed as `Any`
-#     rather than guessed — the same permissive-typing discipline this
-#     module's own docstring already establishes for endpoints whose
-#     populated shape has never been observed (see fs-access-purposes/
-#     OAuth2/wallet-collections above). Every OTHER field below (State,
-#     TaskName, Console, FailureReason, TimeQueued/TimeStarted/
-#     TimeFinished) is NOT guessed — it is IRIS's own generic async-task
-#     envelope, already independently confirmed live, populated, more than
-#     once (POST /v2/security/audit/records, POST /v2/database-dir/info —
-#     see AuditRecordEntry and DatabaseInfoResult above); only the
-#     `Result` payload's own internal shape is specific to this one
-#     endpoint and unconfirmed.
+# --- POST /v2/database-dir/integrity-check (async task) ---
+# We haven't run one against a real instance (it scans live data) and the
+# spec has no result schema, so `Result` is Any. The other fields are the
+# standard async-task envelope we've seen from audit records and
+# database-dir/info.
 
 
 class DatabaseIntegrityCheckResult(BaseModel):
@@ -212,17 +168,10 @@ class WebAppEntry(BaseModel):
     DispatchClass: str
 
 
-# --- GET /v2/web-app?name=<Name> — "View details of a web application"
-#     per mainspec_v2.json. The spec says these fields mirror the class
-#     Security.Applications. All 46 fields below were directly observed,
-#     with these exact types, in real responses for all 22 web apps on
-#     icc-iris-dev. Two discrepancies from the spec were observed and are
-#     modelled as observed, not as documented:
-#       - the spec lists `Type` (integer bitmap), but the live response
-#         omits it entirely, so it is NOT a field here (the list endpoint's
-#         string `Type` on WebAppEntry is the only Type we have);
-#       - the spec documents `WSGIType` as an integer, but it is returned
-#         as a string (e.g. "WSGI").
+# --- GET /v2/web-app?name=<Name> ---
+# Mirrors Security.Applications. Two differences from the spec: `Type` is
+# missing from the real response (so only WebAppEntry has a Type), and
+# `WSGIType` is a string, not an integer.
 
 
 class WebAppMatchRole(BaseModel):
@@ -279,17 +228,13 @@ class WebAppDetail(BaseModel):
     WSGIType: str
 
 
-# --- GET /v2/web-sessions — "View a list of web sessions" per
-#     mainspec_v2.json (field types only; the spec gives no descriptions).
-#     Observed live on icc-iris-dev with the same types: Timeout is a
-#     "YYYY-MM-DD HH:MM:SS" timestamp string, SesProcessId a string (""
-#     when no process is currently serving the session), and LicenseId
-#     "<username>@<client address>".
+# --- GET /v2/web-sessions ---
+# Timeout is a "YYYY-MM-DD HH:MM:SS" string, SesProcessId is "" when no
+# process is serving the session, LicenseId is "<user>@<address>".
 #
-#     The IRIS `ID` field is deliberately NOT modelled: it is the CSP
-#     session identifier — the value DELETE /v2/web-session?id= takes to
-#     end a session — so it must never leave this backend. Pydantic drops
-#     unmodelled fields during validation, so `ID` can't reach a response.
+# `ID` is left out on purpose: it's the CSP session id (what
+# DELETE /v2/web-session?id= takes), so it must not leave the backend.
+# Pydantic drops unmodelled fields, so it can't end up in a response.
 
 
 class WebSessionEntry(BaseModel):
@@ -302,21 +247,13 @@ class WebSessionEntry(BaseModel):
     AllowEndSession: bool
 
 
-# --- GET /api/mgmnt/v1/{namespace}/spec{webApplication} — IRIS's API
-#     Management API (not part of mainspec_v2.json) generates a Swagger 2.0
-#     document from a REST web app's dispatch-class route map. Observed
-#     against all 9 REST apps on icc-iris-dev: every operation has
-#     operationId + x-ISC_ServiceMethod (the dispatch-class method that
-#     implements the route); summary/description/parameters are optional;
-#     parameters are {name, in, required, type?, description?, pattern?,
-#     schema?} or a {"$ref": "#/parameters/<name>"} to the spec's own
-#     top-level `parameters` (resolved by the route — an unresolvable $ref
-#     is kept as `ref` rather than guessed). The generated `responses` are
-#     always the same two placeholders ("(Expected Result)"/"(Unexpected
-#     Error)"), so they carry no information and are not modelled.
-#     RestEndpoint/RestRouteMap are this backend's flattened view of that
-#     document — every value is copied from it, nothing is derived except
-#     the upper-casing of the HTTP method key.
+# --- GET /api/mgmnt/v1/{namespace}/spec{webApplication} ---
+# Swagger 2.0 generated from a REST app's dispatch class. Every operation
+# has operationId and x-ISC_ServiceMethod; summary, description and
+# parameters are optional. Parameters can be a $ref to the top-level
+# `parameters` (resolved in the route). The generated `responses` are
+# always the same two placeholders, so we skip them.
+# RestEndpoint/RestRouteMap are a flattened copy of that document.
 
 
 class RestEndpointParameter(BaseModel):
@@ -327,7 +264,7 @@ class RestEndpointParameter(BaseModel):
     description: str | None = None
     pattern: str | None = None
     bodySchema: dict[str, Any] | None = None  # Swagger's `schema` (body parameters)
-    ref: str | None = None  # an unresolvable "$ref", kept verbatim
+    ref: str | None = None  # unresolvable "$ref", kept as-is
 
 
 class RestEndpoint(BaseModel):
@@ -373,13 +310,10 @@ class TaskEntry(BaseModel):
     NextScheduled: str
 
 
-# --- GET /v2/task/info?id=<Id> — mainspec_v2.json's TaskExtraInfo. All 8
-#     fields observed live, with these types, for every task on
-#     icc-iris-dev. `Status` is a string ("1"); the spec documents "-1" as
-#     "the job is currently running" and -2..-5 as error codes whose text is
-#     in `Error`. `Suspended` here is the reliable flag: the list endpoint
-#     reported `false` for two tasks whose %SYS.Task.Suspended was 2, while
-#     this endpoint (and /v2/task/upcoming) reported `true`. ---
+# --- GET /v2/task/info?id=<Id> ---
+# `Status` is a string; "-1" means running, -2..-5 are errors described
+# in `Error`. Use this `Suspended`, not the list's: the list said false
+# for two tasks that were actually suspended. ---
 
 
 class TaskInfo(BaseModel):
@@ -393,14 +327,11 @@ class TaskInfo(BaseModel):
     Suspended: bool
 
 
-# --- GET /api/iris/tasks/overview — this backend's own merge of
-#     GET /v2/tasks with GET /v2/task/info for each task. The list's own
-#     `Suspended` is deliberately NOT carried over (see TaskInfo above).
-#     `Info` is None, and `State` with it, when that task's info call
-#     failed; `State` is derived from Info only (see routes/iris.py's
-#     _task_state). `NextScheduled` is the list's raw string — observed as
-#     a "YYYY-MM-DD HH:MM:SS" datetime, "" (on-demand tasks) or free text
-#     such as "Runs After #1:00" — and is never parsed here. ---
+# --- GET /api/iris/tasks/overview (our own) ---
+# GET /v2/tasks merged with each task's /v2/task/info. The list's
+# `Suspended` is dropped (see TaskInfo). `Info` and `State` are None if
+# the info call failed. `NextScheduled` is kept as the raw string: a
+# datetime, "" for on-demand tasks, or text like "Runs After #1:00". ---
 
 
 class TaskOverviewEntry(BaseModel):
@@ -415,19 +346,15 @@ class TaskOverviewEntry(BaseModel):
     State: Literal["Running", "Not Running", "Suspended"] | None
 
 
-# --- GET /v2/task?id=<Id> — mainspec_v2.json's Task schema. Every field
-#     was present, with no extras, for all 7 tasks read on icc-iris-dev.
-#     Where the observed type differs from the spec it is modelled as
-#     observed: TimePeriodEvery/TimePeriodDay came back as integers or ""
-#     (spec: string), ExpiresDays/Hours/Minutes as "" (spec: integer), so
-#     these — and DailyIncrement, the same kind of "" -or-count field — are
-#     `int | str` and passed through unchanged.
+# --- GET /v2/task?id=<Id> ---
+# Some types differ from the spec: TimePeriodEvery/TimePeriodDay come back
+# as ints or "", ExpiresDays/Hours/Minutes as "". Those (and
+# DailyIncrement) are `int | str` and passed through.
 #
-#     `Settings` is TaskClass-specific and can hold credentials (Diagnostic
-#     Report's includes SMTPPass). routes/iris.py redacts sensitive keys
-#     before this model is returned: their values become None and their
-#     key paths are listed in `RedactedSettings`, which is this backend's
-#     own field, not IRIS's. ---
+# `Settings` depends on the task class and can contain credentials
+# (Diagnostic Report has SMTPPass). routes/iris.py redacts those before
+# returning: values become None and the paths go in `RedactedSettings`
+# (our field, not IRIS's). ---
 
 
 class TaskDetail(BaseModel):
@@ -469,18 +396,17 @@ class TaskDetail(BaseModel):
     RedactedSettings: list[str] = Field(default_factory=list)
 
 
-# --- GET /v2/task/manager — observed live as {"Status": "Running"}; the
-#     spec's enum is "Running" / "Not running" / "Suspended". ---
+# --- GET /v2/task/manager ---
+# {"Status": "Running"}; can also be "Not running" or "Suspended". ---
 
 
 class TaskManagerStatus(BaseModel):
     Status: str
 
 
-# --- Security: Identity & Access (GET /v2/security/users|user|roles|role|
-#     role/owners|resources|resource). Every field below was observed live
-#     on icc-iris-dev, with these types, for all 9 users, all 38 roles and
-#     the resources read; see routes/security_access.py for the routes. ---
+# --- Security: Identity & Access ---
+# GET /v2/security/users|user|roles|role|role/owners|resources|resource.
+# Routes are in routes/security_access.py. ---
 
 
 class SecurityUserEntry(BaseModel):
@@ -493,13 +419,10 @@ class SecurityUserEntry(BaseModel):
 
 
 # GET /v2/security/user also returns EmailAddress, PhoneNumber,
-# PhoneProvider and a free-text Comment. They may hold personal data and are
-# deliberately NOT modelled,
-# so validation drops them and no response ever carries them; the route
-# lists which of them IRIS sent in `WithheldFields` (this backend's own
-# field). The model is an allowlist: any field IRIS adds later is dropped
-# the same way. No password or hash field exists in IRIS's response.
-# `AutheEnabled` is the spec's two-factor bitmask (2**20 SMS, 2**21 TOTP).
+# PhoneProvider and Comment. Those aren't modelled, so they get dropped;
+# the route lists which ones IRIS sent in `WithheldFields`. Anything new
+# IRIS adds is dropped the same way. There's no password or hash field.
+# `AutheEnabled` is the two-factor bitmask (2**20 SMS, 2**21 TOTP).
 
 
 class SecurityUserDetail(BaseModel):
@@ -537,9 +460,8 @@ class SecurityRoleDetail(BaseModel):
     Resources: list[RoleResourceGrant]
 
 
-# `AdminOption` is documented as boolean but observed as the string "0" on
-# "User" and "Role" rows and as `false` on "User (escalation)" rows — both
-# are passed through unchanged.
+# `AdminOption` is "0" on User/Role rows and `false` on
+# "User (escalation)" rows. Passed through as-is.
 
 
 class RoleOwnerEntry(BaseModel):
@@ -548,11 +470,10 @@ class RoleOwnerEntry(BaseModel):
     AdminOption: bool | str
 
 
-# GET /api/iris/security/roles/access-map — this backend's merge of the
-# role list with each role's GET /v2/security/role detail. `Listed` is False
-# for a role that exists (its detail returned 200) but that GET
-# /v2/security/roles does not list — observed for %SQLTuneTable. `Detail`
-# is None when that role's detail call failed.
+# GET /api/iris/security/roles/access-map (our own): the role list merged
+# with each role's detail. `Listed` is False for roles that exist but
+# aren't in GET /v2/security/roles (e.g. %SQLTuneTable). `Detail` is None
+# if the detail call failed.
 
 
 class RoleAccessEntry(BaseModel):
@@ -574,14 +495,12 @@ class SecurityResourceDetail(BaseModel):
     PublicPermission: str
 
 
-# --- Security: Authentication Posture. All shapes observed live on
-#     icc-iris-dev (15 services, 1 superserver, 10 class-access entries). ---
+# --- Security: Authentication ---
 
-# GET /v2/security/services. The spec types `Enabled` as a string and lists
-# an `EnabledBoolean`; live, `Enabled` is a boolean and `EnabledBoolean` is
-# absent, so the model follows the live response. AllowedConnections empty
-# means "no restrictions" (spec). AuthenticationMethods omits AutheSystem
-# (bit 10), which the detail's AutheEnabled bitmask does include.
+# GET /v2/security/services. `Enabled` is really a boolean (the spec says
+# string) and there's no `EnabledBoolean`. An empty AllowedConnections
+# means no restrictions. AuthenticationMethods leaves out AutheSystem
+# (bit 10), though the detail's AutheEnabled includes it.
 
 
 class SecurityServiceEntry(BaseModel):
@@ -595,8 +514,8 @@ class SecurityServiceEntry(BaseModel):
     TwoFactorEnabled: bool
 
 
-# GET /v2/security/service?name= — AutheEnabled is the spec-documented
-# bitmask (Bit 0 AutheK5CCache … Bit 25 MutualTLS).
+# GET /v2/security/service?name=. AutheEnabled is a bitmask
+# (bit 0 AutheK5CCache ... bit 25 MutualTLS).
 
 
 class SecurityServiceDetail(BaseModel):
@@ -606,12 +525,9 @@ class SecurityServiceDetail(BaseModel):
     Enabled: bool
 
 
-# GET /v2/security/web-auth — system-wide authentication settings. The
-# response's SMTPUsername (a mail-server credential identifier) and
-# TwoFactorFrom (the two-factor sender email address) are deliberately NOT
-# modelled (the route lists them in `WithheldFields`, this backend's own
-# field); no SMTP password is ever returned by IRIS. The model
-# is an allowlist, so any field IRIS adds later is dropped too.
+# GET /v2/security/web-auth. SMTPUsername and TwoFactorFrom aren't
+# modelled (the route lists them in `WithheldFields`); IRIS doesn't
+# return the SMTP password. New fields are dropped too.
 
 
 class WebAuthSettings(BaseModel):
@@ -637,8 +553,8 @@ class WebAuthSettings(BaseModel):
     WithheldFields: list[str] = Field(default_factory=list)
 
 
-# GET /v2/security/superserver?port=&bindAddress= (the list's own key
-# fields). SSLSupportLevel: 0 = None, 1 = Accept, 2 = Require (spec).
+# GET /v2/security/superserver?port=&bindAddress=.
+# SSLSupportLevel: 0 = None, 1 = Accept, 2 = Require.
 
 
 class SuperserverDetail(BaseModel):
@@ -660,8 +576,8 @@ class SuperserverDetail(BaseModel):
     EnableWebLink: bool
 
 
-# GET /api/iris/security/superservers — GET /v2/security/superservers merged
-# with each entry's detail; `Detail` is None when that detail call failed.
+# GET /api/iris/security/superservers (our own): the list merged with each
+# detail. `Detail` is None if that call failed.
 
 
 class SuperserverEntry(BaseModel):
@@ -672,24 +588,18 @@ class SuperserverEntry(BaseModel):
     Detail: SuperserverDetail | None
 
 
-# GET /v2/web-app/pct-accesses — which % classes each web application (or
+# GET /v2/web-app/pct-accesses: which % classes each web app (or
 # "all-applications") may use.
 
 
-# --- Security: Wallet (GET /v2/wallet/collections|collection|secrets, all
-#     %Admin_Wallet:U). icc-iris-dev has NO wallet collections (live list is
-#     [], SQL %Wallet.Collection has 0 rows), so no populated response has
-#     been observed: these shapes follow mainspec_v2.json (WalletCollection,
-#     WalletCollectionList, WalletSecretList). The permission fields are
-#     optional so a populated response missing one shows "not reported"
-#     instead of failing; Name is required.
+# --- Security: Wallet (%Admin_Wallet:U) ---
+# Our instance has no wallet collections, so these follow the spec.
+# Permission fields are optional so a missing one shows "not reported";
+# Name is required.
 #
-#     These models are strict allowlists of METADATA ONLY. IRIS has no GET
-#     that returns a secret's value (GET /v2/wallet/secrets is documented as
-#     "names and types of secrets"; /v2/wallet/secret is PUT/DELETE only and
-#     its schema is writeOnly). Any other field IRIS might send — e.g. a
-#     `Secret` or `WalletSecretConfig` — is dropped by validation and can
-#     never reach a response. ---
+# Metadata only. IRIS has no GET that returns a secret value
+# (/v2/wallet/secret is PUT/DELETE only), and any extra field like
+# `Secret` would be dropped anyway. ---
 
 
 class WalletCollectionEntry(BaseModel):
@@ -708,9 +618,8 @@ class WalletSecretEntry(BaseModel):
     Type: str | None = None
 
 
-# GET /api/iris/security/wallet/overview — every collection merged with its
-# secrets' names and types. `Secrets` is None when that collection's secret
-# list could not be read.
+# GET /api/iris/security/wallet/overview (our own): each collection with
+# its secrets' names and types. `Secrets` is None if that list failed.
 
 
 class WalletCollectionOverview(BaseModel):
@@ -720,21 +629,13 @@ class WalletCollectionOverview(BaseModel):
     Secrets: list[WalletSecretEntry] | None
 
 
-# --- Security: X.509 credentials (GET /v2/security/x509-credentials |
-#     x509-credential | x509-credential/certificate, all %Admin_Secure:U,
-#     keyed by IRIS's own `alias` query parameter). icc-iris-dev has NO X.509
-#     credentials (live list is [], SQL %SYS.X509Credentials has 0 rows;
-#     unknown alias → 404 ERROR #914), so no populated response has been
-#     observed: these shapes follow mainspec_v2.json (X509CredentialsList,
-#     X509Credential, X509CredentialCertificate), with every field except
-#     Alias optional so a populated response missing one shows "not
-#     reported" instead of failing.
+# --- Security: X.509 credentials (%Admin_Secure:U, keyed by `alias`) ---
+# Our instance has none (an unknown alias is 404 ERROR #914), so these
+# follow the spec, with everything except Alias optional.
 #
-#     Strict allowlists of certificate METADATA. `HasPrivateKey` is only a
-#     boolean (the spec: "Returns if a private key is present"). Private key
-#     material, PrivateKeyPassword, PrivateKeyFile/CertificateFile and PEM
-#     contents are write-body-only in the spec (POST x509-credential) and are
-#     not modelled — any such field IRIS might send is dropped. ---
+# Certificate metadata only. `HasPrivateKey` is just a boolean; key
+# material, passwords, file paths and PEM contents only appear in the
+# POST body and aren't modelled. ---
 
 
 class X509CredentialEntry(BaseModel):
@@ -760,30 +661,24 @@ class X509CertificateInfo(BaseModel):
     ValidityNotAfter: str | None = None
 
 
-# GET /api/iris/security/x509/overview — every credential merged with its
-# certificate's metadata; `Certificate` is None when that call failed.
+# GET /api/iris/security/x509/overview (our own): each credential with its
+# certificate metadata. `Certificate` is None if that call failed.
 
 
 class X509CredentialOverview(X509CredentialEntry):
     Certificate: X509CertificateInfo | None
 
 
-# --- Security: OAuth 2.0 (GET /v2/security/oauth2/*). On icc-iris-dev every
-#     OAuth 2.0 area is empty: the authorization server answers 404 ERROR
-#     #8864 "not configured", every list is [], and every detail lookup of an
-#     unknown id is 404 ERROR #5809 — so no populated response has been
-#     observed. These shapes follow mainspec_v2.json.
+# --- Security: OAuth 2.0 (GET /v2/security/oauth2/*) ---
+# Nothing is configured on our instance (the server gives 404 ERROR #8864,
+# lists are empty), so these follow the spec.
 #
-#     Explicit ALLOWLISTS, not pass-through: the IRIS OAuth2 classes also hold
-#     client secrets, registration access tokens, private-key passwords and
-#     similar. Only the fields named below can reach a response; any other
-#     field is dropped by validation. Every field is optional and coerced
-#     with the _Safe* types, so a missing field or one of an unexpected type
-#     becomes None ("not reported") instead of an error — and a nested object
-#     can never be smuggled through a field declared as a string or list.
-#     `*Credentials` fields are X.509 credential ALIASES (the spec), not key
-#     material. Undocumented objects (e.g. a resource server `Authenticator`)
-#     are not modelled at all. ---
+# These are allowlists: IRIS's OAuth2 classes also hold client secrets,
+# registration tokens, key passwords and so on, and only the fields below
+# can get through. Every field is optional and uses the _Safe* types, so a
+# missing or oddly typed value becomes None, and a nested object can't
+# sneak through a string or list field. `*Credentials` fields are X.509
+# aliases, not keys. ---
 
 
 def _only_str(value: Any) -> str | None:
@@ -817,8 +712,7 @@ _SafeStrList = Annotated[list[str] | None, BeforeValidator(_only_str_list)]
 
 
 class OAuth2ServerMetadataView(BaseModel):
-    """Public discovery endpoints and capabilities of an authorization
-    server: a subset of the spec OAuth2ServerMetadata."""
+    """Public discovery endpoints and capabilities (part of OAuth2ServerMetadata)."""
 
     issuer: _SafeStr = None
     authorization_endpoint: _SafeStr = None
@@ -838,9 +732,9 @@ class OAuth2ServerMetadataView(BaseModel):
 
 
 class OAuth2ClientMetadataView(BaseModel):
-    """Client registration metadata: a subset of the spec
-    OAuth2ClientMetadata. `contacts` (email addresses) is deliberately not
-    included; no secret-bearing field exists in this model."""
+    """Client registration metadata (part of OAuth2ClientMetadata). `contacts`
+    (email addresses) is left out.
+    """
 
     client_name: _SafeStr = None
     application_type: _SafeStr = None
@@ -897,7 +791,8 @@ class OAuth2ServerConfigView(BaseModel):
 
 class OAuth2ServerClientEntry(BaseModel):
     """GET /v2/security/oauth2/server/clients (%Admin_OAuth2_Registration:U).
-    ClientId is the public OAuth client identifier, not a secret."""
+    ClientId is public, not a secret.
+    """
 
     Name: _SafeStr = None
     ClientId: _SafeStr = None
@@ -937,8 +832,9 @@ class OAuth2ServerDefinitionEntry(BaseModel):
 
 
 class OAuth2ServerDefinitionDetail(BaseModel):
-    """GET /v2/security/oauth2/client/server-definition?serverId= (the
-    InitialAccessToken is write-only in the spec and not modelled)."""
+    """GET /v2/security/oauth2/client/server-definition?serverId= (without the
+    write-only InitialAccessToken).
+    """
 
     IssuerEndpoint: _SafeStr = None
     SSLConfiguration: _SafeStr = None
@@ -971,7 +867,8 @@ class OAuth2ResourceServerEntry(BaseModel):
 
 class OAuth2ResourceServerDetail(BaseModel):
     """GET /v2/security/oauth2/resource-server?name= (no client secret; the
-    undocumented `Authenticator` object is not modelled)."""
+    undocumented `Authenticator` object is skipped).
+    """
 
     Enabled: _SafeBool = None
     Description: _SafeStr = None
@@ -993,10 +890,9 @@ class OAuth2ResourceMappingEntry(BaseModel):
     Resource: _SafeStr = None
 
 
-# GET /api/iris/security/oauth/overview: this backend's own aggregate. Each
-# part is None when its IRIS call failed (a warning is added to
-# status.errors). `ServerConfigured` is False on the documented IRIS 404
-# "not configured" answer, and None if that call failed for another reason.
+# GET /api/iris/security/oauth/overview (our own). Each part is None if
+# its call failed (with a warning). `ServerConfigured` is False on IRIS's
+# "not configured" 404 and None on any other failure.
 
 
 class OAuth2ServerDefinitionOverview(OAuth2ServerDefinitionEntry):
@@ -1012,14 +908,12 @@ class OAuth2Overview(BaseModel):
     ResourceMappings: list[OAuth2ResourceMappingEntry] | None
 
 
-# --- Monitoring: GET /v2/monitor/dashboard/main (%Admin_Operate:U, "View
-#     dashboard stats") — the data behind the Dashboard's health, resources,
-#     alerts and license panels. Shapes and types observed live on
-#     icc-iris-dev. Per the spec: LicenseUse/LicenseUseHigh are percentages
-#     "or \"\" if there is no license limit"; SystemMonitor false means "the
-#     values on this page do not get updated"; the Performance counters other
-#     than GlobalRefsPerSecond/CacheEfficiency are cumulative since startup.
-#     BusyProcesses' Process was observed both as "" and as a PID number. ---
+# --- GET /v2/monitor/dashboard/main (%Admin_Operate:U) ---
+# Feeds the Dashboard's health, resources, alerts and license panels.
+# LicenseUse/LicenseUseHigh are percentages or "" with no license limit.
+# SystemMonitor false means the values aren't being updated. Performance
+# counters other than GlobalRefsPerSecond/CacheEfficiency are totals since
+# startup. BusyProcesses' Process can be "" or a PID. ---
 
 
 class DashboardPerformance(BaseModel):
@@ -1049,10 +943,10 @@ class DashboardStatus(BaseModel):
 
 
 def _blank_or_non_numeric_to_none(value: Any) -> Any:
-    """Right after IRIS starts, a busy process can briefly report Commands
-    as "" (observed live). Blank/non-numeric strings become None; every
-    other value is validated exactly as before (real integers, and numeric
-    strings, still parse to int)."""
+    """Just after IRIS starts, a busy process can report Commands as "".
+    Blank or non-numeric strings become None; everything else is validated
+    as usual.
+    """
     if isinstance(value, str) and not value.strip().lstrip("+-").isdigit():
         return None
     return value
@@ -1102,11 +996,10 @@ class MonitorDashboard(BaseModel):
     UpcomingTasks: list[DashboardUpcomingTask]
 
 
-# --- GET /v2/database-dirs ("ListLocalDBs") — one cheap read of every local
-#     database's size, used by the Dashboard's Database Storage panel instead
-#     of one async database-dir/info task per database. Observed live: Size is
-#     MB (int), MaxSize is "Unlimited" or a number. EncryptionKeyID and
-#     EncryptionVersion are deliberately not modelled. ---
+# --- GET /v2/database-dirs ---
+# Sizes of all local databases in one call (Dashboard storage panel), so
+# we don't need a database-dir/info task per database. Size is MB,
+# MaxSize is "Unlimited" or a number. Encryption fields are skipped. ---
 
 
 class DatabaseStorageEntry(BaseModel):
@@ -1152,11 +1045,7 @@ class AuditEnabledResult(BaseModel):
     Enabled: bool
 
 
-# --- POST /v2/security/audit/records (async-task-backed; see
-#     app/iris_client/client.py's post_async_task/wait_for_async_task and
-#     docs/api-capability-matrix.md). All 24 fields below were directly
-#     observed, populated, in real audit records returned by icc-iris-dev —
-#     nothing here is guessed from the spec alone. ---
+# --- POST /v2/security/audit/records (async task) ---
 
 
 class AuditRecordEntry(BaseModel):
@@ -1186,14 +1075,11 @@ class AuditRecordEntry(BaseModel):
     StartupClientIPAddress: str
 
 
-# --- Endpoints whose result entry shape has never been observed populated:
-#     GET /v2/fs-access-purposes, GET /v2/security/oauth2/client/server-definitions,
-#     GET /v2/security/oauth2/server/clients, GET /v2/wallet/collections.
-#     `result` is `list[Any]` for these — see module docstring. No dedicated
-#     entry model is defined, since defining one would mean inventing fields
-#     that have never actually been observed. ---
+# --- Endpoints we've only seen return empty lists ---
+# GET /v2/fs-access-purposes, oauth2/client/server-definitions,
+# oauth2/server/clients, /v2/wallet/collections. `result` is list[Any]
+# until we see real entries.
 
-# --- GET /v2/security/oauth2/server: only ever observed returning its
-#     documented 404 "not configured" case — no success body has ever been
-#     observed, so `result` is `dict[str, Any]` rather than a guessed schema.
-#     See module docstring. ---
+# --- GET /v2/security/oauth2/server ---
+# We've only seen its "not configured" 404, so `result` is
+# dict[str, Any].

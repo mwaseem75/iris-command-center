@@ -1,33 +1,13 @@
-"""The handler for `web_app.update_description` — change the Description of
-an existing IRIS web application. Same architecture and discipline as
-web_app.set_enabled (whose protected-app list, name normalization, IRIS
-privilege and retry policy it reuses): real validation against live IRIS
-read data in both dry_run() and execute(), and only execute() ever calls the
-real write — dry_run() never does.
+"""Handler for web_app.update_description (PUT /v2/web-app?name=..., %Admin_Secure:U).
 
-Endpoint: `PUT /v2/web-app?name=<Name>` ("(%Admin_Secure:U) Create/Edit a
-web application", mainspec_v2.json), body `{"Description": <string>}` and
-nothing else.
+Sends {"Description": d} and nothing else. Reuses web_app.set_enabled's
+protected-app list, name handling, privilege check and retry schedule,
+and the same caveats apply: the PUT resets Type to CSP, so System apps are
+refused and verify() checks Type is unchanged; a missing app would be a
+400, so we check existence first.
 
-Request-shape evidence. IRIS's own implementation was read (read-only, via
-the Atelier API) — `%Api.Admin.Endpoints.WebApp.App` on IRIS 2026.2, the same
-code path documented in web_app_set_enabled_handler.py:
-  - `MergeJsonAndProperties()` copies ONLY keys present in the JSON body into
-    the properties passed to `Security.Applications.Modify()` — so
-    `{"Description": d}` changes only Description ...
-  - ... but it ALWAYS sets `properties("Type") = $$$AppTypeCSP`, so System
-    ("System,CSP") apps are hard-denied, exactly as for set_enabled, and
-    verify() checks the Type is unchanged.
-  - `RunPut()` calls `Security.Applications.Create()` when the app does not
-    exist; `ValidateRequest()` then requires NameSpace, so a Description-only
-    body would be a 400 — the existence pre-check below refuses it first.
-  - `Security.Applications.Description` is `%String(MAXLEN = 256)`, so longer
-    values are rejected here rather than by IRIS.
-  - The PUT's response (the full app object) is discarded; verify() re-reads.
-
-No real PUT /v2/web-app has been executed against IRIS as of this
-implementation. All tests use a fake/mock IRIS client (see
-backend/tests/test_web_app_update_description.py).
+Description is %String(MAXLEN = 256) in Security.Applications, so longer
+values are rejected here. The PUT response is discarded.
 """
 
 import asyncio
@@ -69,7 +49,7 @@ class WebAppUpdateDescriptionParameters(BaseModel):
     @field_validator("Name")
     @classmethod
     def _validate_name(cls, value: str) -> str:
-        # The same rules as web_app.set_enabled's Name.
+        # Same rules as web_app.set_enabled's Name.
         if not value:
             raise ValueError("Name is required and cannot be empty.")
         if not value.startswith("/"):
@@ -85,7 +65,7 @@ class WebAppUpdateDescriptionParameters(BaseModel):
     @field_validator("Description")
     @classmethod
     def _validate_description(cls, value: str) -> str:
-        # An empty string is allowed: it clears the description.
+        # An empty string clears the description.
         if len(value) > _DESCRIPTION_MAX_LENGTH:
             raise ValueError(f"Description must be at most {_DESCRIPTION_MAX_LENGTH} characters (IRIS's MAXLEN).")
         if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
@@ -98,8 +78,7 @@ def _failure(detail: str, **data: Any) -> HandlerExecutionResult:
 
 
 class WebAppUpdateDescriptionHandler(OperationHandler):
-    """Requires an IRISClient supplied by the caller (typically a route), so
-    it can be unit-tested with a fake/mock client."""
+    """Takes an IRISClient so tests can pass a fake."""
 
     def __init__(
         self,
@@ -111,8 +90,7 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
         self._verify_retry_delays_seconds = verify_retry_delays_seconds
 
     async def _read_list_entry(self, name: str) -> dict[str, Any] | None:
-        """Read-only GET /v2/web-apps; the entry whose Name is exactly
-        `name`, or None."""
+        """GET /v2/web-apps and return the entry named exactly `name`, or None."""
         body = await self._iris_client.get(_WEB_APPS_PATH)
         entries = body.get("result") if isinstance(body, dict) else None
         if not isinstance(entries, list):
@@ -120,8 +98,9 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
         return next((e for e in entries if isinstance(e, dict) and e.get("Name") == name), None)
 
     async def _read_detail(self, name: str) -> tuple[str | None, bool | None]:
-        """Read-only GET /v2/web-app?name=; the real Description and Enabled
-        values, each None if absent or of the wrong type (never guessed)."""
+        """GET /v2/web-app?name= and return Description and Enabled, each None if
+        missing or the wrong type.
+        """
         body = await self._iris_client.get(_WEB_APP_PATH, params={"name": name})
         result = body.get("result") if isinstance(body, dict) else None
         if not isinstance(result, dict):
@@ -136,9 +115,9 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
     async def _validate(
         self, request: OperationRequest, context: ExecutionContext
     ) -> tuple[WebAppUpdateDescriptionParameters, dict[str, Any]] | tuple[None, HandlerExecutionResult]:
-        """Every check that precedes the write, in order: request shape,
-        IRIS's own privilege, the hard-deny list, existence, System type, and
-        the current Description. Read-only — safe for dry_run() and execute()."""
+        """All checks before the write, in order: request, IRIS privilege, protected
+        apps, existence, System type, current Description. Read-only.
+        """
         try:
             params = WebAppUpdateDescriptionParameters.model_validate(request.parameters)
         except ValidationError as exc:
@@ -212,7 +191,7 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
         }
 
     async def dry_run(self, request: OperationRequest, context: ExecutionContext) -> HandlerExecutionResult:
-        """Validation and read-only IRIS lookups only — never calls put()."""
+        """Validate and read from IRIS only; never sends the PUT."""
         params, result = await self._validate(request, context)
         if params is None:
             return result
@@ -232,7 +211,7 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
             return result
 
         try:
-            # The response (the full app object) is deliberately discarded.
+            # Response not needed; verify() re-reads.
             await self._iris_client.put(
                 _WEB_APP_PATH, json={"Description": params.Description}, params={"name": params.Name}
             )
@@ -262,11 +241,9 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
         context: ExecutionContext,
         execution_result: HandlerExecutionResult,
     ) -> PostActionVerificationResult:
-        """Fresh reads, independent of the PUT response, retried with the
-        bounded policy: GET /v2/web-app must report the requested Description
-        and the original Enabled value, and GET /v2/web-apps the original
-        Type (IRIS's PUT forces Type to CSP; for the non-System apps this
-        operation allows, that must be a no-op)."""
+        """Re-read (with retries): the requested Description, the original Enabled
+        value, and the original Type.
+        """
         data = execution_result.data
         name = data.get("name")
         target = data.get("description_after")
@@ -282,8 +259,8 @@ class WebAppUpdateDescriptionHandler(OperationHandler):
             if delay_before_this_attempt:
                 await asyncio.sleep(delay_before_this_attempt)
             attempts_made += 1
-            # The change already happened; a read failure here must surface
-            # as VERIFICATION_FAILED, not an unhandled error.
+            # The change already happened, so a failed read here is a
+            # VERIFICATION_FAILED result, not an exception.
             try:
                 last_description, last_enabled = await self._read_detail(name)
                 entry = await self._read_list_entry(name)

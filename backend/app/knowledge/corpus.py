@@ -1,19 +1,7 @@
-"""The AI Assistant's knowledge corpus, built entirely from the Command
-Center's own, already-verified in-code registries:
+"""Builds the knowledge search documents from the operation and capability registries.
 
-- app/authorization/operations.py's OPERATION_REGISTRY — what each
-  operation does, whether it mutates, its risk, the privileges it needs
-  and whether it requires confirmation.
-- app/capabilities.py's CAPABILITY_REGISTRY — which IRIS REST endpoints
-  have been verified, under which privilege, and whether/how this backend
-  exposes them.
-
-Nothing here is hand-written or invented: every document is a plain-text
-rendering of registry fields, so the corpus can never drift from the code
-it describes. docs/*.md are deliberately not used (they lag the code).
-
-Pure data: no IRIS call, no network I/O, no settings or credentials are
-read — the registries contain only public metadata.
+Each document is generated from registry fields, so it stays in sync with
+the code. No IRIS calls, no settings.
 """
 
 from typing import Literal
@@ -70,7 +58,7 @@ def _capability_document(entry: CapabilityEntry) -> KnowledgeDocument:
 
 
 def build_corpus() -> list[KnowledgeDocument]:
-    """Every operation, then every capability, in registry order."""
+    """All operations, then all capabilities, in registry order."""
     return [_operation_document(op) for op in OPERATION_REGISTRY.values()] + [
         _capability_document(entry) for entry in CAPABILITY_REGISTRY
     ]

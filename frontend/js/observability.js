@@ -1,38 +1,28 @@
-// Observability view: an OpenTelemetry-inspired trace explorer over the
-// Command Center's own execution traces. It fetches GET
-// /api/iris/observability/traces ONLY — a read-only listing of the traces
-// the backend's OperationExecutor records for every operation attempt (see
-// backend/app/observability/). No other endpoint is called from this
-// module, and no mutating HTTP method is used anywhere in it. This view
-// never triggers an operation itself.
+// Observability page: a trace explorer for the Command Center's own
+// execution traces (GET /api/iris/observability/traces), loosely modelled
+// on OpenTelemetry. It only reads; it never runs an operation.
 //
-// Everything shown comes from the real ExecutionTrace/Span schema:
+// Fields come from the ExecutionTrace/Span models:
 //   trace: trace_id, operation_name, status, start_time, end_time,
 //          duration_ms, authorization/confirmation/execution/
 //          verification_result, spans[]
 //   span:  name, status ("ok" | "error" | "skipped"), start_time, end_time,
 //          duration_ms, attributes{}, events[]
-// Nothing is invented. Notably, a trace has no "target" field, so none is
-// shown, and span events are listed only when a span actually recorded
-// some.
 //
-// Waterfall timing, honestly: each span's `duration_ms` is measured with a
-// high-resolution timer, while its `start_time`/`end_time` are wall-clock
-// timestamps with the OS clock's resolution. So bar WIDTHS use the precise
-// duration and bar POSITIONS use the recorded start offset from the trace's
-// start; the scale grows to fit if a recorded start plus its duration runs
-// past the trace total, rather than clipping or re-deriving positions.
+// About the waterfall: `duration_ms` comes from a high-resolution timer, but
+// start/end times are wall-clock with OS clock resolution. So bar widths use
+// duration and bar positions use the start offset; if a start plus its
+// duration goes past the trace total, the scale grows instead of clipping.
 //
-// The Begin/End time filter and the search box are client-side only —
-// filtering never re-fetches.
+// The time filter and search are local, no re-fetch.
 //
-// Cross-links: with Investigation, correlation is TIME PROXIMITY only
-// ("Investigate audit records" uses this trace's own start/end time);
-// Dashboard and Demo Activity call focusTrace() to open one trace here.
+// Investigation is linked by time only ("Investigate audit records" uses
+// the trace's start/end). Dashboard and Demo Activity call focusTrace() to
+// open a trace here.
 
 import { IrisApi, ApiError } from "./api.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 const STAGE_ORDER = ["authorization", "confirmation", "execution", "verification"];
 
 const dom = {
@@ -60,19 +50,18 @@ const dom = {
   detailBody: document.getElementById("observability-detail-body"),
 };
 
-// The full list from the last successful fetch (newest first, as the
-// backend returns it) — filters only ever re-render a subset of this.
+// The last fetched list (newest first); filters just re-render part of it.
 let allTraces = [];
 let visibleTraces = [];
 let selectedTraceId = null;
 let loadFailed = false;
-// A trace another view asked to open (focusTrace()); scrolled into view
-// once the next render contains it, then cleared.
+// Trace another page asked to open (focusTrace()); scrolled to on the next
+// render, then cleared.
 let pendingFocusTraceId = null;
 let onInvestigateTimeWindow = null;
 
-// How far either side of a trace's own start/end time the Investigation
-// cross-link window extends — wide enough to absorb normal clock skew.
+// How far to widen the Investigation time window on each side, to allow
+// for some clock skew.
 const CROSS_LINK_PADDING_MS = 30_000;
 
 // --- formatting ---
@@ -81,8 +70,8 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-// "YYYY-MM-DD HH:MM:SS" in UTC — this view's own filter format, and what
-// is sent to investigation.js's setTimeWindow().
+// "YYYY-MM-DD HH:MM:SS" in UTC; the filter format, also what we pass to
+// investigation.js's setTimeWindow().
 function formatUtc(date) {
   return (
     `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
@@ -96,8 +85,7 @@ function formatUtcIso(iso) {
   return Number.isNaN(date.getTime()) ? iso : formatUtc(date);
 }
 
-// HH:MM:SS.mmm (UTC) straight from the ISO string, so sub-second digits
-// are the recorded ones, not re-rounded.
+// HH:MM:SS.mmm (UTC) cut straight from the ISO string, so no rounding.
 function formatUtcTimeOfDay(iso) {
   if (typeof iso !== "string") return PLACEHOLDER;
   const match = /T(\d{2}:\d{2}:\d{2})(\.\d{1,3})?/.exec(iso);
@@ -161,7 +149,7 @@ function formatAttributeValue(value) {
   return String(value);
 }
 
-// --- status badges (same status -> color mapping used across the app) ---
+// --- status badges (same colors as the rest of the app) ---
 
 const STATUS_BADGE_CLASS = {
   success: "status-badge--ok",
@@ -178,8 +166,7 @@ function statusBadgeClass(status) {
   return STATUS_BADGE_CLASS[status] || "status-badge--error";
 }
 
-// Built via document.createElement + .textContent — never innerHTML — so a
-// status/attribute value can never be interpreted as markup.
+// Built with createElement/textContent (no innerHTML).
 function makeStatusBadge(status) {
   const badge = document.createElement("span");
   badge.className = `status-badge ${statusBadgeClass(status)}`;
@@ -198,8 +185,7 @@ function el(tag, className, text) {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling synchronously, before any await, makes a second rapid
-  // Refresh click a no-op — the same pattern used in every other view.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -215,7 +201,7 @@ function setUnavailable(unavailable) {
   dom.workspace.hidden = unavailable;
 }
 
-// --- summary bar: real counts over the currently filtered traces ---
+// --- summary bar: counts over the filtered traces ---
 
 function renderSummary(traces) {
   if (loadFailed) {
@@ -236,7 +222,7 @@ function renderSummary(traces) {
   dom.statSuccess.textContent = String(success);
   dom.statDryRun.textContent = String(dryRun);
   dom.statOther.textContent = String(other.reduce((sum, [, n]) => sum + n, 0));
-  // The backend's own status names, never a made-up category.
+  // The backend's status names.
   dom.statOtherLabel.textContent =
     other.length === 1 ? capitalize(humanizeKey(other[0][0])) : "Other Outcomes";
   dom.statOtherLabel.title = other.length
@@ -353,8 +339,7 @@ function orderedSpans(trace) {
     const index = STAGE_ORDER.indexOf(name);
     return index === -1 ? STAGE_ORDER.length : index;
   };
-  // Stable: known stages in pipeline order, any other span after them in
-  // its recorded order.
+  // Known stages in pipeline order, anything else after them in recorded order.
   return spans.map((span, i) => [span, i]).sort((a, b) => rank(a[0].name) - rank(b[0].name) || a[1] - b[1]).map(([s]) => s);
 }
 
@@ -365,7 +350,7 @@ function spanOffsetMs(trace, span) {
   return Math.max(0, spanStart - traceStart);
 }
 
-// A rounded axis ceiling so tick labels read cleanly (1, 2, 2.5, 5 × 10^n).
+// Round the axis max so tick labels look clean (1, 2, 2.5, 5 x 10^n).
 function niceCeiling(value) {
   if (!(value > 0)) return 1;
   const power = 10 ** Math.floor(Math.log10(value));
@@ -396,15 +381,15 @@ function buildWaterfall(trace, spans) {
     return section;
   }
 
-  // Scale: the trace total, grown if any recorded start + duration exceeds it.
+  // Scale: the trace total, or more if a span's start + duration goes past it.
   const rows = spans.map((span, index) => {
     const duration = typeof span.duration_ms === "number" && Number.isFinite(span.duration_ms) ? span.duration_ms : null;
     return { span, index, duration, offset: spanOffsetMs(trace, span) };
   });
   const traceTotal = typeof trace.duration_ms === "number" && Number.isFinite(trace.duration_ms) ? trace.duration_ms : 0;
   const extent = Math.max(traceTotal, ...rows.map((r) => (r.offset ?? 0) + (r.duration ?? 0)));
-  // A round tick step (1, 2, 2.5, 5 x 10^n) giving about five intervals;
-  // the scale is a whole number of steps, so ticks and gridlines line up.
+  // A round tick step (1, 2, 2.5, 5 x 10^n) for about five intervals; the
+  // scale is a whole number of steps so ticks and gridlines line up.
   const step = niceCeiling(extent / 5);
   const intervals = Math.max(1, Math.ceil(extent / step - 1e-9));
   const scale = step * intervals;
@@ -445,8 +430,7 @@ function buildWaterfall(trace, spans) {
       bar.style.left = pct(offset);
       bar.style.width = pct(duration);
       bar.title = `${span.name}: ${formatDuration(duration)} (starts ${formatDuration(offset)} after the trace start) · ${span.status}`;
-      // Always just after the bar; the track reserves a right margin for it,
-      // and the scale never ends before the last bar.
+      // Right after the bar; the track leaves a right margin for it.
       const value = el("span", "obs-waterfall__value", formatDuration(duration));
       value.style.left = pct(offset + duration);
       track.append(bar, value);
@@ -516,7 +500,7 @@ function buildStagesTable(spans) {
       cell(formatDuration(span.duration_ms), "obs-events__mono obs-events__num"),
     );
     tbody.append(row);
-    // Span events, only when the span actually recorded any.
+    // Span events, if the span has any.
     for (const event of Array.isArray(span.events) ? span.events : []) {
       const eventRow = el("tr", "obs-events__event");
       eventRow.append(
@@ -538,7 +522,7 @@ function buildStagesTable(spans) {
 function buildRawData(trace) {
   const details = el("details", "obs-raw");
   details.append(el("summary", "obs-raw__summary", "View raw trace data"));
-  // Exactly the sanitized trace the backend returned — no extra fields.
+  // The trace as the backend returned it.
   details.append(el("pre", "obs-raw__pre", JSON.stringify(trace, null, 2)));
   return details;
 }
@@ -578,7 +562,7 @@ function renderDetail() {
     buildMetaItem("Trace ID", buildTraceIdValue(trace.trace_id), { mono: true, title: textOrPlaceholder(trace.trace_id) }),
   );
 
-  // The trace's own per-stage result summary, exactly as recorded.
+  // Per-stage results as recorded.
   const results = el("dl", "obs-results");
   for (const [label, value] of [
     ["Authorization", trace.authorization_result],
@@ -604,16 +588,15 @@ function selectTrace(traceId) {
   renderDetail();
 }
 
-/** Re-renders from the already-fetched `allTraces` list using the current
- * time filter and search — never triggers a network request. */
+/** Re-render from `allTraces` with the current filter and search (no request). */
 function applyFilters() {
   const begin = parseFilterInput(dom.filterBegin.value);
   const end = parseFilterInput(dom.filterEnd.value);
   const query = dom.search.value.trim().toLowerCase();
   visibleTraces = allTraces.filter((trace) => matchesTimeWindow(trace, begin, end) && matchesSearch(trace, query));
 
-  // Keep the selection when it is still visible; otherwise select the
-  // newest visible trace, so the workspace always shows something real.
+  // Keep the selection if it's still visible; otherwise pick the newest
+  // visible trace.
   if (!visibleTraces.some((t) => t.trace_id === selectedTraceId)) {
     selectedTraceId = visibleTraces.length ? visibleTraces[0].trace_id : null;
   }
@@ -632,11 +615,7 @@ function applyFilters() {
   }
 }
 
-/**
- * Fetches GET /api/iris/observability/traces and renders it. This is the
- * ONLY network call this module makes — no mutating request exists
- * anywhere in this file.
- */
+/** Load GET /api/iris/observability/traces and render it. */
 export async function loadExecutionTraces() {
   setLoading(true);
   setErrorBanner(null);
@@ -645,8 +624,7 @@ export async function loadExecutionTraces() {
   try {
     response = await IrisApi.getExecutionTraces();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     setErrorBanner(
       err instanceof ApiError
         ? "Could not load execution traces. The Command Center backend may be unreachable."
@@ -678,9 +656,8 @@ export async function loadExecutionTraces() {
 }
 
 /**
- * Sets the Begin/End (UTC) filter fields — never fetches anything itself.
- * Called by app.js right before nav.navigateTo("observability"), whose
- * view-opened load renders the fresh list with this filter applied.
+ * Set the Begin/End (UTC) filter. Doesn't fetch; app.js calls this right
+ * before navigateTo("observability"), which loads with the filter applied.
  */
 export function setTimeWindow(begin, end) {
   dom.filterBegin.value = begin;
@@ -688,11 +665,9 @@ export function setTimeWindow(begin, end) {
 }
 
 /**
- * Asks this view to open one trace: clears the time filter and search,
- * selects that trace, and scrolls/focuses it in the explorer on the next
- * render. Never fetches anything itself — called right before
- * nav.navigateTo("observability"), whose view-opened load renders the real,
- * freshly fetched trace list.
+ * Open one trace: clear the filter and search, select the trace, and
+ * scroll to it on the next render. Doesn't fetch; called right before
+ * navigateTo("observability"), which loads the list.
  */
 export function focusTrace(traceId) {
   if (typeof traceId !== "string" || !traceId) return;
@@ -704,9 +679,8 @@ export function focusTrace(traceId) {
 }
 
 /**
- * `onInvestigateTimeWindow`, when provided, is called with `{ begin, end }`
- * whenever the operator clicks a trace's "Investigate audit records" button
- * — see app.js for how it switches views.
+ * `onInvestigateTimeWindow` is called with `{ begin, end }` when someone
+ * clicks a trace's "Investigate audit records" button (see app.js).
  */
 export function initObservabilityControls({ onInvestigateTimeWindow: callback } = {}) {
   onInvestigateTimeWindow = typeof callback === "function" ? callback : null;

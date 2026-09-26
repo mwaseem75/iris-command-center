@@ -1,13 +1,11 @@
-"""Tests for the Tasks view's read-only routes:
-  - GET /api/iris/tasks/overview (GET /v2/tasks + GET /v2/task/info per task),
-  - GET /api/iris/tasks/detail?id= (GET /v2/task, Settings redacted),
-  - GET /api/iris/tasks/manager (GET /v2/task/manager).
+"""Tests for the Tasks page routes:
+- GET /api/iris/tasks/overview (/v2/tasks + /v2/task/info per task)
+- GET /api/iris/tasks/detail?id= (/v2/task, Settings redacted)
+- GET /api/iris/tasks/manager (/v2/task/manager)
 
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. Canned bodies are ACTUAL responses captured from icc-iris-dev,
-including the observed list/info disagreement on `Suspended` (Integrity
-Check, id 4) and the non-date NextScheduled values ("" and
-"Runs After #1:00").
+The canned bodies are real responses, including the list/info mismatch on
+`Suspended` (Integrity Check, id 4) and NextScheduled values like "" and
+"Runs After #1:00".
 """
 
 import copy
@@ -98,7 +96,7 @@ INTEGRITY_CHECK_DETAIL: dict[str, Any] = {
 
 
 def _route_gets(info_results: dict[int, dict[str, Any]] | None = None, failing: set[int] = frozenset()):
-    """A mock `client.get` answering GET /v2/tasks and GET /v2/task/info."""
+    """Mock `client.get` for GET /v2/tasks and GET /v2/task/info."""
     info_results = INFO_RESULTS if info_results is None else info_results
 
     async def fake_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -128,7 +126,7 @@ def test_overview_merges_info_and_derives_state(client: TestClient, mock_iris_cl
     by_id = {entry["Id"]: entry for entry in body["result"]}
     assert [entry["Id"] for entry in body["result"]] == [1, 4, 6, 7]
     assert by_id[1]["State"] == "Not Running"
-    # The list said Suspended=false for Integrity Check; /v2/task/info is authoritative.
+    # The list said Suspended=false for Integrity Check; trust /v2/task/info.
     assert by_id[4]["State"] == "Suspended"
     assert by_id[4]["Info"]["Suspended"] is True
     assert by_id[6]["State"] == "Not Running"
@@ -158,7 +156,7 @@ def test_overview_passes_non_date_next_scheduled_through(client: TestClient, moc
 
 
 def test_overview_running_status_wins(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """Status "-1" is the spec's documented JobRunning code."""
+    """Status "-1" means the job is running."""
     infos = copy.deepcopy(INFO_RESULTS)
     infos[1]["Status"] = "-1"
     infos[4]["Status"] = "-1"  # suspended, but its job is executing right now

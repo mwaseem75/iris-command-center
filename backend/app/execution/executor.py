@@ -1,22 +1,11 @@
-"""OperationExecutor: the reusable service that sits after authorization
-and before any real IRIS mutation.
+"""Runs operations: authorization, confirmation, execution, verification.
 
-Contains no operation-specific logic — every branch here is generic,
-driven entirely by the looked-up OperationDefinition, the Step 4
-authorization decision, and whichever handler is registered for the
-operation. Adding a new operation never requires touching this file: it
-means adding a registry entry (app/authorization/operations.py) and a
-handler (app/execution/handler.py subclass), then calling
-register_handler().
+Nothing here is operation-specific. Adding an operation means a registry
+entry (app/authorization/operations.py) plus a handler.
 
-Every call to execute() also records a structured ExecutionTrace (see
-app/observability/) spanning authorization -> confirmation -> execution ->
-verification — this is pure, additive observability: it changes nothing
-about the OperationResult this method returns, the authorization decision,
-or whether/how a handler runs. Only safe, already-non-sensitive values
-(operation names, statuses, privilege NAMES, short reason strings) are
-ever passed into a span's attributes — never a credential, token, or
-Authorization header.
+Every call also records an execution trace with one span per stage. Only
+safe values (operation names, statuses, privilege names, short reasons)
+go into span attributes.
 """
 
 from app.authorization.operations import get_operation
@@ -34,9 +23,7 @@ from app.observability.tracer import TraceRecorder
 
 
 class OperationExecutor:
-    """Handlers are supplied via the constructor / register_handler(), not
-    read from a hidden global — this keeps the executor trivially testable
-    with fake handlers and keeps handler wiring explicit."""
+    """Handlers are passed in explicitly, which keeps this easy to test with fakes."""
 
     def __init__(self, handlers: dict[str, OperationHandler] | None = None):
         self._handlers: dict[str, OperationHandler] = dict(handlers or {})
@@ -91,9 +78,8 @@ class OperationExecutor:
             )
         )
 
-        # Authorization failure (missing privilege, or an otherwise-unknown
-        # operation authorize() itself rejected) — the handler is never
-        # reached. Checked before anything else that follows.
+        # Not authorized (missing privilege or unknown operation): stop before
+        # the handler runs.
         if not auth_result.authorized:
             recorder.skip("confirmation", "authorization_denied")
             recorder.skip("execution", "authorization_denied")
@@ -129,8 +115,7 @@ class OperationExecutor:
             )
         )
 
-        # Authorized, but a mutating operation still awaiting confirmation.
-        # The handler is never reached here either.
+        # Authorized, but a mutating operation still needs confirmation.
         if not auth_result.can_proceed:
             recorder.skip("execution", "confirmation_required")
             recorder.skip("verification", "confirmation_required")
@@ -198,12 +183,11 @@ class OperationExecutor:
                 status=OperationResultStatus.DRY_RUN,
                 authorization=auth_result,
                 handler_result=handler_result,
-                verification=None,  # a dry-run changes nothing; there is nothing to verify
+                verification=None,  # dry runs change nothing, so nothing to verify
                 detail="Dry run — no IRIS mutation call was made.",
             )
 
-        # --- Real execution path. No concrete handler in this project
-        # implements a real IRIS mutation yet (see handler.py, demo_handler.py). ---
+        # --- Real execution ---
         execution_timer = recorder.timer()
         try:
             handler_result = await handler.execute(request, context)

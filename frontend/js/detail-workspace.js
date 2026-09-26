@@ -1,16 +1,13 @@
-// Detail workspace: the shared behaviour for every centered detail/dialog
-// panel (the `.ns-drawer` elements — Namespaces, Databases, Processes, Web
-// Applications, Web Sessions, Tasks, Security and Demo Activity). Each view
-// still opens and closes its own panel exactly as before (toggling the
-// `hidden` attribute, and closing on Escape in its own module); this module
-// only watches that attribute and adds what a modal needs, once, for all of
-// them:
-//   - role="dialog" + aria-modal="true" on every panel,
-//   - page scroll locked while any panel is open,
-//   - Tab / Shift+Tab kept inside the open panel,
-//   - focus moved into the panel if its view did not already do so, and
-//     returned to whatever opened it when it closes.
-// It never reads or changes any data, and never closes a panel itself.
+// Shared modal behaviour for the detail panels (the `.ns-drawer` elements
+// on Namespaces, Databases, Processes, Web Apps, Tasks, Security and Demo
+// Activity).
+//
+// Each page still shows/hides its own panel with the `hidden` attribute and
+// handles Escape itself. This module watches that attribute and adds:
+// - role="dialog" and aria-modal="true"
+// - page scroll lock while a panel is open
+// - Tab / Shift+Tab kept inside the panel
+// - focus moved in on open (if the page didn't already) and back on close
 
 const WORKSPACE_SELECTOR = ".ns-drawer";
 const FOCUSABLE =
@@ -19,7 +16,7 @@ const FOCUSABLE =
 const OPEN_CLASS = "detail-workspace-open";
 
 const openers = new Map(); // workspace -> element to return focus to
-let lastInteracted = null; // last focusable element clicked/focused outside any workspace
+let lastInteracted = null;  // last element focused outside any panel
 
 function isVisible(el) {
   return Boolean(el && el.isConnected && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
@@ -29,9 +26,9 @@ function focusableIn(workspace) {
   return [...workspace.querySelectorAll(FOCUSABLE)].filter((el) => isVisible(el) && !el.closest("[hidden]"));
 }
 
-// Views often re-render their lists while a panel is open, replacing the
-// element that opened it. A selector built from the opener's tag, first
-// class and data-* attributes finds its re-rendered replacement.
+// Pages often re-render while a panel is open, replacing the element that
+// opened it. Build a selector (tag, first class, data-* attributes) to
+// find the new one.
 function identitySelector(el) {
   if (!(el instanceof Element)) return null;
   const parts = [el.tagName.toLowerCase()];
@@ -55,8 +52,7 @@ function onOpened(workspace) {
   const opener = active && active !== document.body && !workspace.contains(active) ? active : lastInteracted;
   openers.set(workspace, { element: opener, selector: identitySelector(opener) });
   document.documentElement.classList.add(OPEN_CLASS);
-  // Views usually focus something inside the panel themselves; only step
-  // in when they did not.
+  // Pages usually focus something in the panel themselves; only do it if not.
   if (!workspace.contains(document.activeElement)) {
     const [first] = focusableIn(workspace);
     (first || workspace).focus({ preventScroll: true });
@@ -75,7 +71,7 @@ function onClosed(workspace) {
     target = [...document.querySelectorAll(saved.selector)].find((el) => isVisible(el) && !el.closest(WORKSPACE_SELECTOR));
   }
   if (isVisible(target)) target.focus({ preventScroll: true });
-  // Never leave focus on a control inside the now-hidden panel.
+  // Don't leave focus inside the hidden panel.
   else if (active && workspace.contains(active)) active.blur();
 }
 
@@ -103,8 +99,8 @@ export function initDetailWorkspaces() {
   const workspaces = [...document.querySelectorAll(WORKSPACE_SELECTOR)];
   if (workspaces.length === 0) return;
 
-  // Remember what the operator used to open a panel (a row, card or
-  // button), so focus can go back there on close.
+  // Remember what opened the panel (row, card or button) so focus can go
+  // back there.
   const remember = (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target || target.closest(WORKSPACE_SELECTOR)) return;

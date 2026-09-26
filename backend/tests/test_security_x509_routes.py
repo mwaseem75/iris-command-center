@@ -1,12 +1,9 @@
-"""Tests for the read-only X.509 routes in app/routes/security_access.py.
+"""Tests for the X.509 routes in app/routes/security_access.py.
 
-icc-iris-dev has no X.509 credentials, so populated bodies here follow
-mainspec_v2.json's X509CredentialsList / X509Credential /
-X509CredentialCertificate shapes. To prove the allowlist, several canned
-bodies deliberately carry key-bearing fields IRIS is NOT documented to
-return on these GETs (PrivateKey, PrivateKeyPassword, PrivateKeyFile,
-CertificateFile, a PEM Certificate) with sentinel values; none of those
-values may ever appear in a response.
+Our instance has no X.509 credentials, so the bodies follow the spec.
+Some include key fields IRIS shouldn't return here (PrivateKey,
+PrivateKeyPassword, PrivateKeyFile, CertificateFile, a PEM Certificate)
+set to a sentinel, which must never show up in a response.
 """
 
 import copy
@@ -43,7 +40,7 @@ def envelope(result: Any) -> dict[str, Any]:
 CREDENTIALS = [
     {"Alias": "WebServer", "HasPrivateKey": True, "OwnerList": ["_SYSTEM"], "PeerNames": ["api.example.test"],
      "CAFile": "/usr/irissys/mgr/ca.pem",
-     # Not documented for this GET — must be dropped.
+     # Not returned by this GET, so it must be dropped.
      "PrivateKey": "sentinel-private-key", "PrivateKeyFile": "/sentinel/private.key"},
     {"Alias": "PartnerCA", "HasPrivateKey": False, "OwnerList": [], "PeerNames": [], "CAFile": ""},
 ]
@@ -124,7 +121,7 @@ def test_overview_merges_metadata_only(client: TestClient, iris: AsyncMock) -> N
 
 
 def test_overview_empty(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """The live icc-iris-dev case: no credentials at all."""
+    """No credentials at all (what our instance has)."""
     mock_iris_client.get.return_value = envelope([])
 
     body = client.get("/api/iris/security/x509/overview").json()

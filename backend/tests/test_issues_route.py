@@ -1,5 +1,4 @@
-"""Tests for GET /api/iris/issues (Fix Issues MVP: dismounted databases).
-IRIS is always a mock; the route only reads."""
+"""Tests for GET /api/iris/issues (dismounted databases). IRIS is mocked."""
 
 from typing import Any
 from unittest.mock import AsyncMock

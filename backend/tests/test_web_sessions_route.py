@@ -1,11 +1,7 @@
-"""Tests for GET /api/iris/web-sessions — the Web Apps Explorer's read-only
-Sessions section.
+"""Tests for GET /api/iris/web-sessions (the Sessions section).
 
-Uses mocks (fixtures shared via conftest.py), never the real IRIS
-container. The canned entry is the real `GET /v2/web-sessions` entry
-captured from icc-iris-dev, except its `ID`, which is replaced by an
-obvious placeholder — the real session identifier is never written into
-this repository. The key property under test: that identifier never
+The canned entry is a real one with its `ID` replaced by a placeholder, so
+no real session id is in the repo. The main thing tested: the id never
 reaches a response.
 """
 
@@ -61,8 +57,9 @@ def test_get_web_sessions_success(client: TestClient, mock_iris_client: AsyncMoc
 def test_get_web_sessions_never_exposes_session_id(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """The CSP session ID is what DELETE /v2/web-session?id= takes — it must
-    not appear anywhere in the response, under any key."""
+    """The session ID is what DELETE /v2/web-session?id= takes, so it must not
+    appear anywhere in the response.
+    """
     mock_iris_client.get.return_value = copy.deepcopy(WEB_SESSIONS_BODY)
 
     response = client.get("/api/iris/web-sessions")

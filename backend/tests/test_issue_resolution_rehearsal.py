@@ -1,6 +1,6 @@
-"""Tests for the manual Issue Resolution Rehearsal (IPM) in
-app/execution/demo_rehearsal.py and its scenario option on
-POST /api/iris/demo/rehearsal. IRIS is a stateful fake; nothing real runs."""
+"""Tests for the manual Issue Resolution Rehearsal (IPM) and its scenario
+option on POST /api/iris/demo/rehearsal. IRIS is a fake that keeps state.
+"""
 
 import asyncio
 from types import SimpleNamespace
@@ -106,10 +106,10 @@ def test_full_issue_resolution_flow(fake: FakeIris) -> None:
     assert all(s["status"] in ("success", "dry_run") for s in body["steps"])
     assert steps["issue.detect"]["detail"].startswith("Command Center Issue: Database IPM")
     assert steps["issue.fix"]["operation_name"] == "database.mount"
-    # Only IPM, exactly one dismount then one mount; IPM ends mounted, USER untouched.
+    # Only IPM: one dismount, then one mount. IPM ends up mounted, USER untouched.
     assert [p[0] for p in fake.posts] == ["/v2/database-dir/dismount", "/v2/database-dir/mount"]
     assert fake.mounted == {IPM_DIR: True, "/usr/irissys/mgr/user/": True}
-    # Each executed step carries the trace the existing executor recorded.
+    # Each executed step has its trace id.
     recorded = {t.trace_id: t.operation_name for t in store.list_traces()}
     for name, op in (("issue.dry_run", "database.dismount"), ("issue.dismount", "database.dismount"),
                      ("issue.fix", "database.mount")):
@@ -186,8 +186,8 @@ async def test_shares_the_rehearsal_lock(fake: FakeIris) -> None:
 async def test_cancellation_after_dismount_still_remounts_ipm(
     fake: FakeIris, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Detection blocks until the task is cancelled — i.e. cancellation arrives
-    # after IPM has really been dismounted.
+    # Detection blocks until the task is cancelled, so the cancel arrives
+    # after IPM was actually dismounted.
     reached_detection = asyncio.Event()
 
     async def blocking_detection(client: Any):
@@ -203,7 +203,7 @@ async def test_cancellation_after_dismount_still_remounts_ipm(
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert fake.mounted[IPM_DIR] is True  # the remount ran before cancellation propagated
+    assert fake.mounted[IPM_DIR] is True  # the remount ran before the cancel propagated
     assert [p[0] for p in fake.posts] == ["/v2/database-dir/dismount", "/v2/database-dir/mount"]
     assert not demo_rehearsal._rehearsal_lock.locked()
 

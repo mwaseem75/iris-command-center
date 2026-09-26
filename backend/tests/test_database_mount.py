@@ -1,7 +1,4 @@
-"""Tests for database.mount. Every test uses a fake/mock IRISClient
-(AsyncMock) — no real network call is made, and no test performs a real
-database mount.
-"""
+"""Tests for database.mount, using a mocked IRISClient."""
 
 from typing import Any
 from unittest.mock import AsyncMock
@@ -25,8 +22,7 @@ _DIRECTORY = "/usr/irissys/mgr/mydb/"
 
 
 def _info_task(mounted: Any) -> dict[str, Any]:
-    """A real-shaped finished async task for POST /v2/database-dir/info —
-    only the fields this handler reads are populated."""
+    """Finished POST /v2/database-dir/info task with just the fields the handler reads."""
     return {
         "State": "Finished",
         "TaskName": "POST /v2/database-dir/info",
@@ -248,7 +244,7 @@ async def test_verification_is_bounded_and_fails_if_never_mounted(
     result = await executor.execute(_request(), _context())
 
     assert result.status is OperationResultStatus.VERIFICATION_FAILED
-    # 1 validation read + 4 verify reads (one immediate + three retries).
+    # 1 validation read + 4 verify reads (one right away, three retries).
     assert fake_iris_client.wait_for_async_task.await_count == 5
     assert "after 4 attempts" in result.verification.detail
 

@@ -1,13 +1,9 @@
-"""Tests for the four wired-up IRIS read-only routes.
+"""Tests for the basic IRIS read routes (info, namespaces, databases,
+processes).
 
-Uses mocks (an AsyncMock standing in for IRISClient, injected via FastAPI's
-dependency_overrides) rather than the real IRIS container — per Step 2's
-instruction, this suite must not require icc-iris-dev to be running. The
-canned response bodies below are the ACTUAL response bodies captured during
-Phase 1 verification (see docs/api-capability-matrix.md /
-docs/phase-1-iris-container-verification.md), not invented data — the
-process/database/namespace lists are trimmed subsets of the real captured
-entries, not fabricated ones.
+IRISClient is replaced with an AsyncMock through dependency_overrides, so
+IRIS doesn't need to be running. The canned bodies are trimmed real
+responses.
 """
 
 from typing import Any
@@ -146,11 +142,9 @@ PROCESSES_BODY: dict[str, Any] = {
 }
 
 
-# mock_iris_client/client fixtures now live in conftest.py, shared across
-# all IRIS route test files.
+# mock_iris_client/client fixtures are in conftest.py.
 
-# --- Successful responses + client-interaction (proves routes delegate to
-#     the shared client rather than duplicating auth/request logic) ---
+# --- Successful responses (routes go through the shared client) ---
 
 
 def test_get_info_success(client: TestClient, mock_iris_client: AsyncMock) -> None:

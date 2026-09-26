@@ -1,17 +1,8 @@
-"""Routes for the VERIFIED, read-only IRIS SysAdmin REST API endpoints.
-All authentication/session handling is delegated entirely to the shared
-IRISClient (via the get_iris_client dependency) — no route here performs
-its own login or holds its own token.
+"""Read-only routes over the IRIS Admin REST API.
 
-No route in this module ever changes IRIS state. GET /security/audit/records
-and GET /databases/info are the exceptions to "only GET requests are made
-against IRIS": IRIS itself models each as a (potentially long-running)
-async task, started via POST and polled via GET (see
-app/iris_client/client.py's post_async_task/wait_for_async_task and
-docs/api-capability-matrix.md) — that POST is IRIS's own read/query
-mechanism, not a mutation, and is not gated by this project's
-authorization/confirmation/execution framework, the same way every other
-route here isn't.
+Login and tokens are handled by the shared IRISClient. None of these routes
+change IRIS state. Audit records, database info and integrity checks are
+IRIS async tasks (a POST to start, then polling), but they're still reads.
 """
 
 import asyncio
@@ -74,13 +65,7 @@ _IRIS_CLIENT_ERRORS = (
 def _as_http_exception(
     exc: IRISAuthError | IRISConnectionError | IRISTimeoutError | IRISResponseError | IRISAsyncTaskError,
 ) -> HTTPException:
-    """Translate an IRIS client error into a safe HTTPException.
-
-    Never includes a credential, password, or JWT value — the underlying
-    exceptions never carry one in the first place (see
-    app/iris_client/exceptions.py), and only the exception type/status code
-    is used here, never the raw IRIS response body.
-    """
+    """Map an IRIS client error to an HTTPException without exposing the IRIS response body."""
     if isinstance(exc, IRISAuthError):
         return HTTPException(status_code=502, detail="Could not authenticate with IRIS")
     if isinstance(exc, IRISConnectionError):
@@ -93,9 +78,7 @@ def _as_http_exception(
             detail=f"IRIS returned an unexpected HTTP {exc.status_code}",
         )
     if isinstance(exc, IRISAsyncTaskError):
-        # IRIS's own task state ("Failed"/"Canceled") is a safe, non-sensitive
-        # string — it is not a credential or raw response body, so it is
-        # surfaced as-is, the same discipline as the other branches here.
+        # IRIS's task state ("Failed"/"Canceled") is safe to show.
         return HTTPException(
             status_code=502,
             detail=f"IRIS's audit record query did not complete successfully ({exc.state or 'timed out'})",
@@ -139,22 +122,10 @@ async def get_database_info(
     dir: str,
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[DatabaseInfoResult]:
-    """Non-configurable storage info (block size, allocated size, available
-    space, host disk free space, mount/full/encrypted/mirrored status) for
-    one database, keyed by its real Directory — the data behind the
-    Database Explorer's "View Info" drawer action.
+    """Storage info for one database (sizes, free space, mount state), keyed by
+    its Directory. Backs the "View Info" action on the Databases page.
 
-    `dir` is exactly mainspec_v2.json's own documented query parameter name
-    for `POST /v2/database-dir/info` (the `DBDirectory` component) — not
-    renamed, matching this file's existing discipline (see
-    get_audit_records' filter parameters).
-
-    Read-only: mainspec_v2.json documents this as a plain informational
-    view (no request body, nothing configurable is changed), even though
-    IRIS itself runs it as an async task (POST to start, then poll to
-    completion — same pattern get_audit_records above already uses). This
-    route is therefore, like every other route in this file, never gated
-    by this project's authorization/confirmation/execution framework.
+    IRIS runs this as an async task (POST /v2/database-dir/info, then poll).
     """
     try:
         task_id = await client.post_async_task("/v2/database-dir/info", params={"dir": dir})
@@ -174,43 +145,13 @@ async def get_database_integrity_check(
     partialCheck: bool | None = None,
     client: IRISClient = Depends(get_iris_client),
 ) -> DatabaseIntegrityCheckResult:
-    """Run an integrity check on one database, keyed by its real Directory —
-    the data behind the Database Explorer's "Run Integrity Check" drawer
-    action.
+    """Run an integrity check on one database, keyed by its Directory.
 
-    `dir` is translated into mainspec_v2.json's own documented request body
-    for `POST /v2/database-dir/integrity-check` — `{"Databases": [{"Directory":
-    dir}], ...}` — a JSON body, unlike GET /databases/info's plain `dir` query
-    parameter, because that is genuinely this endpoint's real, documented
-    shape (an array of {Directory, Globals} entries, not a single query
-    param) — confirmed by reading spec/mainspec_v2.json directly, not
-    guessed. This route only ever checks the ONE database its own `dir`
-    names (a single-entry `Databases` array), matching every other
-    single-database action in this file (get_database_info); the spec's own
-    optional per-entry `Globals` filter and bulk multi-database checking are
-    not exposed here — a deliberately smaller, focused surface for this
-    first pass. `maxProcesses`/`partialCheck` map directly to the spec's own
-    optional `MaxProcesses`/`PartialCheck` body fields, forwarded only when
-    the caller actually supplies them.
-
-    Unlike get_database_info, this endpoint's response has NEVER been
-    observed against a real IRIS instance — an integrity check is a real,
-    resource-intensive scan of live data, not a quick metadata read, and
-    executing one was explicitly out of scope for this implementation (see
-    DatabaseIntegrityCheckResult's own docstring in app/models/iris.py).
-    This route therefore returns IRIS's own async-task envelope RAW — State,
-    TaskName, Console, FailureReason, Result, Time* — rather than unwrapping
-    just a `Result` the way get_database_info does, since this operation's
-    real outcome may be conveyed via Console/FailureReason as much as via
-    Result, and `Result`'s own shape is intentionally left untyped (`Any`)
-    rather than guessed.
-
-    Read-only: mainspec_v2.json documents this as verifying existing data,
-    never modifying it, even though IRIS itself runs it as an async task
-    (POST to start, then poll to completion — same pattern get_database_info
-    and get_audit_records above already use). This route is therefore, like
-    every other route in this file, never gated by this project's
-    authorization/confirmation/execution framework.
+    IRIS takes a JSON body here ({"Databases": [{"Directory": dir}], ...}); we
+    only check the one database and forward maxProcesses/partialCheck when
+    given. The async task envelope (State, Console, FailureReason, Result, ...)
+    is returned as-is, because the outcome can be in Console or FailureReason
+    and we've never seen a real Result to model it on.
     """
     body: dict[str, Any] = {"Databases": [{"Directory": dir}]}
     if maxProcesses is not None:
@@ -231,8 +172,7 @@ async def get_database_integrity_check(
 async def get_database_storage(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[DatabaseStorageEntry]]:
-    """Every local database's size in one read (GET /v2/database-dirs) —
-    the Dashboard's Database Storage panel. Read-only."""
+    """Size and status of every local database (GET /v2/database-dirs)."""
     try:
         raw = await client.get("/v2/database-dirs")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -244,9 +184,7 @@ async def get_database_storage(
 async def get_monitor_dashboard(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[MonitorDashboard]:
-    """IRIS's own system dashboard (GET /v2/monitor/dashboard/main,
-    %Admin_Operate:U): performance, health indicators, alert counts,
-    licensing and upcoming tasks. Read-only."""
+    """IRIS system dashboard: performance, health, alerts, licensing, upcoming tasks."""
     try:
         raw = await client.get("/v2/monitor/dashboard/main")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -281,15 +219,9 @@ async def get_web_app_detail(
     name: str,
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[WebAppDetail]:
-    """Full configuration of one web application, keyed by its real Name
-    (e.g. "/api/admin") — the data behind the Web Apps Explorer's detail
-    drawer.
+    """Full configuration of one web application, looked up by Name.
 
-    `name` is exactly mainspec_v2.json's own documented query parameter for
-    `GET /v2/web-app`, not renamed. A query parameter (not a path segment)
-    because web app names themselves contain slashes. Read-only: a plain
-    GET, never gated by the authorization/confirmation/execution framework,
-    like every other route in this file.
+    Name is a query parameter because web app names contain slashes.
     """
     try:
         raw = await client.get("/v2/web-app", params={"name": name})
@@ -303,15 +235,9 @@ async def get_web_app_detail(
 async def get_web_sessions(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[WebSessionEntry]]:
-    """Active CSP/REST web sessions (GET /v2/web-sessions) — the data behind
-    the Web Apps Explorer's read-only Sessions section.
+    """Active web sessions (GET /v2/web-sessions).
 
-    Every session's IRIS `ID` (the CSP session identifier, and the exact
-    value DELETE /v2/web-session?id= takes) is removed here, server-side:
-    WebSessionEntry does not model it, so validation drops it and neither
-    the browser nor any response ever sees it. Read-only; never gated by
-    the authorization/confirmation/execution framework, like every other
-    route in this file.
+    The session ID isn't in our model, so it never reaches the browser.
     """
     try:
         raw = await client.get("/v2/web-sessions")
@@ -319,8 +245,8 @@ async def get_web_sessions(
         raise _as_http_exception(exc) from exc
     return IRISEnvelope[list[WebSessionEntry]].model_validate(raw)
 
-# Swagger 2.0 path-item keys that are HTTP operations (everything else in a
-# path item, e.g. "parameters", is not an endpoint).
+# Swagger path-item keys that are HTTP operations (others, like
+# "parameters", aren't endpoints).
 _SWAGGER_HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch"})
 
 
@@ -329,9 +255,9 @@ def _optional_str(value: Any) -> str | None:
 
 
 def _rest_parameter(raw: dict[str, Any], shared: dict[str, Any]) -> RestEndpointParameter:
-    """One Swagger parameter, with a "#/parameters/<name>" $ref resolved
-    against the spec's own top-level `parameters`. A $ref that can't be
-    resolved is kept verbatim as `ref` — never guessed."""
+    """One Swagger parameter, with a "#/parameters/<name>" $ref resolved.
+    An unresolvable $ref is kept as `ref`.
+    """
     ref = raw.get("$ref")
     if isinstance(ref, str):
         prefix = "#/parameters/"
@@ -353,10 +279,9 @@ def _rest_parameter(raw: dict[str, Any], shared: dict[str, Any]) -> RestEndpoint
 
 
 def _rest_endpoints(spec: dict[str, Any]) -> list[RestEndpoint]:
-    """Flattens a Swagger 2.0 `paths` object into one RestEndpoint per
-    (path, method), in the document's own order. Path-level parameters
-    (Swagger lets a path item declare them for all its operations) are
-    prepended to each operation's own."""
+    """Flatten Swagger `paths` into one entry per (path, method), in order.
+    Path-level parameters are added in front of each operation's own.
+    """
     shared = spec.get("parameters") if isinstance(spec.get("parameters"), dict) else {}
     paths = spec.get("paths") if isinstance(spec.get("paths"), dict) else {}
     endpoints: list[RestEndpoint] = []
@@ -391,23 +316,14 @@ async def get_web_app_rest_endpoints(
     name: str,
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[RestRouteMap]:
-    """The REST route map of one web application, keyed by its real Name —
-    the data behind the Web Apps Explorer's "REST Endpoints" tab.
+    """REST route map of one web application (the "REST Endpoints" tab).
 
-    Two read-only GETs against IRIS's API Management API (/api/mgmnt — not
-    part of mainspec_v2.json; see IRISClient.get_mgmnt for why it uses HTTP
-    Basic rather than the /api/admin JWT):
-      1. GET /api/mgmnt/ — IRIS's own list of REST applications in every
-         namespace. An app not in this list is not a REST app as far as
-         IRIS is concerned (404 here), and the list supplies the app's real
-         namespace for step 2 rather than trusting the caller.
-      2. GET /api/mgmnt/v1/{namespace}/spec{name} — a Swagger 2.0 document
-         IRIS generates from the dispatch class's route map. IRIS answers
-         404 when it cannot generate one (observed live for
-         /api/interop-editors), surfaced here as a distinct 404 detail.
-
-    Never gated by the authorization/confirmation/execution framework:
-    nothing here changes IRIS state, like every other route in this file.
+    Uses /api/mgmnt (HTTP Basic, see IRISClient.get_mgmnt):
+    1. GET /api/mgmnt/ lists REST apps in every namespace. If the app isn't
+       there it's not a REST app (404), and we take its namespace from here.
+    2. GET /api/mgmnt/v1/{namespace}/spec{name} returns a Swagger doc built
+       from the dispatch class. IRIS returns 404 when it can't build one
+       (e.g. /api/interop-editors).
     """
     try:
         rest_apps = await client.get_mgmnt("/")
@@ -477,17 +393,17 @@ async def get_tasks(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelo
     return IRISEnvelope[list[TaskEntry]].model_validate(raw)
 
 
-# At most this many GET /v2/task/info calls are in flight at once for one
-# overview request (16 tasks on icc-iris-dev).
+# Max concurrent /v2/task/info calls per overview request.
 _TASK_INFO_CONCURRENCY = 8
 
 
 def _task_state(info: TaskInfo | None) -> str | None:
-    """A task's run state, derived from GET /v2/task/info only — never from
-    the list's `Suspended`, which was observed reporting `false` for
-    suspended tasks. "Running" is mainspec_v2.json's documented Status -1
-    (JobRunning) and wins over Suspended, because a suspended task's job can
-    still be executing. None when the info call failed: unknown, not guessed."""
+    """Work out a task's state from /v2/task/info.
+
+    We don't trust the list's Suspended flag (it reported false for suspended
+    tasks). Status -1 means running, which wins over Suspended. None if the
+    info call failed.
+    """
     if info is None:
         return None
     if info.Status == "-1":
@@ -501,14 +417,10 @@ def _task_state(info: TaskInfo | None) -> str | None:
 async def get_tasks_overview(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[TaskOverviewEntry]]:
-    """Every task from GET /v2/tasks, each merged with its own GET
-    /v2/task/info (run status, last result, reliable Suspended flag) and a
-    derived State — the data behind the Tasks view's table and KPI cards.
+    """All tasks, each combined with its /v2/task/info and a derived State.
 
-    The list call failing fails the request. A single task's info call
-    failing does not: that task's Info/State are None and a warning is
-    added to status.errors (naming only the task id), so the rest of the
-    page still renders. Read-only: only GETs are sent.
+    If the list call fails the request fails. If one task's info call fails,
+    that task gets no State and a warning is added to status.errors.
     """
     try:
         raw = await client.get("/v2/tasks")
@@ -556,9 +468,8 @@ async def get_tasks_overview(
     )
 
 
-# Settings keys (case-insensitive substrings) whose values never leave this
-# backend. Settings is TaskClass-specific and arbitrary; e.g. the built-in
-# Diagnostic Report task's Settings include SMTPPass.
+# Settings keys (case-insensitive substrings) we never send to the
+# browser. E.g. the Diagnostic Report task has an SMTPPass setting.
 _SENSITIVE_SETTING_MARKERS = (
     "pass",
     "pwd",
@@ -578,10 +489,10 @@ def _is_sensitive_setting(key: str) -> bool:
 
 
 def _redact_settings(value: Any, path: str, redacted: list[str]) -> Any:
-    """Returns a copy of `value` with every sensitive key's value replaced by
-    None, recursing into nested objects/arrays; each redacted key path is
-    appended to `redacted`. The value is redacted whether or not it is
-    empty, so a response never reveals whether a secret is set."""
+    """Copy `value` with sensitive keys set to None (recursively) and record
+    their paths in `redacted`. Empty values are redacted too, so the response
+    doesn't reveal whether a secret is set.
+    """
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, item in value.items():
@@ -602,11 +513,8 @@ async def get_task_detail(
     id: int,
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[TaskDetail]:
-    """Full configuration of one task (GET /v2/task?id=), the data behind
-    the Tasks view's detail drawer. `id` is mainspec_v2.json's own query
-    parameter name. Sensitive Settings keys are redacted here, server-side,
-    before the response is built (see _redact_settings). IRIS's documented
-    404 for an unknown id is surfaced as a 404. Read-only: a plain GET.
+    """Full configuration of one task (GET /v2/task?id=), with sensitive
+    Settings redacted. An unknown id returns 404.
     """
     try:
         raw = await client.get("/v2/task", params={"id": id})
@@ -630,7 +538,7 @@ async def get_task_detail(
 async def get_task_manager(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[TaskManagerStatus]:
-    """The Task Manager's own status (GET /v2/task/manager). Read-only."""
+    """Task Manager status (GET /v2/task/manager)."""
     try:
         raw = await client.get("/v2/task/manager")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -642,8 +550,7 @@ async def get_task_manager(
 async def get_fs_access_purposes(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[Any]]:
-    # No entry shape has ever been observed populated on this instance
-    # (result was always []); see app/models/iris.py's module docstring.
+    # We've only ever seen an empty list here.
     try:
         raw = await client.get("/v2/fs-access-purposes")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -662,11 +569,10 @@ async def get_journal_settings(
     return IRISEnvelope[JournalSettings].model_validate(raw)
 
 
-# The three OAuth2 routes below return allowlisted fields only (the same
-# models as app/routes/security_access.py's OAuth overview), never IRIS's
-# raw body: IRIS's OAuth2 classes also hold client secrets and tokens.
-# response_model_exclude_none keeps a field IRIS didn't report out of the
-# response, so the documented "not configured" body stays `result: {}`.
+# The OAuth2 routes below only return allowlisted fields, because
+# IRIS's OAuth2 objects also contain client secrets and tokens.
+# response_model_exclude_none keeps unreported fields out, so the
+# "not configured" response stays `result: {}`.
 
 
 @router.get(
@@ -677,15 +583,11 @@ async def get_journal_settings(
 async def get_oauth2_server(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[OAuth2ServerConfigView]:
-    """View this instance's OAuth2 Authorization Server configuration.
+    """OAuth2 Authorization Server configuration.
 
-    IRIS returns a documented, valid `404` when it isn't configured to act
-    as an OAuth2 Authorization Server (see api-capability-matrix.md) — that
-    is an application-level fact, not a communication failure. This route
-    treats it as a normal, successful read: it returns HTTP 200 with the
-    real status/console/result body IRIS sent, rather than propagating it
-    as an upstream error. A real "configured" success body has never been
-    observed on this instance, so every allowlisted field is optional.
+    IRIS returns 404 when this instance isn't an OAuth2 server. That's a normal
+    answer, so we return 200 with IRIS's body instead of an error. All fields
+    are optional since we've never seen a configured server here.
     """
     try:
         raw = await client.get("/v2/security/oauth2/server")
@@ -706,7 +608,7 @@ async def get_oauth2_server(
 async def get_oauth2_client_server_definitions(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[OAuth2ServerDefinitionEntry]]:
-    # No entry shape has ever been observed populated (result was always []).
+    # We've only ever seen an empty list here.
     try:
         raw = await client.get("/v2/security/oauth2/client/server-definitions")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -722,7 +624,7 @@ async def get_oauth2_client_server_definitions(
 async def get_oauth2_server_clients(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[OAuth2ServerClientEntry]]:
-    # No entry shape has ever been observed populated (result was always []).
+    # We've only ever seen an empty list here.
     try:
         raw = await client.get("/v2/security/oauth2/server/clients")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -734,7 +636,7 @@ async def get_oauth2_server_clients(
 async def get_wallet_collections(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[Any]]:
-    # No entry shape has ever been observed populated (result was always []).
+    # We've only ever seen an empty list here.
     try:
         raw = await client.get("/v2/wallet/collections")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -769,22 +671,11 @@ async def get_audit_records(
     ascending: int | None = None,
     jsonSearch: str | None = None,
 ) -> IRISEnvelope[list[AuditRecordEntry]]:
-    """Search IRIS's security audit log — the data behind the Logs /
-    Investigation view.
+    """Search the IRIS security audit log (backs the Investigation page).
 
-    Every query parameter here is exactly one `spec/mainspec_v2.json`
-    documents for `POST /v2/security/audit/records` (comma-separated filter
-    lists, an ascending/descending flag, and a JSON-field search string) —
-    none is invented, and all are optional, matching an unfiltered "list
-    everything" query when omitted.
-
-    IRIS runs this as an async task (POST to start, then poll to
-    completion — see app/iris_client/client.py's post_async_task/
-    wait_for_async_task and docs/api-capability-matrix.md); this route waits
-    for that polling to finish and returns just the finished task's `Result`
-    array, in the same IRISEnvelope[list[...]] shape every other list route
-    in this file already returns, so the frontend never needs to know about
-    IRIS's task/polling mechanics.
+    The query parameters are the ones POST /v2/security/audit/records accepts;
+    all are optional. IRIS runs this as an async task; we wait for it and return
+    the Result list in the usual envelope.
     """
     params = {
         "beginDateTime": beginDateTime,

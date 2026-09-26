@@ -1,11 +1,8 @@
-"""Tests for GET /api/iris/web-apps/rest-endpoints?name=<Name> — the Web Apps
-Explorer's "REST Endpoints" tab — and for IRISClient.get_mgmnt(), the
-read-only /api/mgmnt transport it relies on.
+"""Tests for GET /api/iris/web-apps/rest-endpoints?name=<Name> (the REST
+Endpoints tab) and for IRISClient.get_mgmnt().
 
-No real IRIS call is made. Every canned body below is a verbatim fragment
-captured from icc-iris-dev's GET /api/mgmnt/ and
-GET /api/mgmnt/v1/%25SYS/spec/{app} (the /api/iknow operation is trimmed of
-its long description only) — not invented data.
+No real IRIS calls. The canned bodies are copied from real /api/mgmnt/
+responses (the /api/iknow description is trimmed).
 """
 
 import time
@@ -24,7 +21,7 @@ from app.iris_client.exceptions import IRISConnectionError, IRISResponseError
 _UNEXPECTED = {"description": "(Unexpected Error)"}
 _EXPECTED = {"description": "(Expected Result)"}
 
-# GET /api/mgmnt/ (subset of the 9 real entries).
+# GET /api/mgmnt/ (a few of the real entries).
 REST_APPS: list[dict[str, Any]] = [
     {
         "name": "/api/monitor",
@@ -114,7 +111,7 @@ IKNOW_SPEC: dict[str, Any] = {
 
 
 def _mgmnt(responses: dict[str, Any]) -> AsyncMock:
-    """A get_mgmnt stand-in answering by path; an Exception value is raised."""
+    """Fake get_mgmnt that answers by path; Exception values are raised."""
 
     async def fake(path: str) -> Any:
         value = responses[path]
@@ -159,8 +156,8 @@ def test_rest_endpoints_success(client: TestClient, mock_iris_client: AsyncMock)
             "ref": None,
         }
     ]
-    # The spec path is built from IRIS's own namespace — the same URL IRIS
-    # itself advertises as swaggerSpec for this app.
+    # The spec URL uses IRIS's own namespace, same as the swaggerSpec it
+    # advertises for this app.
     assert [c.args[0] for c in mock_iris_client.get_mgmnt.await_args_list] == [
         "/",
         "/v1/%25SYS/spec/api/monitor",
@@ -206,8 +203,7 @@ def test_rest_endpoints_keeps_unresolvable_ref_verbatim(
 def test_rest_endpoints_rejects_app_iris_does_not_list_as_rest(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A CSP app (e.g. /csp/user) is not in IRIS's REST list — no spec
-    request is made for it at all."""
+    """A CSP app like /csp/user isn't in IRIS's REST list, so no spec request is made."""
     mock_iris_client.get_mgmnt = _mgmnt({"/": REST_APPS})
 
     response = client.get("/api/iris/web-apps/rest-endpoints", params={"name": "/csp/user"})
@@ -220,8 +216,7 @@ def test_rest_endpoints_rejects_app_iris_does_not_list_as_rest(
 def test_rest_endpoints_reports_when_iris_cannot_generate_a_route_map(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """Observed live: /api/interop-editors is a REST app, but IRIS answers
-    its spec request with 404 (ERROR #8750)."""
+    """/api/interop-editors is a REST app, but IRIS 404s its spec (ERROR #8750)."""
     mock_iris_client.get_mgmnt = _mgmnt(
         {
             "/": REST_APPS,
@@ -314,9 +309,9 @@ async def test_get_mgmnt_uses_basic_auth_get_only_against_api_mgmnt() -> None:
 )
 @pytest.mark.asyncio
 async def test_get_mgmnt_refuses_paths_outside_api_mgmnt(path: str) -> None:
-    """Basic credentials may only ever be sent strictly under /api/mgmnt/
-    on the configured IRIS host — a path that would escape it is refused
-    before any request (and so any Authorization header) exists."""
+    """Basic credentials only go to /api/mgmnt/ on the configured host. Paths
+    that escape it are refused before any request is built.
+    """
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -333,8 +328,7 @@ async def test_get_mgmnt_refuses_paths_outside_api_mgmnt(path: str) -> None:
 
 @pytest.mark.asyncio
 async def test_get_mgmnt_does_not_follow_redirects() -> None:
-    """A redirect from IRIS is never followed, so the Basic header can't be
-    replayed to wherever it points."""
+    """Redirects aren't followed, so the Basic header can't be sent elsewhere."""
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -349,8 +343,7 @@ async def test_get_mgmnt_does_not_follow_redirects() -> None:
 
 @pytest.mark.asyncio
 async def test_jwt_requests_are_unchanged_and_never_carry_basic_auth() -> None:
-    """The existing /api/admin path still sends only the Bearer token — the
-    shared _send() refactor must not leak Basic auth into it."""
+    """/api/admin requests still only send the Bearer token, never Basic auth."""
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

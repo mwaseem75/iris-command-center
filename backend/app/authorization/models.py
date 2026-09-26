@@ -1,6 +1,4 @@
-"""Structured authorization decision model. Future API routes should use
-this consistently rather than inventing their own ad-hoc authorization
-response shapes."""
+"""Result type returned by the authorization service."""
 
 from enum import Enum
 
@@ -14,13 +12,11 @@ class AuthorizationDenialReason(str, Enum):
 
 
 class AuthorizationResult(BaseModel):
-    """The outcome of an authorization decision. Never carries a credential,
-    token, or privilege claim that wasn't already known to the caller.
+    """Outcome of an authorization check.
 
-    `authorized` reflects the privilege check alone — whether the caller
-    holds the operation's required privilege. It can be True even when the
-    operation is still blocked overall (a mutating operation that is
-    authorized but not yet confirmed): that overall verdict is `can_proceed`.
+    `authorized` is only the privilege check. `can_proceed` is the overall
+    answer, e.g. a mutating operation can be authorized but still waiting
+    for confirmation.
     """
 
     model_config = ConfigDict(frozen=True)

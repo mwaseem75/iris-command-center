@@ -1,11 +1,9 @@
-"""Tests for the read-only Wallet routes in app/routes/security_access.py.
+"""Tests for the Wallet routes in app/routes/security_access.py.
 
-icc-iris-dev has no wallet collections, so populated bodies here follow
-mainspec_v2.json's WalletCollectionList / WalletCollection /
-WalletSecretList shapes. To prove the allowlist, several canned bodies
-deliberately carry value-bearing fields IRIS is NOT documented to return on
-these GETs (`Secret`, `WalletSecretConfig`, `Password`) with sentinel
-values; none of those values may ever appear in a response.
+Our instance has no wallet collections, so the bodies follow the spec.
+Some include fields IRIS shouldn't return here (`Secret`,
+`WalletSecretConfig`, `Password`) set to a sentinel, which must never show
+up in a response.
 """
 
 import copy
@@ -30,7 +28,7 @@ def envelope(result: Any) -> dict[str, Any]:
 
 COLLECTIONS = [
     {"Name": "Payments", "EditResource": "%Admin_Wallet:USE", "UseResource": "%DB_USER:READ",
-     # Not documented for this GET — must be dropped.
+     # Not returned by this GET, so it must be dropped.
      "Secret": "sentinel-secret-value"},
     {"Name": "Integrations", "EditResource": "%Admin_Manage", "UseResource": "%Development"},
 ]
@@ -38,7 +36,7 @@ COLLECTIONS = [
 SECRETS = {
     "Payments": [
         {"Name": "Payments.StripeKey", "Type": "%Wallet.KeyValue",
-         # Not documented for this GET — must be dropped.
+         # Not returned by this GET, so it must be dropped.
          "WalletSecretConfig": {"Secret": {"user": "u", "password": "sentinel-password"}},
          "Secret": "sentinel-api-key"},
         {"Name": "Payments.SigningKey", "Type": "%Wallet.RSA", "PrivateKey": "sentinel-private-key"},
@@ -105,7 +103,7 @@ def test_overview_returns_names_types_and_permissions_only(client: TestClient, i
 
 
 def test_overview_empty_wallet(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """The live icc-iris-dev case: no collections at all."""
+    """No collections at all (what our instance has)."""
     mock_iris_client.get.return_value = envelope([])
 
     body = client.get("/api/iris/security/wallet/overview").json()
@@ -172,8 +170,8 @@ def test_connection_error_is_generic(client: TestClient, mock_iris_client: Async
 
 
 def test_wallet_routes_are_registered_as_get_only() -> None:
-    # The OpenAPI schema lists every registered route and its methods,
-    # including those in included routers.
+    # The OpenAPI schema lists every route and its methods, including
+    # included routers.
     paths = app.openapi()["paths"]
     wallet_paths = {path: ops for path, ops in paths.items() if path.startswith("/api/iris/security/wallet")}
     assert set(wallet_paths) == {

@@ -1,14 +1,7 @@
-"""The handler for `journal.update_purge_archived` — the project's first
-REAL mutating operation handler (see docs/first-mutation-selection.md and
-docs/first-mutation-implementation.md).
+"""Handler for journal.update_purge_archived.
 
-As of Phase 2 Step 7, this handler exists and is fully implemented, but has
-NOT been executed against any real IRIS instance. All tests exercising it
-use a fake/mock IRIS client — see backend/tests/test_journal_purge_archived.py.
-
-Only the `PurgeArchived` field of IRIS's JournalSettings is ever read from
-the request or sent in the PUT body — no other journal setting is touched
-by this handler.
+Only the PurgeArchived journal setting is read from the request or sent
+to IRIS (PUT /v2/journal/settings); no other journal setting is changed.
 """
 
 from pydantic import BaseModel, ConfigDict
@@ -29,16 +22,8 @@ _JOURNAL_SETTINGS_PATH = "/v2/journal/settings"
 
 
 class JournalPurgeArchivedParameters(BaseModel):
-    """The ONLY parameter this operation accepts. Field name matches IRIS's
-    own JournalSettings.PurgeArchived exactly, since this is sent verbatim
-    as the PUT body — no translation, no other JournalSettings field is
-    exposed through this operation.
-
-    `extra="forbid"`: any other field (e.g. ArchiveName, or any other
-    JournalSettings property) is REJECTED outright rather than silently
-    ignored. The PUT body is, separately, always built as a hardcoded
-    {"PurgeArchived": ...} literal regardless — this is defense-in-depth,
-    not the only thing preventing other fields from being sent.
+    """The only parameter. The PUT body is always built as
+    {"PurgeArchived": ...}, and any other field is rejected.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -47,10 +32,7 @@ class JournalPurgeArchivedParameters(BaseModel):
 
 
 class JournalUpdatePurgeArchivedHandler(OperationHandler):
-    """Requires an IRISClient, supplied by the caller (typically a route),
-    so this handler can be unit-tested with a fake/mock client instead of a
-    real one. See app/dependencies.py for how a real IRISClient is normally
-    obtained."""
+    """Takes an IRISClient so tests can pass a fake."""
 
     def __init__(self, iris_client: IRISClient):
         self._iris_client = iris_client
@@ -67,8 +49,7 @@ class JournalUpdatePurgeArchivedHandler(OperationHandler):
     async def dry_run(
         self, request: OperationRequest, context: ExecutionContext
     ) -> HandlerExecutionResult:
-        """Reads current state (a GET, not a mutation) to make the
-        simulation informative, but NEVER calls put()."""
+        """Reads the current value (a GET) but never sends the PUT."""
         target = self._target_value(request)
         current = await self._read_current_purge_archived()
         return HandlerExecutionResult(
@@ -89,10 +70,7 @@ class JournalUpdatePurgeArchivedHandler(OperationHandler):
     ) -> HandlerExecutionResult:
         target = self._target_value(request)
 
-        # Pre-action state capture, per this step's requirement 8 — the
-        # original value is preserved in the result's `data` so a future
-        # explicit rollback operation has it available. No credential or
-        # JWT is ever placed in `data`.
+        # Keep the original value in `data` so the change can be undone.
         original = await self._read_current_purge_archived()
 
         put_raw = await self._iris_client.put(
@@ -116,8 +94,7 @@ class JournalUpdatePurgeArchivedHandler(OperationHandler):
         context: ExecutionContext,
         execution_result: HandlerExecutionResult,
     ) -> PostActionVerificationResult:
-        """Post-action verification: a fresh GET, independent of the PUT
-        response, confirming the requested value actually persisted."""
+        """Re-read the setting with a fresh GET and check the new value stuck."""
         target = execution_result.data.get("requested_purge_archived")
         actual = await self._read_current_purge_archived()
 

@@ -1,26 +1,14 @@
-// Journal view: fetches GET /api/iris/journal/settings ONLY and renders a
-// read-only breakdown of the connected IRIS instance's journal
-// configuration. No other endpoint is called from this module, and no
-// mutating HTTP method is used anywhere in it — in particular, this view
-// intentionally does NOT expose a control for the existing
-// journal.update_purge_archived operation (see
-// docs/first-mutation-implementation.md); PurgeArchived is shown as plain
-// information only, with a note explaining the relationship.
+// Journal page: read-only view of the journal settings (one call to
+// GET /api/iris/journal/settings). Changing PurgeArchived is done from the
+// Operations page, not here.
 //
-// Fields shown are exactly the ones backend/app/models/iris.py's
-// JournalSettings actually defines — nothing invented. FileSizeLimit and
-// targwijsz are documented (docs/first-mutation-selection.md) as MB
-// integers; every other field is rendered as IRIS returns it.
-//
-// Layout: a row of KPI cards (five of those same live fields, from the same
-// single response — no derived or invented metric), the full configuration
-// list, and two navigation-only panels: Operations (where the protected
-// PurgeArchived change is made) and Investigation (IRIS audit records).
+// FileSizeLimit and targwijsz come back as MB integers; everything else is
+// shown as IRIS returns it.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—"; // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("journal-loading-state"),
@@ -44,9 +32,7 @@ const dom = {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in the other views.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -76,18 +62,14 @@ function formatBoolean(value) {
   return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
 }
 
-// A boolean setting rendered as a status badge (same component already
-// used by Operations/Observability/API Explorer) instead of plain text —
-// a purely visual change, the underlying value is identical either way.
+// Show a boolean setting as a Yes/No badge.
 function makeBooleanBadge(value) {
   if (typeof value !== "boolean") {
     const span = document.createElement("span");
     span.textContent = PLACEHOLDER;
     return span;
   }
-  // Neutral on/off coloring (green = on, gray = off) — deliberately not
-  // warning/error, since a Yes/No value here carries no inherent
-  // good/bad judgment this view is in a position to make.
+  // Green for on, gray for off; neither value is "bad" here.
   const badge = document.createElement("span");
   badge.className = `status-badge ${value ? "status-badge--ok" : "status-badge--neutral"}`;
   badge.textContent = value ? "Yes" : "No";
@@ -115,8 +97,7 @@ const SETTINGS_FIELDS = [
   ["WIJ Size Target", "targwijsz", formatMegabytes],
 ];
 
-// KPI cards: the same fields and formatters as the table below. `settings`
-// null (error / no data) resets every card to the placeholder.
+// Fill the KPI cards (null resets them to the placeholder).
 function renderKpis(settings) {
   const s = settings && typeof settings === "object" ? settings : {};
   dom.kpiPurgeArchived.textContent = formatBoolean(s.PurgeArchived);
@@ -149,9 +130,7 @@ function renderSettings(settings) {
 
     const dd = document.createElement("dd");
     dd.className = "info-list__value info-list__value--mono";
-    // Boolean settings render as a status badge (visual only — the same
-    // real value formatBoolean() would have shown as text); every other
-    // field keeps its existing plain-text rendering unchanged.
+    // Booleans get a badge, everything else is plain text.
     if (format === formatBoolean) {
       dd.append(makeBooleanBadge(settings[key]));
     } else {
@@ -163,11 +142,7 @@ function renderSettings(settings) {
   }
 }
 
-/**
- * Fetches GET /api/iris/journal/settings and renders it. This is the ONLY
- * network call this module makes — no mutating request exists anywhere in
- * this file.
- */
+/** Load the journal settings and render the page. */
 export async function loadJournal() {
   setLoading(true);
   setErrorBanner(null);
@@ -177,8 +152,7 @@ export async function loadJournal() {
   try {
     response = await IrisApi.getJournalSettings();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load journal settings. The Command Center backend may be unreachable."
@@ -206,9 +180,7 @@ export async function loadJournal() {
   }
 
   if (envelopeErrors.length > 0) {
-    // The backend's own response envelope flagged something — a real,
-    // observed field (status.errors), not an invented threshold. Same
-    // pattern already used and reviewed in the other views.
+    // IRIS returned warnings in status.errors.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {
@@ -224,7 +196,7 @@ export function initJournalControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadJournal();
   });
-  // Navigation only — neither button sends a request from this view.
+  // These buttons just switch pages.
   dom.openOperationsButton.addEventListener("click", () => navigateTo("operations"));
   dom.openInvestigationButton.addEventListener("click", () => navigateTo("investigation"));
 }

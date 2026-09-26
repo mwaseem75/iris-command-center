@@ -1,6 +1,4 @@
-"""Tests for the authorization foundation: privileges, the operation
-registry, and the authorize() service. Pure unit tests — no IRIS container,
-no network, no mutation of any kind."""
+"""Tests for privileges, the operation registry and authorize()."""
 
 import pytest
 from pydantic import ValidationError
@@ -67,8 +65,7 @@ def test_missing_privilege_is_denied() -> None:
 
 
 def test_missing_privilege_denies_mutating_operation_even_with_confirmation() -> None:
-    """Confirmation never substitutes for privilege — even confirmation_received=True
-    must not grant an operation the caller lacks the privilege for."""
+    """Confirmation doesn't make up for a missing privilege."""
     result = authorize("delete_task", available_privileges=[], confirmation_received=True)
 
     assert result.authorized is False
@@ -107,9 +104,9 @@ def test_config_store_claim_is_silently_dropped_not_granted() -> None:
 
 
 def test_operation_cannot_require_config_store() -> None:
-    """No operation in the registry requires ConfigStore, and none could:
-    OperationDefinition.required_privileges is typed as frozenset[IRISPrivilege],
-    which has no ConfigStore member at all."""
+    """No operation requires ConfigStore, and none can: IRISPrivilege has no
+    ConfigStore member.
+    """
     for operation in OPERATION_REGISTRY.values():
         assert all(p.value != "ConfigStore" for p in operation.required_privileges)
 
@@ -191,8 +188,7 @@ def test_operation_cannot_require_zero_privileges() -> None:
 
 
 def test_operation_registry_has_no_bypass_or_force_fields() -> None:
-    """Guards against a future accidental field addition reintroducing a
-    bypass mechanism — the model's known fields are exactly this set."""
+    """The model's fields are exactly this set (no bypass/force field can sneak in)."""
     assert set(OperationDefinition.model_fields.keys()) == {
         "name",
         "description",
@@ -204,8 +200,7 @@ def test_operation_registry_has_no_bypass_or_force_fields() -> None:
 
 
 def test_authorize_grants_with_either_privilege_in_an_or_set() -> None:
-    """journal.update_purge_archived requires Manage OR Journal — either
-    alone must be sufficient, proving the OR semantics actually work."""
+    """journal.update_purge_archived needs Manage OR Journal; either one is enough."""
     manage_result = authorize(
         "journal.update_purge_archived", available_privileges=["Manage"], confirmation_received=True
     )

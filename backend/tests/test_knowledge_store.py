@@ -1,7 +1,7 @@
-"""Tests for the IRIS-backed knowledge store (app/knowledge/store.py),
-GET /api/iris/knowledge/search and the startup indexing wired into
-app/main.py's lifespan. No test here contacts IRIS — the `iris` driver is
-always replaced by a fake DB-API connection that records every statement."""
+"""Tests for the knowledge store (app/knowledge/store.py), the search route
+and startup indexing. The `iris` driver is replaced with a fake connection
+that records every statement.
+"""
 
 import asyncio
 import sys
@@ -49,7 +49,7 @@ class _FakeCursor:
             if conn.fail_insert_at is not None and len(conn.sql("INSERT")) == conn.fail_insert_at:
                 raise RuntimeError("<SQL ERROR> SQLCODE -104 simulated")
             conn.pending = conn.pending + [tuple(params)]
-        if conn.autocommit:  # like the real driver's default: every statement commits
+        if conn.autocommit:  # same default as the real driver: autocommit on
             conn.committed = list(conn.pending)
 
     def fetchone(self) -> tuple:
@@ -60,9 +60,9 @@ class _FakeCursor:
 
 
 class _FakeConnection:
-    """Models the driver's transaction semantics: autocommit defaults to
-    True; with it off, DELETE/INSERT changes stay pending until commit()
-    and rollback() restores the committed rows."""
+    """Mimics the driver's transactions: autocommit is on by default; with it
+    off, changes wait for commit() and rollback() undoes them.
+    """
 
     def __init__(
         self,
@@ -109,8 +109,7 @@ class _FakeConnection:
 
 @pytest.fixture
 def fake_iris(monkeypatch: pytest.MonkeyPatch):
-    """Installs a fake `iris` module; returns the list of connections it
-    handed out and the connect() arguments it received."""
+    """Install a fake `iris` module. Returns its connections and the connect() args."""
     state: dict[str, Any] = {"connections": [], "args": [], "refuse": False, "kwargs": {}}
 
     def connect(*args: Any) -> _FakeConnection:
@@ -170,7 +169,7 @@ def test_inserts_use_bound_parameters_and_to_vector(fake_iris) -> None:
         "VALUES (?, ?, ?, TO_VECTOR(?, DOUBLE, 256))"
     )
     assert params == [doc.doc_id, doc.title, doc.body, vector_literal(embed(f"{doc.title}\n{doc.body}"))]
-    # No corpus text is ever interpolated into the SQL itself.
+    # Corpus text is never put into the SQL string.
     assert all(sql == inserts[0][0] for sql, _ in inserts)
 
 
@@ -209,12 +208,12 @@ def test_failed_reindex_rolls_back_and_raises_unavailable(fake_iris) -> None:
 
 
 def test_mid_reindex_failure_rolls_back_to_the_complete_previous_rows(fake_iris) -> None:
-    # First, a successful index gives the committed baseline (all 33 rows).
+    # A successful index first, so there are 33 committed rows.
     _store().ensure_indexed_sync()
     baseline = fake_iris["connections"][0].committed
     assert len(baseline) == len(build_corpus())
 
-    # Then a reindex whose 11th INSERT fails, as the live SQLCODE -104 did.
+    # Then a reindex where the 11th INSERT fails (like the SQLCODE -104 we hit).
     fake_iris["kwargs"] = {"table_exists": True, "fail_insert_at": 11, "committed": baseline}
     store = _store()
     with pytest.raises(KnowledgeStoreUnavailableError):
@@ -222,9 +221,9 @@ def test_mid_reindex_failure_rolls_back_to_the_complete_previous_rows(fake_iris)
     conn = fake_iris["connections"][1]
 
     assert len(conn.sql("INSERT")) == 11  # DELETE + 10 inserts ran before the failure
-    assert conn.committed == baseline  # ...yet nothing of that was committed
+    assert conn.committed == baseline  # ...but none of it was committed
     assert conn.commits == 0 and conn.rollbacks == 1
-    assert conn.autocommit_changes == [False, True]  # off for the transaction, then restored
+    assert conn.autocommit_changes == [False, True]  # turned off for the transaction, then back on
     assert conn.closed and store._connection is None and store._indexed is False
 
 
@@ -369,7 +368,7 @@ def test_route_is_503_when_disabled(route_client) -> None:
 
 
 def test_route_is_disabled_without_configuration() -> None:
-    # No override and no lifespan-created store: the real dependency says disabled.
+    # No override and no store from the lifespan, so the real dependency says disabled.
     response = TestClient(app).get("/api/iris/knowledge/search", params={"q": "mount"})
     assert response.status_code == 503
 

@@ -1,39 +1,26 @@
-// Investigation view: fetches GET /api/iris/security/audit/enabled and GET
-// /api/iris/security/audit/records (via IrisApi.getAuditEnabled/
-// getAuditRecords) and renders them. No other endpoint is called from this
-// module, and no mutating HTTP method is used anywhere in it — IRIS itself
-// runs the audit-record query as an async task (POST-then-poll), but that
-// happens entirely on the backend (see backend/app/routes/iris.py's
-// get_audit_records); this view only ever sends a GET.
+// Investigation page: GET /api/iris/security/audit/enabled and
+// GET /api/iris/security/audit/records. (IRIS runs the audit query as an
+// async task, but the backend handles that; this page only sends GETs.)
 //
-// Fields shown are exactly a subset of what backend/app/models/iris.py's
-// AuditRecordEntry actually defines (Time/EventType/Event/Username/
-// Namespace/Authentication/ClientIPAddress/Description) — nothing invented.
-// See docs/api-capability-matrix.md's "POST /v2/security/audit/records"
-// entry for how that shape was verified against a real IRIS instance.
+// Shows a subset of AuditRecordEntry: Time, EventType, Event, Username,
+// Namespace, Authentication, ClientIPAddress, Description.
 //
-// Cross-links with Observability (backend/app/observability/,
-// frontend/js/observability.js): the only correlation this app ever draws
-// between an execution trace and an audit record is TIME PROXIMITY — there
-// is no shared ID linking the two, since the Command Center's own
-// execution traces and IRIS's own audit log are two entirely separate
-// systems. `setTimeWindow()` lets Observability jump here with a time
-// window pre-filled (see app.js); the "Traces near this time" button per
-// row below does the reverse, using this record's own UTCTimeStamp — never
-// an invented or assumed IRIS-side link between the two systems.
+// Link with Observability: there's no shared id between our traces and
+// IRIS's audit log, so the pages are linked by time only. setTimeWindow()
+// lets Observability open this page with a time range filled in (see
+// app.js), and each row's "Traces near this time" button goes the other
+// way using the record's UTCTimeStamp.
 //
-// Layout: KPI cards and an Audit Activity Timeline computed only from the
-// returned records (real timestamps and counts), the filters, the audit
-// table, and a centered event-detail workspace. The workspace lists the
-// Command Center traces that started inside that same ±30 s window (read
-// from GET /api/iris/observability/traces — the Command Center's own trace
-// store, not IRIS) with an Open Trace action.
+// Layout: KPI cards and an activity timeline built from the returned
+// records, filters, the audit table, and an event detail panel. The panel
+// lists Command Center traces that started within +/-30 s of the event
+// (from GET /api/iris/observability/traces), with an Open Trace button.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 import { assignColors, countBy, topCategories } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("investigation-loading-state"),
@@ -83,9 +70,7 @@ const dom = {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Search click a no-op — the same pattern already used and
-  // reviewed in the other views.
+  // Disable right away so a double click doesn't fire two requests.
   dom.searchButton.disabled = isLoading;
   dom.searchButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -110,9 +95,7 @@ function textOrPlaceholder(value) {
   return str === "" ? PLACEHOLDER : str;
 }
 
-// Table rows are always built via document.createElement + .textContent —
-// never innerHTML — so a description/event-data value containing
-// HTML-special characters can never be interpreted as markup.
+// Rows are built with createElement/textContent (no innerHTML).
 function makeCell(text, { mono = false } = {}) {
   const cell = document.createElement("td");
   cell.className = mono ? "data-table__cell data-table__cell--mono" : "data-table__cell";
@@ -121,21 +104,17 @@ function makeCell(text, { mono = false } = {}) {
   return cell;
 }
 
-// How far either side of a record's/trace's own timestamp the cross-link
-// window extends — wide enough to absorb normal clock/processing skew
-// between this backend and IRIS, without being so wide it defeats the
-// point of narrowing the search.
+// How far to widen the time window on each side, to allow for some clock
+// and processing skew between the backend and IRIS.
 const CROSS_LINK_PADDING_MS = 30_000;
 
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-// Formats a JS Date as "YYYY-MM-DD HH:MM:SS" in UTC — the shape
-// observability.js's own (UTC) time filter expects. Distinct from this
-// view's OWN beginDateTime/endDateTime filters, which IRIS interprets in
-// the server's LOCAL time (see docs/api-capability-matrix.md's "POST
-// /v2/security/audit/records" entry) — never conflated with this.
+// Format a Date as "YYYY-MM-DD HH:MM:SS" in UTC, for observability.js's
+// time filter. Not the same as this page's begin/end filters, which IRIS
+// reads as server local time.
 function formatUtcForObservabilityFilter(date) {
   return (
     `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
@@ -143,9 +122,8 @@ function formatUtcForObservabilityFilter(date) {
   );
 }
 
-// AuditRecordEntry.UTCTimeStamp (backend/app/models/iris.py) looks like
-// "2026-09-19 14:10:36.808" — genuinely UTC, but not directly
-// Date-parseable without normalizing to ISO 8601 first.
+// UTCTimeStamp looks like "2026-09-19 14:10:36.808": it's UTC, but needs
+// converting to ISO 8601 before Date can parse it.
 function parseUtcTimestamp(value) {
   if (typeof value !== "string" || !value) return null;
   const date = new Date(`${value.replace(" ", "T")}Z`);
@@ -163,20 +141,14 @@ function computeObservabilityTimeWindow(utcTimeStamp) {
 
 let onInvestigateTraces = null;
 let onOpenTrace = null;
-// The Command Center's own execution traces from the last search (GET
-// /api/iris/observability/traces — the in-memory store, not IRIS), used
-// only for the ±30 s correlation. null = could not be loaded.
+// Our own execution traces from the last search, only used for the +/-30 s
+// matching. null if they couldn't be loaded.
 let lastTraces = null;
 
-// Observability's identical-looking filter card updates instantly on every
-// keystroke (it's just re-rendering already-fetched data). This view's
-// filters map to real server-side query parameters, so a true "instant"
-// re-fetch per keystroke isn't appropriate — but leaving the two views with
-// opposite interaction models (type-and-see vs. type-then-click-Search) is
-// confusing given they're directly cross-linked to each other. Debouncing
-// gets the same "just start typing" feel without hammering the backend on
-// every character. The Search button/Enter still work immediately, for an
-// operator who wants a result right away.
+// Observability filters as you type (it only re-renders), but here the
+// filters are server query parameters. Searching on every key would hammer
+// the backend, so we debounce instead, which feels about the same. Search
+// and Enter still run right away.
 const AUTO_SEARCH_DEBOUNCE_MS = 500;
 let autoSearchTimer = null;
 
@@ -188,12 +160,12 @@ function scheduleAutoSearch() {
   }, AUTO_SEARCH_DEBOUNCE_MS);
 }
 
-/** Reads the server-side filter values into the plain object shape
- * IrisApi.getAuditRecords()/the backend's get_audit_records route expect —
- * exactly the documented, optional query parameters, nothing invented. The
- * Event Type / Event / Username / Namespace dropdowns are NOT sent: they are
- * built from the returned records and narrow them in place (see
- * applyRecordFilters), so choosing one never makes the other options vanish. */
+/**
+ * Collect the server-side filter values for getAuditRecords(). The Event
+ * Type / Event / Username / Namespace dropdowns aren't sent: they're built
+ * from the results and filter them locally (applyRecordFilters), so picking
+ * one doesn't make the other options disappear.
+ */
 function collectFilters() {
   return {
     beginDateTime: dom.filterBegin.value.trim(),
@@ -203,7 +175,7 @@ function collectFilters() {
   };
 }
 
-// [select, AuditRecordEntry field] — the in-place dropdown filters.
+// [select, AuditRecordEntry field] for the local dropdown filters.
 const RECORD_FILTERS = [
   [dom.filterEventTypes, "EventType"],
   [dom.filterEvent, "Event"],
@@ -211,9 +183,10 @@ const RECORD_FILTERS = [
   [dom.filterNamespace, "Namespace"],
 ];
 
-/** Refills each dropdown with ALL + the distinct real values of its field in
- * `records` (with their counts), keeping the current choice when it is
- * still present, otherwise falling back to ALL. */
+/**
+ * Refill each dropdown with ALL plus the distinct values in `records` (with
+ * counts). Keep the current choice if it's still there, otherwise ALL.
+ */
 function populateRecordFilters(records) {
   for (const [select, key] of RECORD_FILTERS) {
     const previous = select.value;
@@ -254,12 +227,13 @@ function renderAuditEnabled(settled) {
   return enabled;
 }
 
-// --- related Command Center traces (existing ±30 s time-proximity rule) ---
+// --- related Command Center traces (+/-30 s) ---
 
-/** Traces whose start_time falls inside the SAME ±30 s window the
- * "View in Observability" cross-link hands to observability.js (whose
- * matchesTimeWindow() applies it the same way) — so both always agree.
- * Returns null when traces could not be loaded (unknown, not "none"). */
+/**
+ * Traces starting within the same +/-30 s window the "View in
+ * Observability" link uses (observability.js's matchesTimeWindow() applies
+ * it the same way), so the two agree. null if traces couldn't be loaded.
+ */
 function relatedTraces(record) {
   if (!Array.isArray(lastTraces)) return null;
   const window_ = computeObservabilityTimeWindow(record.UTCTimeStamp);
@@ -272,7 +246,7 @@ function relatedTraces(record) {
   });
 }
 
-// --- KPI cards (counts over the returned records only) ---
+// --- KPI cards (counts over the returned records) ---
 
 function distinctCount(records, key) {
   return new Set(records.map((r) => r[key]).filter((v) => typeof v === "string" && v !== "")).size;
@@ -295,7 +269,7 @@ function renderKpis(records) {
   dom.kpiRelatedMeta.textContent = "trace within ±30 s";
 }
 
-// --- Audit Activity Timeline (real UTC timestamps only) ---
+// --- Audit Activity Timeline ---
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -309,15 +283,16 @@ function formatAxisLabel(date, spanMs) {
   return spanMs > 86_400_000 ? `${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ${hm}` : hm;
 }
 
-// The timeline plots the latest 24 hours of the returned records (ending at
-// the newest one): an instance's few install-time records would otherwise
-// stretch the axis over months and squash every recent event together.
+// Plot only the last 24 hours of the results (up to the newest record).
+// Otherwise a few install-time records stretch the axis over months and
+// squash everything recent together.
 const TIMELINE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** One dot per returned record in the latest 24 h of the results,
- * positioned by its own UTCTimeStamp, in one lane per event (top 6 real
- * Event values, the rest folded into a real "Other" lane). Older records
- * are counted in the caption, never dropped silently. */
+/**
+ * One dot per record in the last 24 h, placed by UTCTimeStamp, with one
+ * lane per event (top 6 events, the rest in "Other"). Older records are
+ * counted in the caption.
+ */
 function renderTimeline(records) {
   const all = (Array.isArray(records) ? records : [])
     .map((record) => ({ record, time: parseUtcTimestamp(record.UTCTimeStamp) }))
@@ -389,9 +364,9 @@ function renderTimeline(records) {
   );
 }
 
-// --- event detail workspace ---
+// --- event detail panel ---
 
-let currentDetailRecord = null; // the record the open detail workspace shows
+let currentDetailRecord = null;  // record shown in the detail panel
 
 const DETAIL_FIELDS = [
   ["Time (server)", "TimeStamp"],
@@ -485,7 +460,7 @@ function closeDetail() {
 // --- the audit event table ---
 
 const PAGE_SIZE = 25;
-let returnedRecords = []; // the last records IRIS returned for the server-side filters
+let returnedRecords = [];  // last records returned for the server-side filters
 let lastAuditEnabled; // from the same search
 let currentPage = 0;
 
@@ -512,8 +487,10 @@ function renderRecords(settled, auditEnabled) {
   applyRecordFilters();
 }
 
-/** Narrows the returned records by the dropdowns (ALL = no filter) and
- * re-renders the KPIs, timeline and table from that same set. */
+/**
+ * Filter the records by the dropdowns (ALL = no filter) and re-render the
+ * KPIs, timeline and table.
+ */
 function applyRecordFilters() {
   const records = returnedRecords.filter((record) =>
     RECORD_FILTERS.every(([select, key]) => select.value === "" || record[key] === select.value),
@@ -545,7 +522,7 @@ function applyRecordFilters() {
   renderTablePage(records);
 }
 
-/** Renders one PAGE_SIZE page of `records` plus the pager. */
+/** Render one page (PAGE_SIZE) of `records` and the pager. */
 function renderTablePage(records) {
   const pages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
   currentPage = Math.min(Math.max(currentPage, 0), pages - 1);
@@ -598,12 +575,9 @@ function renderTablePage(records) {
 }
 
 /**
- * Fetches both audit endpoints with the current filter values (plus the
- * Command Center's own trace list, for correlation only) and renders them.
- * These are the ONLY network calls this module makes — all GETs; no
- * mutating request exists anywhere in this file. Uses Promise.allSettled so
- * one failing endpoint never blocks the others from rendering, the same
- * pattern used in security.js/dashboard.js.
+ * Load both audit endpoints with the current filters (plus our trace list
+ * for matching) and render. allSettled so one failure doesn't block the
+ * others.
  */
 export async function loadInvestigation() {
   setLoading(true);
@@ -614,9 +588,8 @@ export async function loadInvestigation() {
   const [auditEnabledResult, recordsResult, tracesResult] = await Promise.allSettled([
     IrisApi.getAuditEnabled(),
     IrisApi.getAuditRecords(filters),
-    // Read-only, from the Command Center's own trace store (not IRIS) —
-    // only for the ±30 s related-trace correlation. A failure just leaves
-    // the correlation unknown; it never affects the audit results.
+    // From our own trace store, just for the +/-30 s matching. If it fails,
+    // matching shows as unknown; the audit results are unaffected.
     IrisApi.getExecutionTraces(),
   ]);
   lastTraces =
@@ -649,12 +622,10 @@ export async function loadInvestigation() {
 }
 
 /**
- * Sets the Begin/End filter fields (IRIS server local time, per this
- * view's own convention) without fetching anything itself — called by
- * app.js right before nav.navigateTo("investigation"), so the navigation's
- * own view-opened callback performs the one real fetch, already using
- * these values. Also clears the other filters, so a stale username/event
- * type typed earlier can't silently narrow a cross-link's results.
+ * Set the Begin/End filter (IRIS server local time) without fetching.
+ * app.js calls this right before navigateTo("investigation"), which does
+ * the fetch. Other filters are cleared so an old username or event type
+ * doesn't narrow the results.
  */
 export function setTimeWindow(beginDateTime, endDateTime) {
   dom.filterBegin.value = beginDateTime;
@@ -664,20 +635,19 @@ export function setTimeWindow(beginDateTime, endDateTime) {
 }
 
 /**
- * `onInvestigateTraces`, when provided, is called with `{ begin, end }`
- * (UTC, formatted for observability.js's own time filter) whenever the
- * operator clicks a row's "Traces" cross-link button — see app.js for how
- * it's wired to actually switch views.
+ * `onInvestigateTraces` is called with `{ begin, end }` (UTC, in
+ * observability.js's filter format) when someone clicks a row's "Traces"
+ * button (see app.js).
  */
 export function initInvestigationControls({ onInvestigateTraces: callback, onOpenTrace: openTrace } = {}) {
   onInvestigateTraces = typeof callback === "function" ? callback : null;
   onOpenTrace = typeof openTrace === "function" ? openTrace : null;
 
-  // Navigation only: Observability shows the Command Center's own traces.
+  // Just navigation: Observability shows our own traces.
   dom.openObservability.addEventListener("click", () => navigateTo("observability"));
 
-  // Event detail workspace (shared .ns-drawer modal behaviour comes from
-  // detail-workspace.js); this module only opens/closes it.
+  // Event detail panel (modal behaviour comes from detail-workspace.js);
+  // here we just open and close it.
   dom.drawerClose.addEventListener("click", closeDetail);
   dom.drawerBackdrop.addEventListener("click", closeDetail);
   document.addEventListener("keydown", (event) => {
@@ -691,13 +661,10 @@ export function initInvestigationControls({ onInvestigateTraces: callback, onOpe
     onInvestigateTraces(window_);
   });
 
-  // The Search button is type="submit" and associated with this form via
-  // its `form="investigation-filter-form"` attribute (it lives in the view
-  // header, outside the <form> itself) — so both clicking it AND pressing
-  // Enter in any filter field fire this one `submit` event; there is no
-  // separate click handler to keep in sync with it. An explicit submit
-  // always searches immediately, cancelling any pending debounced search
-  // so the two never race and fire twice.
+  // The Search button sits in the page header but is a submit button for
+  // this form (form="investigation-filter-form"), so clicking it and pressing
+  // Enter both end up here. A submit searches right away and cancels any
+  // pending debounced search.
   dom.filterForm.addEventListener("submit", (event) => {
     event.preventDefault();
     if (autoSearchTimer) {
@@ -707,15 +674,13 @@ export function initInvestigationControls({ onInvestigateTraces: callback, onOpe
     loadInvestigation();
   });
 
-  // Live-ish filtering to match Observability's instant feel: typing (or
-  // changing Order) schedules a debounced re-search rather than requiring
-  // an explicit Search click every time.
+  // Typing (or changing Order) schedules a debounced search.
   [dom.filterBegin, dom.filterEnd, dom.filterSearch].forEach((input) => {
     input.addEventListener("input", scheduleAutoSearch);
   });
   dom.filterOrder.addEventListener("change", scheduleAutoSearch);
 
-  // The dropdowns narrow the already-returned records instantly — no fetch.
+  // The dropdowns filter the loaded records right away, no fetch.
   for (const [select] of RECORD_FILTERS) {
     select.addEventListener("change", () => {
       currentPage = 0;

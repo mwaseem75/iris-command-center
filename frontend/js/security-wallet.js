@@ -1,25 +1,18 @@
-// Security view — Wallet tab: wallet collections, their edit/use resources,
-// and the NAMES AND TYPES of their secrets, plus "wallet-collection" and
-// "wallet-secret" detail in the page's shared drawer (security-access.js).
+// Security page, Wallet tab: collections, their edit/use resources, and
+// the names and types of their secrets, with details in the shared drawer.
 //
-// Read-only and metadata-only. It calls only these GET endpoints (via
-// IrisApi, see backend/app/routes/security_access.py) and no mutating one:
-//   - getSecurityWalletOverview — every collection with its secrets' names
-//     and types,
-//   - getSecurityWalletCollectionDetail(name) and
-//     getSecurityWalletSecrets(collection) — fresh data for the drawer.
-// No secret value is ever requested: IRIS has no API that returns one, and
-// the backend's models only pass Name / Type / EditResource / UseResource.
-// This module never reads any other field of a secret.
+// Uses getSecurityWalletOverview, getSecurityWalletCollectionDetail(name)
+// and getSecurityWalletSecrets(collection). Secret values are never
+// requested (IRIS has no API for that anyway).
 //
-// Data loads the first time the tab is shown, and again on Refresh or when
-// the Security view is reopened after that.
+// Loads the first time the tab is shown, then on Refresh or when the page
+// is reopened.
 
 import { IrisApi, ApiError } from "./api.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
 
 const PLACEHOLDER = "—";
-// mainspec_v2.json's default maxRows for both list endpoints.
+// IRIS's default maxRows for both list endpoints.
 const IRIS_DEFAULT_MAX_ROWS = 1000;
 const $ = (id) => document.getElementById(id);
 
@@ -60,8 +53,10 @@ let loadSeq = 0;
 
 // --- helpers ---
 
-/** EditResource / UseResource are "resource:permission" strings; per the
- * spec an omitted permission means WRITE (edit) or READ (use). */
+/**
+ * EditResource / UseResource are "resource:permission" strings. With no
+ * permission it means WRITE (edit) or READ (use).
+ */
 function parseResource(value, defaultPermission) {
   if (typeof value !== "string" || value === "") return null;
   const index = value.lastIndexOf(":");
@@ -74,8 +69,10 @@ function describePermission(parsed) {
   return parsed.permission || `not specified (IRIS default ${parsed.defaultPermission})`;
 }
 
-/** A secret's drawer key: its collection and name, joined by a newline
- * (which neither IRIS name form uses). */
+/**
+ * Drawer key for a secret: collection and name joined by a newline (which
+ * can't appear in either name).
+ */
 function secretKey(collection, name) {
   return `${collection}\n${name}`;
 }
@@ -269,8 +266,7 @@ async function renderSecretDrawer(key, isCurrent) {
   const collection = split >= 0 ? key.slice(0, split) : "";
   const name = split >= 0 ? key.slice(split + 1) : key;
   if (!isCurrent()) return;
-  // Metadata comes from the last loaded list — no request, and there is no
-  // IRIS endpoint that would return more than name and type anyway.
+  // Uses the loaded list; IRIS has nothing more than name and type anyway.
   const secret = allSecrets().find((s) => s.collection === collection && s.name === name);
   if (!secret) throw new ApiError("Secret not found in the last loaded list", { status: 404 });
   ui.setDrawerHeader("Wallet Secret", name, null);
@@ -339,8 +335,10 @@ async function loadSecurityWallet() {
   renderSecretsTable();
 }
 
-/** Called when the Security view is (re)opened: refreshes only if this tab
- * has already been loaded once — otherwise it loads when first shown. */
+/**
+ * Called when the Security page is reopened. Only refreshes if this tab
+ * was already loaded; otherwise it loads when first shown.
+ */
 export function refreshSecurityWalletIfLoaded() {
   if (loaded) loadSecurityWallet();
 }
@@ -364,7 +362,7 @@ export function initSecurityWalletControls() {
     if (loaded) loadSecurityWallet();
   });
 
-  // Client-side filtering over the last fetched overview — never a request.
+  // Filters the last loaded data locally, no request.
   dom.collections.form.addEventListener("submit", (event) => event.preventDefault());
   dom.collections.search.addEventListener("input", renderCollectionsTable);
   const s = dom.secrets;

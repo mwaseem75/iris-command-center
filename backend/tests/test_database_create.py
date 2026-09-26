@@ -1,10 +1,4 @@
-"""Tests for the database.create operation — this project's first
-Database mutation. ALL tests here use a fake/mock IRISClient (an
-AsyncMock with .get/.post), exactly like test_namespace_create.py. No test
-in this file makes, or could make, a real network call, and no test
-performs a real database creation — there is no real IRISClient
-constructed anywhere in this file.
-"""
+"""Tests for database.create. Everything runs against a mocked IRISClient."""
 
 from typing import Any
 from unittest.mock import AsyncMock
@@ -30,9 +24,7 @@ _OPERATION_NAME = "database.create"
 
 
 def _databases_body(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    """A real-shaped GET /v2/databases envelope (matches
-    docs/api-capability-matrix.md's verified response shape) listing
-    whichever databases a test needs to already exist."""
+    """GET /v2/databases response listing the given databases."""
     return {
         "status": {"errors": [], "summary": ""},
         "console": [],
@@ -64,15 +56,10 @@ def _database_dir_found(
     global_journal_state: bool = False,
     cluster_mount_mode: bool = False,
 ) -> dict[str, Any]:
-    """A real-shaped GET /v2/database-dir?dir=<Directory> envelope — the
-    exact LocalDatabase result shape confirmed live against icc-iris-dev
-    (see database_create_handler.py's module docstring, "iccrehearsal"
-    investigation): no Name/Directory/Status field, unlike GET
-    /v2/databases' DatabaseEntry. Represents "IRIS reports a database
-    exists at this directory" — used by verify()'s post-action checks.
-    "Not found" (the endpoint's documented 404) is represented directly by
-    an IRISResponseError(404) instance in a test's side_effect list, not
-    by this helper."""
+    """GET /v2/database-dir?dir= response for a database that exists (no
+    Name/Directory/Status, unlike the /v2/databases entries). "Not found" is
+    an IRISResponseError(404) in the test's side_effect instead.
+    """
     return {
         "status": {"errors": [], "summary": ""},
         "console": [],
@@ -93,10 +80,9 @@ def _database_dir_found(
 
 @pytest.fixture
 def fake_iris_client() -> AsyncMock:
-    """A fake client whose GET reports four pre-existing databases
-    (IRISSYS, IRISLIB, IRISTEMP, USER) and whose POST succeeds with the
-    documented (LocalDatabase) response shape — unless a test overrides
-    either."""
+    """Fake client: GET lists IRISSYS, IRISLIB, IRISTEMP and USER, POST
+    succeeds. Tests override either as needed.
+    """
     client = AsyncMock()
     client.get.side_effect = [_DEFAULT_EXISTING_DATABASES]
     client.post.return_value = {
@@ -222,9 +208,8 @@ async def test_confirmation_and_dry_run_never_calls_post(
 async def test_confirmation_and_execution_calls_post_with_correct_body(
     fake_iris_client: AsyncMock,
 ) -> None:
-    # GET is called twice by a real execution: GET /v2/databases
-    # (validation), then GET /v2/database-dir?dir=... (post-action
-    # verification, found on the first read).
+    # A real run does two GETs: /v2/databases to validate, then
+    # /v2/database-dir?dir=... to verify (found first time).
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_DATABASES,
         _database_dir_found(),
@@ -279,16 +264,9 @@ async def test_optional_fields_included_in_post_body_when_provided(
 
 # --- post-action verification ---
 #
-# Regression coverage for the real "iccrehearsal" rehearsal bug: verify()
-# used to poll GET /v2/databases (the persistent, CPF-registered list) and
-# could never find a database POST /v2/database-dir genuinely created and
-# mounted, because creation never adds a [Databases] CPF entry — confirmed
-# live (see database_create_handler.py's module docstring). verify() now
-# polls GET /v2/database-dir?dir=<Directory> instead — "not found" is that
-# endpoint's own documented 404, represented here by an
-# IRISResponseError(404) instance in a side_effect list (unittest.mock
-# raises an exception instance/class placed in `side_effect`), never an
-# absent-from-list entry.
+# verify() used to look in GET /v2/databases, which never lists databases
+# created with POST /v2/database-dir, so it always failed. It now uses
+# GET /v2/database-dir?dir=, where "not found" is a 404.
 
 
 @pytest.mark.asyncio
@@ -322,19 +300,15 @@ async def test_verification_succeeds_when_database_appears_at_requested_director
 async def test_verification_fails_when_database_not_found_after_creation(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """Genuinely absent (IRIS's documented 404) across every retry
-    attempt — the bounded-retry policy must not turn this into a false
-    success. One GET per attempt: 1 immediate + 3 retries (see
-    _VERIFY_RETRY_DELAYS_SECONDS) = 4 total, all still 404."""
+    """Still 404 after every retry (1 + 3 = 4 GETs) must fail, not pass."""
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_DATABASES,
-        IRISResponseError(404),  # attempt 1 — still absent
-        IRISResponseError(404),  # attempt 2 (1st retry) — still absent
-        IRISResponseError(404),  # attempt 3 (2nd retry) — still absent
-        IRISResponseError(404),  # attempt 4 (3rd retry) — still absent
+        IRISResponseError(404),  # attempt 1: 404
+        IRISResponseError(404),  # attempt 2: 404
+        IRISResponseError(404),  # attempt 3: 404
+        IRISResponseError(404),  # attempt 4: 404
     ]
-    # Zero delays: exercises the exact same retry COUNT/logic as production
-    # without the test actually sleeping ~1.7 real seconds.
+    # Zero delays so the test doesn't actually sleep; the retry count is the same.
     handler = DatabaseCreateHandler(fake_iris_client, verify_retry_delays_seconds=(0.0, 0.0, 0.0))
     executor = OperationExecutor({_OPERATION_NAME: handler})
 
@@ -349,8 +323,7 @@ async def test_verification_fails_when_database_not_found_after_creation(
     assert result.verification.status is PostActionVerificationStatus.VERIFICATION_FAILED
     assert "4 attempts" in result.verification.detail
     assert "database-dir" in result.verification.detail
-    # 1 (validate) + 4 (verify retries) GETs — never more than the bounded
-    # policy allows.
+    # 1 GET to validate + 4 to verify, no more.
     assert fake_iris_client.get.await_count == 5
 
 
@@ -358,19 +331,14 @@ async def test_verification_fails_when_database_not_found_after_creation(
 async def test_verification_succeeds_when_database_appears_on_a_later_retry(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """Regression protection for the exact propagation-delay behavior
-    already observed live for namespace.create (an immediate GET right
-    after a successful mutating call did not yet list the new resource,
-    while a normal Refresh moments later did — see
-    app/execution/namespace_create_handler.py's module docstring).
-    database.create's verify() reuses the identical bounded-retry policy;
-    this test proves it actually retries rather than giving up after the
-    first 404."""
+    """Database only shows up on the third check; verify() should keep trying
+    and pass (same retry logic as namespace.create).
+    """
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_DATABASES,
-        IRISResponseError(404),  # attempt 1 — not yet propagated
-        IRISResponseError(404),  # attempt 2 (1st retry) — still not yet
-        _database_dir_found(),  # attempt 3 (2nd retry) — now present
+        IRISResponseError(404),  # attempt 1: not there yet
+        IRISResponseError(404),  # attempt 2: not there yet
+        _database_dir_found(),  # attempt 3: found
     ]
     handler = DatabaseCreateHandler(fake_iris_client, verify_retry_delays_seconds=(0.0, 0.0, 0.0))
     executor = OperationExecutor({_OPERATION_NAME: handler})
@@ -384,21 +352,19 @@ async def test_verification_succeeds_when_database_appears_on_a_later_retry(
     assert result.verification is not None
     assert result.verification.status is PostActionVerificationStatus.VERIFIED
     assert "3 attempts" in result.verification.detail
-    # Stopped the instant it was found — 1 (validate) + 3 (verify) = 4.
+    # Stops as soon as it's found: 1 (validate) + 3 (verify).
     assert fake_iris_client.get.await_count == 4
 
 
 @pytest.mark.asyncio
 async def test_verification_retries_perform_no_mutation(fake_iris_client: AsyncMock) -> None:
-    """The retry loop must only ever re-read (GET /v2/database-dir) —
-    never re-attempt the creation itself. POST must still be called
-    exactly once, no matter how many times verification retries its GET."""
+    """Retries only re-read; the POST still happens exactly once."""
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_DATABASES,
         IRISResponseError(404),  # attempt 1 — absent
         IRISResponseError(404),  # attempt 2 — absent
         IRISResponseError(404),  # attempt 3 — absent
-        IRISResponseError(404),  # attempt 4 — absent (exhausted)
+        IRISResponseError(404),  # absent (out of retries)
     ]
     handler = DatabaseCreateHandler(fake_iris_client, verify_retry_delays_seconds=(0.0, 0.0, 0.0))
     executor = OperationExecutor({_OPERATION_NAME: handler})
@@ -417,11 +383,9 @@ async def test_verification_retries_perform_no_mutation(fake_iris_client: AsyncM
 async def test_verification_does_not_treat_unexpected_iris_errors_as_not_found(
     fake_iris_client: AsyncMock,
 ) -> None:
-    """Only the documented 404 ("not found yet") is treated as a
-    retry-worthy signal. A genuine unexpected IRIS error (500) during
-    verification must propagate, not be silently swallowed and misread as
-    "not found" — doing so would hide a real failure behind a generic
-    VERIFICATION_FAILED message."""
+    """Only a 404 means "not there yet". A 500 during verify should propagate
+    instead of being treated as missing.
+    """
     fake_iris_client.get.side_effect = [
         _DEFAULT_EXISTING_DATABASES,
         IRISResponseError(500),
@@ -435,7 +399,7 @@ async def test_verification_does_not_treat_unexpected_iris_errors_as_not_found(
             _context(privileges=frozenset({"Manage"}), confirmed=True, dry_run=False),
         )
     assert exc_info.value.status_code == 500
-    # Never retried past the one unexpected error.
+    # Not retried after the unexpected error.
     assert fake_iris_client.get.await_count == 2
 
 
@@ -500,7 +464,7 @@ async def test_missing_directory_never_reaches_iris(
     fake_iris_client.post.assert_not_awaited()
 
 
-# --- validation against live data: directory/name collision, system databases ---
+# --- validation against live data: collisions, system databases ---
 
 
 @pytest.mark.asyncio
@@ -537,11 +501,9 @@ async def test_existing_directory_is_rejected_ignoring_trailing_slash(
 async def test_directory_deriving_to_an_existing_database_name_is_rejected(
     executor: OperationExecutor, fake_iris_client: AsyncMock
 ) -> None:
-    """A different literal path whose final segment still derives to an
-    already-existing database's real Name ("USER") must be rejected — the
-    same collision-defense mechanism that also protects system databases
-    like IRISSYS/IRISLIB/IRISTEMP, since they too are already present in
-    the existing database list (see test below)."""
+    """A different path whose last segment still derives to an existing name
+    ("USER") is rejected.
+    """
     result = await executor.execute(
         _request(directory="/some/other/path/user/"),
         _context(privileges=frozenset({"Manage"}), confirmed=True, dry_run=True),
@@ -557,11 +519,9 @@ async def test_directory_deriving_to_an_existing_database_name_is_rejected(
 async def test_directory_deriving_to_a_system_database_name_is_rejected(
     executor: OperationExecutor, fake_iris_client: AsyncMock
 ) -> None:
-    """"Obviously unsafe/system database target" rejection: a request
-    whose directory would derive to "IRISSYS" — a real, already-existing
-    system database per _DEFAULT_EXISTING_DATABASES — is rejected by the
-    exact same real-data-driven mechanism as any other name collision, not
-    a separately hardcoded "system names" list."""
+    """A path that derives to "IRISSYS" is rejected by the same collision
+    check, since IRISSYS is already in the database list.
+    """
     result = await executor.execute(
         _request(directory="/tmp/attempted/irissys/"),
         _context(privileges=frozenset({"Manage"}), confirmed=True, dry_run=True),

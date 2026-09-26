@@ -1,21 +1,12 @@
-"""Fix Issues (MVP): deterministic, read-only issue detection.
+"""Fix Issues: detects problems in live IRIS data and suggests the operation that fixes them.
 
-GET /api/iris/issues reports actionable issues found in live IRIS data, each
-paired with the EXISTING registered operation that fixes it. This route never
-fixes anything itself: the fix always goes through that operation's own
-route (authorization → explicit confirmation → execution → verification,
-with an execution trace recorded by the existing framework).
+This route only reports; the fix runs through the operation's own route
+(with authorization, confirmation, verification and a trace).
 
-Only one issue kind exists so far:
-
-  database_dismounted — a configured database whose directory IRIS reports
-  as not mounted, that is not one of IRIS's own system databases (the same
-  _SYSTEM_DATABASES list database.dismount already refuses) and is not
-  mirrored. Recommended fix: database.mount (read-write).
-
-Data comes only from the existing read routes (GET /api/iris/databases and
-/api/iris/databases/storage); nothing is invented, and an issue is reported
-only when both sources agree on the directory.
+Currently one issue type: database_dismounted. A configured database IRIS
+reports as not mounted, that isn't an IRIS system database or mirrored.
+Suggested fix: database.mount (read-write). It's only reported when the
+database list and the storage list agree on the directory.
 """
 
 from fastapi import APIRouter, Depends

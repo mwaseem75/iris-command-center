@@ -1,14 +1,7 @@
-"""Direct unit tests for IRISClient's async-task helpers (post_async_task,
-wait_for_async_task), added for the Logs/Investigation view's audit-records
-route (see docs/api-capability-matrix.md's "POST /v2/security/audit/records"
-entry for what these fake responses are modeled on).
+"""Unit tests for IRISClient.post_async_task / wait_for_async_task.
 
-Unlike every other IRISClient method, these are tested directly here with a
-fake httpx transport, rather than only via a fully-mocked IRISClient in
-route tests (see test_iris_routes_step3.py) — a route-level mock replaces
-IRISClient entirely, so it would never actually exercise this file's new
-Location-header parsing, terminal-state detection, or polling logic. No real
-network call is made anywhere in this file.
+These use a fake httpx transport instead of mocking IRISClient, so the
+Location header parsing, terminal-state checks and polling actually run.
 """
 
 import time
@@ -29,9 +22,7 @@ def _make_client(handler) -> IRISClient:
         iris_password="test-password-not-real",
     )
     client = IRISClient(settings)
-    # Real network is never touched: the httpx transport is swapped for a
-    # fake one, and a pre-populated, non-expired session skips the real
-    # login call entirely.
+    # Fake transport, plus an unexpired session so there's no login call.
     client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client._auth._session = IRISSession(
         access_token="fake-access-token",
@@ -44,9 +35,8 @@ def _make_client(handler) -> IRISClient:
 
 @pytest.mark.asyncio
 async def test_post_async_task_extracts_id_from_location_header() -> None:
-    # The real Location path observed against icc-iris-dev used "v1", not
-    # "v2" (see docs/api-capability-matrix.md) — post_async_task must not
-    # assume/require any particular path, only the "id" query parameter.
+    # IRIS actually returned a "v1" Location path, so post_async_task
+    # should only rely on the "id" query parameter.
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.params["ascending"] == "0"

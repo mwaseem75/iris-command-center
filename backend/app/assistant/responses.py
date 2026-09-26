@@ -1,11 +1,4 @@
-"""Pure formatting of already-fetched IRIS data into short,
-administrator-friendly natural-language replies. No IRIS call and no
-network I/O happens anywhere in this module — every function here takes
-data the caller (app/routes/assistant.py) already fetched via the
-existing, verified /api/iris/* route functions, and returns plain text
-only. Kept deliberately concise per this step's "keep responses concise
-and administrator-friendly" requirement.
-"""
+"""Turns IRIS data (already fetched by the route) into short chat replies."""
 
 from app.models.iris import DatabaseEntry, InfoResult, ProcessEntry, TaskEntry, WebAppEntry
 

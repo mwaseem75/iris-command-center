@@ -1,19 +1,13 @@
-// AI Assistant view: a deterministic (no LLM) assistant over live,
-// read-only IRIS data.
+// AI Assistant page. Rule-based (no LLM), answering from live IRIS data.
 //
-//   1. Mutation guard, first: any request to change something (set, enable,
-//      mount, run, delete, purge-archived changes, ...) is answered HERE
-//      with a pointer to the Operations flow and is never sent anywhere —
-//      this view never executes, confirms or requests a mutation.
-//   2. Known read-only intents are answered from existing read-only GET
-//      APIs (IrisApi.get*), as a short sentence built from the returned
-//      data plus a structured card/table of that same data.
-//   3. Anything else falls back to the existing backend assistant
-//      (IrisApi.queryAssistant, GET /api/iris/assistant/query).
+// 1. Change requests (set, enable, mount, run, delete, purge...) are caught
+//    here first and answered with a pointer to the right page. Nothing is
+//    sent, and this page never runs a change.
+// 2. Known questions are answered from the read-only IrisApi.get* calls, as
+//    a short sentence plus a card or table of the same data.
+// 3. Anything else goes to the backend assistant (IrisApi.queryAssistant).
 //
-// Nothing is invented: every number, name and status shown comes from the
-// API response it is rendered from. All DOM is built with createElement +
-// textContent, never innerHTML.
+// All DOM is built with createElement/textContent, no innerHTML.
 
 import { ApiError, IrisApi } from "./api.js";
 import { navigateTo } from "./nav.js";
@@ -42,7 +36,7 @@ const dom = {
   ctxTasks: document.getElementById("ai-context-tasks"),
 };
 
-// Conversation history for this page session (the DOM mirrors it).
+// Messages in this session (the DOM mirrors it).
 const history = [];
 let sending = false;
 let onOpenTrace = null;
@@ -120,7 +114,7 @@ function badge(text, variant) {
   return el("span", `status-badge status-badge--${variant}`, text);
 }
 
-// --- structured card builders (all fed only with API data) ---
+// --- cards and tables ---
 
 function kpiRow(items) {
   const row = el("div", "ai-kpis");
@@ -213,8 +207,7 @@ function card(title, ...children) {
 const MUTATION_VERB =
   /\b(set|change|update|modify|edit|enable|disable|turn on|turn off|switch on|switch off|create|add|new|delete|drop|remove|mount|dismount|unmount|kill|terminate|stop|start|restart|run|execute|suspend|resume|confirm|rename|grant|revoke|purge)\b/;
 
-// Where each kind of change is made through the authorization/confirmation
-// framework: [pattern, page label, view].
+// Where each kind of change is done: [pattern, page label, view].
 const MUTATION_TARGETS = [
   [/journal|purge ?archived|purgearchived/, "Operations — Update Journal Settings", "operations"],
   [/namespace/, "Namespaces (New Namespace)", "namespaces"],
@@ -225,12 +218,12 @@ const MUTATION_TARGETS = [
 ];
 
 function isMutationRequest(text) {
-  // Any mention of changing the journal purge setting is always a
-  // mutation request here — the assistant never forwards it.
+  // Anything about changing the journal purge setting counts as a change
+  // request; it's never forwarded.
   if (/purge ?archived|purgearchived|purge_archived/.test(text) && /\b(set|change|update|enable|disable|turn|switch|confirm|true|false|on|off)\b/.test(text)) {
     return true;
   }
-  if (/purge ?archived|purgearchived|purge_archived/.test(text)) return false; // a question about the setting
+  if (/purge ?archived|purgearchived|purge_archived/.test(text)) return false;  // just asking about the setting
   return MUTATION_VERB.test(text);
 }
 
@@ -271,7 +264,7 @@ async function answerSystem() {
   };
 }
 
-// IRIS's own System Dashboard indicators (the same set the Dashboard shows).
+// IRIS System Dashboard indicators (same set as the Dashboard).
 const HEALTH_INDICATORS = [
   ["Database Space", "SystemUsage", "DatabaseSpace"],
   ["Database Journal", "SystemUsage", "DatabaseJournal"],
@@ -503,8 +496,8 @@ async function answerJournal() {
   };
 }
 
-// Host values computed by Embedded Python inside IRIS (backend
-// app/embedded_python/diagnostics.py). Unavailable fields are null.
+// Host values from Embedded Python inside IRIS
+// (app/embedded_python/diagnostics.py). Missing fields are null.
 async function answerPython() {
   const d = await IrisApi.getPythonDiagnostics();
   const load = Array.isArray(d.load_average) ? d.load_average.map((v) => v.toFixed(2)) : null;
@@ -547,10 +540,9 @@ async function answerPython() {
   };
 }
 
-// Documentation-style questions ("how do I…", "which privilege is needed…",
-// "…need confirmation?") are answered from the knowledge base: stored
-// Command Center documents ranked by IRIS Vector Search (VECTOR_COSINE).
-// Nothing is generated — every line shown is a stored document.
+// How-to questions ("how do I...", "which privilege...", "...need
+// confirmation?") are answered from the knowledge base: stored documents
+// ranked by IRIS Vector Search (VECTOR_COSINE). Nothing is generated.
 const KNOWLEDGE_QUERY =
   /\bhow (do|can|should) i\b|\bhow to\b|\b(privileges?|permissions?)\b.*\b(needed|required|need|needs|require|requires)\b|\bwhich privileges?\b|\bconfirmation\b|\bendpoints?\b|\bcapabilit|\bknowledge\b|\bdocs?\b|\bdocumentation\b|\bexplain\b/;
 const MIN_KNOWLEDGE_SCORE = 0.1;
@@ -617,14 +609,14 @@ const HELP_TEXT =
   "Embedded Python host diagnostics (CPU, load, memory, disk, Python packages). Ask how-to questions " +
   '(e.g. "Which operations need confirmation?") and I\'ll search the knowledge base with IRIS Vector Search.';
 
-// Ordered, deterministic keyword routing (most specific first).
+// Keyword routing, most specific first.
 const INTENTS = [
   [/journal|purge[ _]?archived/, answerJournal],
   [/recent operation|operations|operation attempt|trace|observability|\bfail|failed/, answerTraces],
   [/privilege|permission|my access|security|\broles?\b/, answerPrivileges],
   [/process/, answerProcesses],
-  // Host/Python questions — but never ones about databases (their disk
-  // usage stays with answerDatabases).
+  // Host/Python questions, but not about databases (disk usage belongs
+  // to answerDatabases).
   [/^(?!.*database)(?=.*(\bpython\b|\bhost\b|load average|memory|\bram\b|cpu count|\bcores\b|disk usage|disk space|free disk|packages))/, answerPython],
   [/database|storage|largest|disk/, answerDatabases],
   [/web ?app|web application|applications/, answerWebApps],
@@ -636,18 +628,18 @@ const INTENTS = [
 
 async function answer(message) {
   const text = message.toLowerCase();
-  // Knowledge search first: it is a read-only GET that executes nothing,
-  // and a how-to question ("how do I dismount…") would otherwise be caught
-  // by the mutation guard. answerKnowledge keeps the read-only pointer to
-  // Operations whenever the question also names a change.
+  // Knowledge search goes first: it's a read-only GET, and otherwise a
+  // question like "how do I dismount..." would hit the change guard.
+  // answerKnowledge still points to Operations if the question names a
+  // change.
   if (KNOWLEDGE_QUERY.test(text) && !/purge/.test(text)) return answerKnowledge(message, text);
   if (isMutationRequest(text)) return answerMutation(text);
   if (/\b(help|what can you)\b/.test(text)) return { text: HELP_TEXT };
   const intent = INTENTS.find(([pattern]) => pattern.test(text));
   if (intent) return intent[1](text);
-  // Fallback: the existing backend assistant. Mutation requests were
-  // stopped above; as a hard guard, nothing mentioning purge is ever
-  // forwarded, so the backend's journal operation path is unreachable here.
+  // Fall back to the backend assistant. Change requests were already
+  // stopped above, and anything mentioning purge is never forwarded, so the
+  // backend's journal operation can't be reached from here.
   if (/purge/.test(text)) return answerMutation(text);
   const response = await IrisApi.queryAssistant(message);
   return {
@@ -679,8 +671,7 @@ function appendMessage(role, { text, card: cardNode, actions } = {}) {
 }
 
 function setSending(isSending) {
-  // Disabled synchronously, before any await, so a second rapid Send (or
-  // Quick Action) click is a no-op.
+  // Disable right away so a double Send (or Quick Action) click does nothing.
   sending = isSending;
   dom.sendButton.disabled = isSending;
   dom.input.disabled = isSending;
@@ -709,7 +700,7 @@ async function sendMessage(raw) {
   }
 }
 
-// --- connection / system context bar (live data) ---
+// --- connection / system context bar ---
 
 function setText(node, value) {
   node.textContent = value === null || value === undefined || value === "" ? PLACEHOLDER : String(value);
@@ -777,7 +768,7 @@ export function initAiAssistantControls({ onOpenTrace: openTrace } = {}) {
       dom.composer.requestSubmit();
     }
   });
-  // Quick Actions, Suggested Questions and chips all use the same flow.
+  // Quick Actions, Suggested Questions and chips all go through here.
   dom.view.addEventListener("click", (event) => {
     const button = event.target.closest("[data-prompt]");
     if (button && dom.view.contains(button)) sendMessage(button.dataset.prompt || button.textContent);

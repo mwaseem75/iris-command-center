@@ -1,11 +1,7 @@
-"""Tests for GET /api/iris/databases/info?dir=<Directory> — the Database
-Explorer's "View Info" drawer action (database.info).
+"""Tests for GET /api/iris/databases/info?dir=<Directory> (View Info).
 
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. The canned task body is the ACTUAL response captured while
-verifying this endpoint against icc-iris-dev (POST /v2/database-dir/info
-for the real USER database), not invented data — see
-app/models/iris.py's DatabaseInfoResult docstring.
+The canned task body is a real POST /v2/database-dir/info response for the
+USER database.
 """
 
 from typing import Any
@@ -15,9 +11,8 @@ from fastapi.testclient import TestClient
 
 from app.iris_client.exceptions import IRISAsyncTaskError, IRISResponseError
 
-# The Result object inside a Finished AsyncTask, as returned by
-# wait_for_async_task — captured live from `POST /v2/database-dir/info`
-# for dir=/usr/irissys/mgr/user/.
+# Result of a finished task, as wait_for_async_task returns it
+# (captured for dir=/usr/irissys/mgr/user/).
 FINISHED_DATABASE_INFO_TASK: dict[str, Any] = {
     "State": "Finished",
     "TaskName": "POST /v2/database-dir/info",
@@ -116,10 +111,9 @@ def test_get_database_info_handles_post_failure(
 def test_get_database_info_propagates_not_found(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A directory with no database (mainspec_v2.json documents a 404 for
-    this case) reaches IRIS as a real HTTP error via post_async_task's own
-    request — surfaced the same generic, safe way every other IRIS client
-    error in this route is."""
+    """A directory with no database is a 404 from IRIS, reported like any other
+    IRIS error.
+    """
     mock_iris_client.post_async_task.side_effect = IRISResponseError(404)
 
     response = client.get(

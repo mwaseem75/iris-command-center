@@ -1,38 +1,13 @@
-"""FastAPI application entry point.
+"""FastAPI app: creates the shared clients at startup and registers the routes.
 
-Phase 2, Step 1: the Command Center's own health endpoint.
-Phase 2, Step 2/3: wires up the shared IRISClient (created once at startup,
-closed at shutdown) and the 13 verified, read-only IRIS routes.
-Phase 2, Step 7: adds the first MUTATING route (journal_router) — see
-docs/first-mutation-implementation.md. It has not been called against any
-real IRIS instance.
-Constructing IRISClient does not itself contact IRIS — no request is made
-until a route that needs one is actually called (see app/auth/iris_auth.py:
-the session is only obtained lazily, on first use).
+Optional features switched on by settings:
+- PERSIST_TRACES_TO_IRIS: reload saved execution traces at startup and keep
+  saving new ones to ^CommandCenterTrace.
+- ENABLE_KNOWLEDGE_SEARCH: create/reindex CommandCenter.Knowledge at startup.
+- AUTO_RUN_DEMO_ACTIVITY: run the Demo Activity rehearsal once in the
+  background (a marker in USER stops it from repeating).
 
-Optional IRIS execution-trace persistence (app/observability/
-iris_trace_writer.py): off by default (Settings.persist_traces_to_iris).
-When enabled, an IRISTraceWriter is constructed here, first used to load the
-most recent persisted traces back into the in-memory store (best-effort; an
-unreachable IRIS just means starting empty), then registered with
-app/observability/store.py, which then best-effort, additionally persists
-every trace it records in-memory. Disabled,
-this app behaves exactly as it did before this feature existed.
-
-Embedded Python diagnostics (app/embedded_python/diagnostics.py): one
-EmbeddedPythonDiagnostics is created here; like IRISClient, constructing it
-makes no connection — the Native API connection opens on the first
-GET /api/iris/python/diagnostics call and is closed at shutdown.
-
-Knowledge search (app/knowledge/store.py): off by default
-(Settings.enable_knowledge_search). When enabled, startup creates
-CommandCenter.Knowledge if missing and reindexes the corpus into it
-(best-effort; failures are retried on the first search).
-
-Automatic Demo Activity (app/execution/demo_autorun.py): off by default
-(Settings.auto_run_demo_activity). When enabled, the existing Demo Activity
-rehearsal runs once in the background after startup; a marker in the USER
-database keeps it from ever repeating once it has completed.
+Nothing here talks to IRIS until a route or one of these features needs it.
 """
 
 import asyncio
@@ -80,10 +55,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     trace_writer: IRISTraceWriter | None = None
     if settings.persist_traces_to_iris:
         trace_writer = IRISTraceWriter(settings)
-        # Hydrate the in-memory store from ^CommandCenterTrace so traces
-        # survive a backend restart. Blocking Native API calls run off the
-        # event loop; load_recent_sync() never raises (unavailable IRIS =
-        # start empty, as before).
+        # Reload saved traces so they survive a backend restart.
+        # The driver is blocking, so run it off the event loop.
         persisted = await asyncio.get_running_loop().run_in_executor(
             None, trace_writer.load_recent_sync
         )
@@ -93,18 +66,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     knowledge_store: IRISKnowledgeStore | None = None
     if settings.enable_knowledge_search:
         knowledge_store = IRISKnowledgeStore(settings)
-        # Create CommandCenter.Knowledge if missing and reindex the corpus,
-        # off the event loop. An unreachable IRIS never blocks startup —
-        # the first search retries the indexing.
+        # Build the knowledge table off the event loop. If IRIS isn't
+        # reachable yet, the first search will try again.
         try:
             await asyncio.get_running_loop().run_in_executor(None, knowledge_store.ensure_indexed_sync)
         except KnowledgeStoreUnavailableError:
             logger.warning("Knowledge search enabled, but IRIS indexing failed at startup; will retry on first search.")
     app.state.knowledge_store = knowledge_store
 
-    # One-time automatic Demo Activity: runs in the background (never blocks
-    # startup), waits for IRIS itself, and is stopped before the IRIS client
-    # it uses is closed.
+    # Runs in the background and waits for IRIS on its own. Stopped
+    # before the IRIS client is closed.
     demo_activity: StartupDemoActivity | None = None
     if settings.auto_run_demo_activity:
         demo_activity = StartupDemoActivity(app.state.iris_client, DemoAutoRunMarker(settings))

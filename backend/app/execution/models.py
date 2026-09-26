@@ -1,9 +1,4 @@
-"""Structured models for the operation execution framework.
-
-None of these models, and nothing in this package, calls IRIS. That only
-happens (in a future step) inside a real OperationHandler's `execute()`
-method — and no such handler exists yet anywhere in this project.
-"""
+"""Request, context and result models for running operations."""
 
 from enum import Enum
 from typing import Any
@@ -14,10 +9,7 @@ from app.authorization.models import AuthorizationResult
 
 
 class OperationRequest(BaseModel):
-    """What the caller is asking to happen. `parameters` is deliberately a
-    generic, open dict — this step defines no operation that reads it; it
-    exists so a future real handler can accept operation-specific input
-    without changing this model."""
+    """What the caller wants to run. `parameters` is handler-specific input."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -26,21 +18,11 @@ class OperationRequest(BaseModel):
 
 
 class ExecutionContext(BaseModel):
-    """The trust boundary for one execution attempt.
+    """Everything the executor needs to decide on one attempt.
 
-    `available_privileges` must, in a real deployment, come from a trusted
-    source the backend itself established — e.g. the authenticated caller's
-    own IRIS session privileges, obtained via a real GET /info call using
-    their session's JWT — never taken directly from client-submitted request
-    body/query data. No route in this project populates this field from
-    anywhere yet (no route uses this framework at all), so that boundary has
-    not yet been crossed by any code; it is stated here as a hard
-    requirement for whichever future step wires a real route to this
-    executor.
-
-    There is deliberately no "force", "skip_confirmation", "bypass", or
-    similar field anywhere on this model. See
-    test_execution_context_has_no_bypass_fields.
+    `available_privileges` must come from the backend itself (the IRIS
+    session's /info), never from the client's request. There's intentionally
+    no force/skip/bypass field (see test_execution_context_has_no_bypass_fields).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -56,9 +38,7 @@ class HandlerOutcome(str, Enum):
 
 
 class HandlerExecutionResult(BaseModel):
-    """What a handler's execute() or dry_run() returned. `data` is generic,
-    handler-defined content (e.g. what would change, or what did change) —
-    never a credential or token value."""
+    """What a handler's execute() or dry_run() returned. `data` is handler-specific."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -68,15 +48,13 @@ class HandlerExecutionResult(BaseModel):
 
 
 class PostActionVerificationStatus(str, Enum):
-    NOT_APPLICABLE = "not_applicable"  # dry-run, or the operation defines no verification
+    NOT_APPLICABLE = "not_applicable"  # dry run, or the operation has no verification
     VERIFIED = "verified"
     VERIFICATION_FAILED = "verification_failed"
 
 
 class PostActionVerificationResult(BaseModel):
-    """The outcome of checking IRIS's actual resulting state after a real
-    execution. Always NOT_APPLICABLE for a dry-run — a dry-run never
-    changes anything, so there is nothing to verify."""
+    """Result of re-checking IRIS after a real execution (NOT_APPLICABLE for dry runs)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -96,11 +74,11 @@ class OperationResultStatus(str, Enum):
 
 
 class OperationResult(BaseModel):
-    """The single, structured outcome of OperationExecutor.execute(). Every
-    code path through the executor returns exactly one of these — there is
-    no separate exception-based control flow for authorization/confirmation
-    denial (only genuinely unexpected handler errors are ever caught and
-    turned into EXECUTION_FAILED; see executor.py)."""
+    """Outcome of OperationExecutor.execute().
+
+    Denials are returned as results, not exceptions; only unexpected handler
+    errors are caught and reported as EXECUTION_FAILED.
+    """
 
     model_config = ConfigDict(frozen=True)
 

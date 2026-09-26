@@ -1,20 +1,9 @@
-"""Wires the AI Assistant to the EXISTING journal.update_purge_archived
-operation, entirely through the already-existing authorization/execution
-framework (app/execution/executor.py, app/execution/journal_purge_archived_handler.py,
-app/authorization/service.py). This module makes no IRIS call of its own
-outside that framework, holds no duplicate authorization/confirmation
-logic, and never mutates anything directly — it only builds the same
-OperationRequest/ExecutionContext the existing
-POST /api/iris/journal/purge-archived route already builds (see
-app/routes/journal.py), and turns the resulting OperationResult into a
-short chat reply.
+"""Lets the AI Assistant run journal.update_purge_archived.
 
-There is no bypass, "force", or default-confirmed path anywhere in this
-module: `confirmation_received` is set ONLY from
-app.assistant.intents.parse_purge_archived_request's explicit-confirmation
-parsing, and the underlying ExecutionContext model itself has no bypass
-field to set even if this module wanted one (see
-app/execution/models.py:ExecutionContext's docstring).
+It builds the same request the /api/iris/journal/purge-archived route does
+and hands it to the normal executor, so authorization, confirmation and
+verification all apply. Confirmation only comes from an explicit
+"confirm"/"proceed" in the message.
 """
 
 from app.assistant.intents import parse_purge_archived_request
@@ -30,21 +19,19 @@ JOURNAL_OPERATION_NAME = "journal.update_purge_archived"
 
 def _required_privileges_text() -> str:
     operation = get_operation(JOURNAL_OPERATION_NAME)
-    assert operation is not None  # registered at import time — see operations.py
+    assert operation is not None  # registered in operations.py
     return " or ".join(sorted(p.value for p in operation.required_privileges))
 
 
 async def handle_journal_operation_message(message: str, client: IRISClient) -> str:
     operation = get_operation(JOURNAL_OPERATION_NAME)
-    assert operation is not None  # registered at import time — see operations.py
+    assert operation is not None  # registered in operations.py
 
     target, confirmed = parse_purge_archived_request(message)
     privileges_text = _required_privileges_text()
 
     if target is None:
-        # Pure information request — no IRIS call, no authorization check;
-        # this is exactly the operation's own registry metadata, the same
-        # data GET /api/iris/operations already exposes.
+        # Just describing the operation; no IRIS call needed.
         return (
             f"{operation.description} Required privilege: {privileges_text}. "
             "This is a mutating operation and always requires explicit confirmation "
@@ -53,10 +40,8 @@ async def handle_journal_operation_message(message: str, client: IRISClient) -> 
             'archived true" or "confirm purge archived false".'
         )
 
-    # A concrete target was given (with or without confirmation) — ALWAYS
-    # routed through the existing authorization/execution framework, which
-    # decides authorization and confirmation-gating itself; this module
-    # never pre-empts or duplicates that decision.
+    # A target value was given, so let the executor decide
+    # (authorization and confirmation happen there).
     caller_privileges = await get_caller_privileges(client)
     executor = OperationExecutor(
         {JOURNAL_OPERATION_NAME: JournalUpdatePurgeArchivedHandler(client)}
@@ -93,6 +78,5 @@ async def handle_journal_operation_message(message: str, client: IRISClient) -> 
     if result.status is OperationResultStatus.EXECUTION_FAILED:
         return f"I couldn't complete that change: {result.detail}"
 
-    # UNKNOWN_OPERATION / NO_HANDLER — not expected for this fixed,
-    # always-registered operation, but never fabricate a nicer message.
+    # Shouldn't happen for this operation, but report it as-is.
     return result.detail

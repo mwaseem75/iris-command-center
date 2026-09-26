@@ -1,10 +1,4 @@
-"""Tests for the journal.update_purge_archived operation — the project's
-first REAL mutating operation. ALL tests here use a fake/mock IRISClient
-(an AsyncMock with .get/.put), exactly like the existing read-route tests
-(see tests/test_iris_routes.py). No test in this file makes, or could make,
-a real network call — there is no real IRISClient constructed anywhere in
-this file.
-"""
+"""Tests for journal.update_purge_archived. Everything runs against a mocked IRISClient."""
 
 from typing import Any
 from unittest.mock import AsyncMock
@@ -25,9 +19,7 @@ _OPERATION_NAME = "journal.update_purge_archived"
 
 
 def _journal_settings_body(purge_archived: bool) -> dict[str, Any]:
-    """A real-shaped JournalSettings envelope (matches the actual Phase 1
-    verified response — see docs/api-capability-matrix.md), varying only
-    the PurgeArchived field under test."""
+    """JournalSettings response with the given PurgeArchived value."""
     return {
         "status": {"errors": [], "summary": ""},
         "console": [],
@@ -51,10 +43,9 @@ def _journal_settings_body(purge_archived: bool) -> dict[str, Any]:
 
 @pytest.fixture
 def fake_iris_client() -> AsyncMock:
-    """A fake client whose GET always reports PurgeArchived=False (the
-    original/current state) unless a test overrides it, and whose PUT
-    echoes back the requested value — matching the documented PUT response
-    shape (result: JournalSettings), unless a test overrides it."""
+    """Fake client: GET reports PurgeArchived=False and PUT echoes the requested
+    value. Tests override as needed.
+    """
     client = AsyncMock()
     client.get.return_value = _journal_settings_body(purge_archived=False)
     client.put.return_value = _journal_settings_body(purge_archived=True)
@@ -178,9 +169,8 @@ async def test_confirmation_and_dry_run_never_calls_put(
 async def test_confirmation_and_execution_calls_put_exactly_once_with_correct_body(
     fake_iris_client: AsyncMock,
 ) -> None:
-    # GET is called twice by a real execution: once before the PUT (original
-    # state) and once after (post-action verification). Reflect the change
-    # taking effect on the second call, as a real IRIS instance would.
+    # A real run does two GETs: before the PUT and after it (verify). The
+    # second one returns the new value, like IRIS would.
     fake_iris_client.get.side_effect = [
         _journal_settings_body(purge_archived=False),
         _journal_settings_body(purge_archived=True),
@@ -206,7 +196,7 @@ async def test_confirmation_and_execution_calls_put_exactly_once_with_correct_bo
 async def test_original_value_is_captured_in_result(
     executor: OperationExecutor, fake_iris_client: AsyncMock
 ) -> None:
-    # fake client's GET reports the pre-existing value as False (see fixture)
+    # the fixture's GET reports False
     result = await executor.execute(
         _request(purge_archived=True),
         _context(privileges=frozenset({"Journal"}), confirmed=True, dry_run=False),
@@ -224,8 +214,7 @@ async def test_original_value_is_captured_in_result(
 async def test_post_action_verification_succeeds_when_get_matches_requested_value(
     fake_iris_client: AsyncMock,
 ) -> None:
-    # First GET (pre-action) reports False; PUT echoes True; second GET
-    # (verification) must also report True to succeed.
+    # First GET says False, PUT returns True, the verify GET must say True.
     fake_iris_client.get.side_effect = [
         _journal_settings_body(purge_archived=False),
         _journal_settings_body(purge_archived=True),
@@ -251,8 +240,7 @@ async def test_post_action_verification_succeeds_when_get_matches_requested_valu
 async def test_post_action_verification_fails_when_get_does_not_match_requested_value(
     fake_iris_client: AsyncMock,
 ) -> None:
-    # PUT claims success, but the follow-up GET still shows the old value —
-    # the mutation didn't actually take effect.
+    # PUT says OK but the next GET still shows the old value.
     fake_iris_client.get.side_effect = [
         _journal_settings_body(purge_archived=False),
         _journal_settings_body(purge_archived=False),  # unchanged!
@@ -334,7 +322,7 @@ async def test_dry_run_get_failure_becomes_structured_failure_not_a_crash(
     fake_iris_client.put.assert_not_awaited()
 
 
-# --- extra/unexpected fields are rejected, not silently dropped ---
+# --- extra fields are rejected ---
 
 
 @pytest.mark.asyncio
@@ -365,7 +353,7 @@ def test_parameters_model_rejects_extra_fields_directly() -> None:
         )
 
 
-# --- request body scope: only PurgeArchived is ever sent ---
+# --- only PurgeArchived is ever sent ---
 
 
 @pytest.mark.asyncio

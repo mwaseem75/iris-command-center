@@ -1,22 +1,13 @@
-// Extensions view: fetches the three remaining verified, read-only
-// endpoints that had no frontend view yet (GET /api/iris/ext-lang-servers,
-// GET /api/iris/fs-access-purposes, GET /api/iris/wallet/collections) and
-// renders them. No other endpoint is called from this module, and no
-// mutating HTTP method is used anywhere in it.
+// Extensions page: external language servers, file-system access purposes
+// and wallet collections (three GETs).
 //
-// backend/app/models/iris.py types ext-lang-servers entries as a known
-// shape (Name, Port, Type — verified against a real IRIS instance, see
-// docs/api-capability-matrix.md), so that table uses fixed columns, the
-// same convention tasks.js/databases.js already use for known shapes.
-// fs-access-purposes and wallet/collections have only ever been observed
-// as empty arrays (no populated entry shape exists to hard-code), so those
-// two tables discover their columns at runtime from whatever fields IRIS
-// actually returns — the same pattern security.js already uses for its own
-// never-populated OAuth2 list endpoints.
+// Language servers have a known shape (Name, Port, Type), so that table has
+// fixed columns. The other two have only ever come back empty, so their
+// columns are taken from whatever fields IRIS returns.
 
 import { IrisApi } from "./api.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("extensions-loading-state"),
@@ -41,9 +32,7 @@ const dom = {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in the other views.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -77,9 +66,7 @@ function formatValue(value) {
   return str === "" ? PLACEHOLDER : str;
 }
 
-// Cells/rows are always built via document.createElement + .textContent —
-// never innerHTML — so a config value containing HTML-special characters
-// can never be interpreted as markup.
+// Built with createElement/textContent (no innerHTML).
 function makeCell(text, { mono = false } = {}) {
   const cell = document.createElement("td");
   cell.className = mono ? "data-table__cell data-table__cell--mono" : "data-table__cell";
@@ -122,8 +109,7 @@ function renderExtLangServers(settled) {
   }
 }
 
-// Column names are discovered at runtime from the entries IRIS actually
-// returns (see module header) — never a hardcoded/invented list.
+// Columns come from the fields IRIS actually returned.
 function renderDynamicList(settled, { wrapper, thead, body, empty, notLoadedMessage, emptyMessage }) {
   body.replaceChildren();
   thead.replaceChildren();
@@ -178,10 +164,8 @@ function describeFailures(results) {
 }
 
 /**
- * Fetches all three endpoints and renders them. These are the ONLY network
- * calls this module makes — no mutating request exists anywhere in this
- * file. Uses Promise.allSettled so one failing endpoint never blocks the
- * others from rendering, the same pattern used in security.js/dashboard.js.
+ * Load all three and render them. allSettled so one failure doesn't stop
+ * the others from showing.
  */
 export async function loadExtensions() {
   setLoading(true);

@@ -1,10 +1,4 @@
-"""A single, read-only route exposing host diagnostics computed by Embedded
-Python inside IRIS (see app/embedded_python/diagnostics.py for the fixed
-set of calls and the safety rules). It takes no parameters, so nothing a
-caller sends can influence which Python code runs inside IRIS.
-
-No mutating call exists anywhere in this module.
-"""
+"""Endpoint for the Embedded Python host diagnostics (read-only, no parameters)."""
 
 import asyncio
 
@@ -24,7 +18,7 @@ router = APIRouter(prefix="/api/iris", tags=["embedded-python"])
 async def get_embedded_python_diagnostics(
     diagnostics: EmbeddedPythonDiagnostics = Depends(get_python_diagnostics),
 ) -> PythonDiagnostics:
-    # The Native API driver is blocking — keep it off the event loop.
+    # The driver is blocking, so run it in a thread.
     try:
         return await asyncio.get_running_loop().run_in_executor(None, diagnostics.collect_sync)
     except EmbeddedPythonUnavailableError:

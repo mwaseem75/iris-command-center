@@ -1,18 +1,8 @@
-"""The reusable authorization service.
+"""Authorization checks for operations.
 
-`authorize()` is a pure function: given an operation name, the caller's
-available privileges, and whether explicit confirmation was received, it
-returns a structured decision. It never calls IRIS, never performs the
-operation, and never mutates anything — it only decides.
-
-Deliberately absent from this module, by design (see
-docs/authorization-model.md): any bypass flag, "force" parameter, admin
-override, or privilege-escalation path. There is no way to call this
-function and get an authorized-to-proceed result other than by actually
-holding the required privilege and (for mutating operations) actually
-supplying confirmation_received=True. Possessing a valid IRIS session/JWT
-is not, by itself, sufficient — a caller must be checked against the
-specific privilege each operation declares.
+authorize() only decides; it never calls IRIS or runs anything. There's no
+override or force flag: you need the required privilege and, for mutating
+operations, explicit confirmation. Having a valid IRIS session isn't enough.
 """
 
 from app.authorization.models import AuthorizationDenialReason, AuthorizationResult
@@ -26,13 +16,10 @@ def authorize(
     *,
     confirmation_received: bool = False,
 ) -> AuthorizationResult:
-    """Decide whether `operation_name` may proceed.
+    """Decide whether an operation may proceed.
 
-    `available_privileges` is whatever the caller has (e.g. the keys of a
-    real IRIS `/info` response's `privileges` object where `use` is true) —
-    it is parsed defensively via `parse_available_privileges`, which never
-    raises and never recognizes an unknown name (including "ConfigStore")
-    as a real privilege.
+    `available_privileges` usually comes from IRIS's /info (entries with
+    use: true). Unknown names are ignored.
     """
     operation = get_operation(operation_name)
     if operation is None:

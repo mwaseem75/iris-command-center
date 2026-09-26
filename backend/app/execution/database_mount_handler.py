@@ -1,40 +1,16 @@
-"""The handler for `database.mount` — mount an existing local IRIS database.
-Same architecture and discipline as database.create: real validation
-against live IRIS read data in both dry_run() and execute(), and only
-execute() ever calls the real write (POST /v2/database-dir/mount) —
-dry_run() never does.
+"""Handler for database.mount (POST /v2/database-dir/mount?dir=..., %Admin_Operate:U).
 
-Endpoint used (`%Admin_Operate:U`, per mainspec_v2.json's own summary,
-"(%Admin_Operate:U) Mount a local database"):
-  - `POST /v2/database-dir/mount?dir=<Directory>` — keyed by the
-    documented `dir` query parameter (`DBDirectory`), with an optional
-    JSON body of `ReadOnly`, `Cluster`, `MirrorCatchup`. Only `ReadOnly` is
-    wired up here. `Cluster` is deliberately never sent: the spec says
-    setting it on a non-cluster member makes the system "try to join the
-    cluster" — far outside this operation's intent. `MirrorCatchup` is
-    left to IRIS's own default (it is ignored for non-mirrored databases).
-  - Synchronous: documented `200 Success` (a plain BaseResponseWithResult,
-    no result schema), unlike database.info/integrity-check's 202 async
-    tasks. The response body is discarded; verify() is the sole source of
-    truth.
-  - Documented `409` "database is already mounted" — reported as a clear
-    handler FAILURE, never as an unexpected error. Documented `404` "the
-    specified database does not exist" — likewise a clear FAILURE.
+Both dry_run() and execute() validate against live IRIS data; only
+execute() sends the mount.
 
-Mount-state source: `POST /v2/database-dir/info` (async task), whose
-result carries a `Mounted: bool` field — already observed live, populated,
-via database.info (see app/models/iris.py's DatabaseInfoResult). Neither
-GET /v2/database-dir (LocalDatabase has no mount field at all) nor GET
-/v2/databases (a free-text `Status`, whose dismounted value has never been
-observed) is a reliable mount signal. Only the `Mounted` field itself is
-read — the rest of the info result is not parsed, since a DISMOUNTED
-database's info result has never been observed live and its other fields
-are not assumed to match the mounted case.
+Only ReadOnly is sent in the body. We never send Cluster (on a non-cluster
+system it makes IRIS try to join a cluster) and leave MirrorCatchup to IRIS.
+The call is synchronous; IRIS answers 409 if already mounted and 404 if the
+database doesn't exist, and we report both as failures.
 
-As of this implementation, no real mount has been executed against IRIS:
-every database on icc-iris-dev is already mounted, and this project has no
-dismount operation. All tests use a fake/mock IRIS client (see
-backend/tests/test_database_mount.py).
+The mount state comes from POST /v2/database-dir/info (its Mounted field).
+Neither GET /v2/database-dir nor the free-text Status in GET /v2/databases
+is reliable for that.
 """
 
 import asyncio
@@ -58,15 +34,14 @@ from app.iris_client.exceptions import IRISClientError, IRISResponseError
 _MOUNT_PATH = "/v2/database-dir/mount"
 _INFO_PATH = "/v2/database-dir/info"
 
-# Same bounded policy as database.create/namespace.create: one immediate
-# check plus three increasing delays, never unbounded.
+# Verify once right away, then after three growing delays.
 _VERIFY_RETRY_DELAYS_SECONDS: tuple[float, ...] = (0.2, 0.5, 1.0)
 
 
 class DatabaseMountParameters(BaseModel):
-    """`Directory` identifies the database (the spec's `dir` query
-    parameter); `ReadOnly` is the one documented body field wired up (see
-    module docstring for why `Cluster`/`MirrorCatchup` are not)."""
+    """`Directory` is the database (the spec's dir parameter); `ReadOnly` is the
+    only body field we send.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -76,7 +51,7 @@ class DatabaseMountParameters(BaseModel):
     @field_validator("Directory")
     @classmethod
     def _validate_directory(cls, value: str) -> str:
-        # Same defensive rules as DatabaseCreateParameters.Directory.
+        # Same checks as DatabaseCreateParameters.Directory.
         if not value:
             raise ValueError("Directory is required and cannot be empty.")
         if not value.startswith("/"):
@@ -92,14 +67,13 @@ def _failure(detail: str, **data: Any) -> HandlerExecutionResult:
     return HandlerExecutionResult(outcome=HandlerOutcome.FAILURE, detail=detail, data=data)
 
 
-# Sentinels for _read_mounted() — distinct from True/False.
+# Sentinel values for _read_mounted().
 _NOT_FOUND = "not_found"
 _UNKNOWN = "unknown"
 
 
 class DatabaseMountHandler(OperationHandler):
-    """Requires an IRISClient supplied by the caller (typically a route), so
-    it can be unit-tested with a fake/mock client."""
+    """Takes an IRISClient so tests can pass a fake."""
 
     def __init__(
         self,
@@ -108,14 +82,15 @@ class DatabaseMountHandler(OperationHandler):
         verify_retry_delays_seconds: tuple[float, ...] = _VERIFY_RETRY_DELAYS_SECONDS,
     ):
         self._iris_client = iris_client
-        # Overridable only so tests can shrink wall-clock delays to ~0.
+        # Tests shrink these delays.
         self._verify_retry_delays_seconds = verify_retry_delays_seconds
 
     async def _read_mounted(self, directory: str) -> bool | str:
-        """Read-only: POST /v2/database-dir/info (async task) and return its
-        real `Mounted` bool. Returns _NOT_FOUND on the endpoint's documented
-        404, _UNKNOWN if `Mounted` is absent or not a bool (never guessed).
-        Any other error propagates rather than being misread as a state."""
+        """Read the Mounted flag from POST /v2/database-dir/info.
+
+        Returns _NOT_FOUND on 404 and _UNKNOWN if Mounted is missing. Other errors
+        are raised.
+        """
         try:
             task_id = await self._iris_client.post_async_task(_INFO_PATH, params={"dir": directory})
             task = await self._iris_client.wait_for_async_task(task_id)
@@ -130,8 +105,7 @@ class DatabaseMountHandler(OperationHandler):
     async def _validate(
         self, request: OperationRequest
     ) -> tuple[DatabaseMountParameters, None] | tuple[None, HandlerExecutionResult]:
-        """Parses the request and checks the database's real, current mount
-        state. Read-only — safe for both dry_run() and execute()."""
+        """Parse the request and check the database's current mount state (read-only)."""
         try:
             params = DatabaseMountParameters.model_validate(request.parameters)
         except ValidationError as exc:
@@ -163,7 +137,7 @@ class DatabaseMountHandler(OperationHandler):
     async def dry_run(
         self, request: OperationRequest, context: ExecutionContext
     ) -> HandlerExecutionResult:
-        """Validation and read-only IRIS lookups only — never calls post()."""
+        """Validate and read from IRIS only; never sends the mount."""
         params, failure = await self._validate(request)
         if failure is not None:
             return failure
@@ -219,9 +193,7 @@ class DatabaseMountHandler(OperationHandler):
         context: ExecutionContext,
         execution_result: HandlerExecutionResult,
     ) -> PostActionVerificationResult:
-        """A fresh POST /v2/database-dir/info read (independent of the mount
-        response), retried with the bounded policy above, confirming IRIS
-        now reports `Mounted: true` for this directory."""
+        """Re-read /v2/database-dir/info (with retries) and check Mounted is now true."""
         target_directory = execution_result.data.get("directory")
 
         last_state: bool | str | None = None
@@ -231,8 +203,8 @@ class DatabaseMountHandler(OperationHandler):
                 await asyncio.sleep(delay_before_this_attempt)
             attempts_made += 1
             if target_directory:
-                # The mount itself already happened; a read failure here must
-                # surface as VERIFICATION_FAILED, not an unhandled error.
+                # The change already happened, so a failed read here is a
+                # VERIFICATION_FAILED result, not an exception.
                 try:
                     last_state = await self._read_mounted(target_directory)
                 except IRISClientError as exc:

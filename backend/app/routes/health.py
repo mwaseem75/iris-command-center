@@ -1,8 +1,4 @@
-"""Health endpoint for the Command Center backend itself.
-
-This reports whether the backend process is up. It does not call IRIS —
-IRIS connectivity is a separate concern for a later step.
-"""
+"""Health check for the backend process (doesn't call IRIS)."""
 
 from fastapi import APIRouter
 

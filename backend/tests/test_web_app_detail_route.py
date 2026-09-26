@@ -1,10 +1,6 @@
-"""Tests for GET /api/iris/web-apps/detail?name=<Name> — the Web Apps
-Explorer's detail drawer.
+"""Tests for GET /api/iris/web-apps/detail?name=<Name> (the detail drawer).
 
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. The canned body is the ACTUAL `GET /v2/web-app?name=/csp/user`
-response captured from icc-iris-dev, not invented data — see
-app/models/iris.py's WebAppDetail comment.
+The canned body is a real GET /v2/web-app?name=/csp/user response.
 """
 
 import copy
@@ -99,8 +95,7 @@ def test_get_web_app_detail_requires_name(client: TestClient, mock_iris_client: 
 def test_get_web_app_detail_propagates_not_found(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """mainspec_v2.json documents a 404 for an unknown web app name — it is
-    surfaced the same generic, safe way as every other IRIS client error."""
+    """An unknown app is a 404 from IRIS, reported like any other IRIS error."""
     mock_iris_client.get.side_effect = IRISResponseError(404)
 
     response = client.get("/api/iris/web-apps/detail", params={"name": "/does-not-exist"})
@@ -123,8 +118,7 @@ def test_get_web_app_detail_handles_connection_error(
 def test_get_web_app_detail_rejects_unexpected_shape(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A response missing an observed field is not silently passed through
-    with invented defaults."""
+    """A response missing a field fails instead of getting made-up defaults."""
     body = copy.deepcopy(WEB_APP_DETAIL_BODY)
     del body["result"]["NameSpace"]
     mock_iris_client.get.return_value = body

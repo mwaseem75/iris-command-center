@@ -1,11 +1,7 @@
-"""A single, read-only route: vector search over the Command Center's
-knowledge corpus, stored in and searched by IRIS (see
-app/knowledge/store.py). No LLM is involved — results are the stored
-corpus documents themselves, ranked by VECTOR_COSINE.
+"""Knowledge search endpoint (IRIS vector search, no LLM).
 
-Returns 503 while the feature is disabled (Settings.enable_knowledge_search
-is off by default). No mutating call exists anywhere in this module; the
-store's only writes happen at startup, to its own table.
+Returns the stored documents ranked by VECTOR_COSINE, or 503 when the
+feature is turned off.
 """
 
 import asyncio
@@ -29,7 +25,7 @@ async def search_knowledge(
 ) -> KnowledgeSearchResponse:
     if store is None:
         raise HTTPException(status_code=503, detail="Knowledge search is not enabled")
-    # DB-API over the Native API driver is blocking — keep it off the event loop.
+    # The driver is blocking, so run the search in a thread.
     try:
         results = await asyncio.get_running_loop().run_in_executor(None, store.search_sync, q)
     except KnowledgeStoreUnavailableError:

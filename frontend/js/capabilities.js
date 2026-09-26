@@ -1,18 +1,14 @@
-// API Capability Explorer view: fetches GET /api/iris/capabilities ONLY
-// (via IrisApi.getCapabilities) and renders it. No other endpoint is
-// called from this module, and no mutating HTTP method is used anywhere
-// in it.
+// API Capability Explorer: GET /api/iris/capabilities, shown as a searchable
+// table.
 //
-// Unlike investigation.js, filtering here never re-fetches from the
-// backend: the full capability list is small and static (see
-// backend/app/capabilities.py), so it is fetched once per view-open/
-// Refresh click and then searched/filtered entirely client-side, the same
-// list already cached in `allCapabilities` below.
+// The list is small and static, so it's fetched once per visit/Refresh and
+// filtered in the browser (unlike Investigation, which searches on the
+// server).
 
 import { IrisApi, ApiError } from "./api.js";
 import { countBy, renderDonut } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("capabilities-loading-state"),
@@ -33,8 +29,7 @@ const dom = {
   empty: document.getElementById("capabilities-empty"),
 };
 
-// The full list from the last successful fetch — filters below only ever
-// re-render a subset of this, never re-fetch it.
+// The last fetched list; filtering only re-renders part of it.
 let allCapabilities = [];
 
 function setLoading(isLoading) {
@@ -66,8 +61,7 @@ function makeCell(text) {
   return cell;
 }
 
-// Same badge convention already used by observability.js's execution
-// traces table (status-badge / status-badge--ok / status-badge--neutral).
+// Same badge classes as the Observability traces table.
 function makeBadge(label, isPositive) {
   const badge = document.createElement("span");
   badge.className = `status-badge ${isPositive ? "status-badge--ok" : "status-badge--neutral"}`;
@@ -140,17 +134,16 @@ function renderRows(entries) {
   }
 }
 
-/** Re-renders from the already-fetched `allCapabilities` list using the
- * current filter values — never triggers a network request. */
+/** Re-render from `allCapabilities` with the current filters (no request). */
 function applyFilters() {
   const filters = collectFilters();
   renderRows(allCapabilities.filter((entry) => matchesFilters(entry, filters)));
 }
 
-/** Two donuts over the full, unfiltered `allCapabilities` list (matching
- * the text summary above, which is also always computed from the full
- * list, not the currently-filtered table rows) — no extra fetch, no
- * invented category. Hidden entirely when there's nothing to show. */
+/**
+ * Two donuts over the whole list (not the filtered rows), like the summary
+ * text. Hidden when there's nothing to show.
+ */
 function renderOverview() {
   if (allCapabilities.length === 0) {
     dom.overview.hidden = true;
@@ -178,11 +171,7 @@ function renderSummary() {
   renderOverview();
 }
 
-/**
- * Fetches GET /api/iris/capabilities and renders it. This is the ONLY
- * network call this module makes — no mutating request exists anywhere in
- * this file.
- */
+/** Load GET /api/iris/capabilities and render it. */
 export async function loadCapabilities() {
   setLoading(true);
   setErrorBanner(null);
@@ -214,14 +203,12 @@ export function initCapabilitiesControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadCapabilities();
   });
-  // Filtering is client-side and instant — no network request, so every
-  // input re-renders immediately rather than waiting for a submit/click.
+  // Filtering is local, so update on every keystroke.
   dom.filterSearch.addEventListener("input", applyFilters);
   dom.filterVerification.addEventListener("change", applyFilters);
   dom.filterAvailable.addEventListener("change", applyFilters);
-  // Pressing Enter in the search field would otherwise submit this <form>
-  // and reload the page; filtering already happens live via the "input"
-  // listener above, so submitting just needs to be a harmless no-op.
+  // Stop Enter from submitting the form and reloading the page; filtering
+  // already happens on input.
   dom.filterForm.addEventListener("submit", (event) => {
     event.preventDefault();
   });

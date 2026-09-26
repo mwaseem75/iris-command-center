@@ -1,13 +1,8 @@
 """Shared test fixtures.
 
-Provides harmless placeholder IRIS connection settings for every test, so
-the FastAPI app's lifespan (which constructs Settings()) never fails due to
-missing required environment variables, regardless of test order. These are
-not real credentials and are never used to contact a real IRIS instance in
-this test suite — IRIS interaction is mocked/overridden per test.
-
-Also provides the shared `mock_iris_client`/`client` fixtures used by every
-IRIS route test, so each test file doesn't redefine them.
+Sets dummy IRIS connection settings so Settings() works in every test
+(they're never used to connect anywhere), and provides the shared
+`mock_iris_client`/`client` fixtures for the route tests.
 """
 
 import pytest

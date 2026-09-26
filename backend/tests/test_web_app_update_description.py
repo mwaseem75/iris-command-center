@@ -1,12 +1,7 @@
-"""Tests for web_app.update_description. Every test uses a fake/mock
-IRISClient — no real network call is made, and no test (or anything else in
-this project) performs a real PUT /v2/web-app.
+"""Tests for web_app.update_description, using a fake IRIS client.
 
-The fake IRIS mirrors IRIS's own implementation (see
-app/execution/web_app_update_description_handler.py's docstring): the PUT
-merges only the keys sent AND always forces Type to plain CSP, exactly like
-MergeJsonAndProperties(). List entries are real GET /v2/web-apps entries
-captured from icc-iris-dev; descriptions are the apps' real ones.
+Like the real API, the PUT only changes the keys sent and always sets Type
+to CSP. List entries and descriptions are copied from a real instance.
 """
 
 import copy
@@ -85,7 +80,7 @@ class FakeIris:
         a = self.apps[params["name"]]
         if self.put_changes_description:
             a.update(json)
-        a["Type"] = "CSP"  # IRIS always forces Type to plain CSP
+        a["Type"] = "CSP"  # IRIS always sets Type to CSP
         if self.put_also_disables:
             a["Enabled"] = False
         return {**_ENVELOPE, "result": {"Description": a["Description"], "Enabled": a["Enabled"]}}

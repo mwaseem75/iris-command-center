@@ -1,13 +1,9 @@
-"""Tests for database.dismount. Every test uses a fake/mock IRISClient — no
-real network call is made, and no test (or anything else in this project)
-performs a real POST /v2/database-dir/dismount.
+"""Tests for database.dismount, using a fake IRIS client.
 
-GET /v2/databases and GET /v2/namespaces answers are the REAL ones captured
-from icc-iris-dev (plus a custom "APPDATA" database and a mirrored one). The
-fake mirrors IRIS's own implementation (see
-app/execution/database_dismount_handler.py's docstring): database-dir/info
-is an async task reporting Mounted/Mirrored, an unknown directory is a 404,
-and the dismount itself takes no body.
+The /v2/databases and /v2/namespaces answers are real ones, plus a custom
+APPDATA database and a mirrored one. Like the real API, database-dir/info
+is an async task, an unknown directory is a 404, and the dismount has no
+body.
 """
 
 import copy
@@ -40,7 +36,7 @@ def _db(name: str, directory: str, mount_required: Any) -> dict[str, Any]:
             "MountRequired": mount_required, "MountAtStartup": True, "StreamLocation": "", "Status": "Mounted/RW"}
 
 
-# Real GET /v2/databases (icc-iris-dev) + two test databases.
+# Real GET /v2/databases plus two test databases.
 _DATABASES = [
     _db("IRISSYS", "/usr/irissys/mgr/", True),
     _db("IRISSECURITY", "/usr/irissys/mgr/irissecurity/", True),
@@ -64,7 +60,7 @@ def _ns(name: str, globals_db: str, routines_db: str) -> dict[str, Any]:
             "SysGlobals": "IRISSYS", "SysRoutines": "IRISSYS", "TempGlobals": "IRISTEMP"}
 
 
-# Real GET /v2/namespaces (icc-iris-dev) + one that makes SYSUSED a %SYS database.
+# Real GET /v2/namespaces plus one that makes SYSUSED a %SYS database.
 _NAMESPACES = [
     _ns("%ALL", "%DEFAULTDB", "%DEFAULTDB"),
     {**_ns("%SYS", "IRISSYS", "IRISSYS"), "TempGlobals": "SYSUSED"},

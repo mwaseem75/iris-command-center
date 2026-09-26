@@ -1,28 +1,16 @@
-"""Read-only Security routes, all %Admin_Secure:U:
-  - Identity & Access: users, roles, role owners and resources (IRIS's GET
-    /v2/security/users|user|roles|role|role/owners|resources|resource).
-  - Authentication Posture: services, system-wide web authentication,
-    superservers and application class-access (GET /v2/security/services|
-    service|web-auth|superservers|superserver, /v2/web-app/pct-accesses).
-  - X.509 credentials: credential and certificate METADATA only (GET
-    /v2/security/x509-credentials|x509-credential|x509-credential/
-    certificate). Key material and key passwords are never modelled.
-  - OAuth 2.0: authorization server, registered clients, server
-    definitions, client configurations, resource servers and mappings
-    (GET /v2/security/oauth2/*), through explicit allowlist models.
-  - Wallet: collections and their secrets' NAMES AND TYPES only (GET
-    /v2/wallet/collections|collection|secrets, %Admin_Wallet:U). No route
-    here requests a secret value — IRIS has no GET for one — and the
-    models are allowlists, so no value-bearing field can pass through.
+"""Read-only Security routes (%Admin_Secure:U unless noted).
 
-Nothing here changes IRIS state — only GETs are sent, and no route is gated
-by the authorization/confirmation/execution framework, the same as every
-read route in app/routes/iris.py.
+- Identity & Access: users, roles, role owners, resources.
+- Authentication: services, system web auth, superservers, class access.
+- X.509: credential and certificate metadata only (no key material).
+- OAuth 2.0: server, clients, definitions, resource servers, mappings,
+  through allowlist models.
+- Wallet (%Admin_Wallet:U): collections and secret names/types only.
+  IRIS has no GET for a secret value.
 
-Personal data: GET /v2/security/user's EmailAddress, PhoneNumber,
-PhoneProvider and free-text Comment are withheld (see app/models/iris.py's SecurityUserDetail).
-web-auth's SMTPUsername and TwoFactorFrom are withheld the same way. IRIS returns no
-password, hash or secret from any of these endpoints.
+Only GETs are sent. Personal data is dropped before responding: the user's
+email, phone, phone provider and comment, and web-auth's SMTPUsername and
+TwoFactorFrom. IRIS doesn't return passwords or hashes from these endpoints.
 """
 
 import asyncio
@@ -75,22 +63,18 @@ from app.routes.iris import _IRIS_CLIENT_ERRORS, _as_http_exception
 
 router = APIRouter(prefix="/api/iris/security", tags=["iris-security"])
 
-# User-detail fields IRIS returns that never leave this backend.
+# User fields we never send to the browser.
 _WITHHELD_USER_FIELDS = ("EmailAddress", "PhoneNumber", "PhoneProvider", "Comment")
 
-# web-auth fields that never leave this backend: a mail-server credential
-# identifier and the two-factor sender email address. IRIS returns no SMTP
-# password at all.
+# web-auth fields we never send: the SMTP username and the two-factor
+# sender address. IRIS doesn't return the SMTP password.
 _WITHHELD_WEB_AUTH_FIELDS = ("SMTPUsername", "TwoFactorFrom")
 
-# Roles that exist but that GET /v2/security/roles was observed not to list
-# on IRIS 2026.2 (icc-iris-dev: 38 roles in Security.Roles, 37 listed;
-# %SQLTuneTable missing even with maxRows=5000). Each is included in the
-# access map only if its own detail call confirms it exists here.
+# Roles that exist but GET /v2/security/roles doesn't list on 2026.2
+# (e.g. %SQLTuneTable). We add each one only if its detail call finds it.
 _KNOWN_UNLISTED_ROLES = ("%SQLTuneTable",)
 
-# At most this many role-detail calls are in flight for one access-map
-# request (38 roles on icc-iris-dev).
+# Max concurrent role-detail calls per access-map request.
 _ROLE_DETAIL_CONCURRENCY = 8
 _SUPERSERVER_DETAIL_CONCURRENCY = 4
 _WALLET_SECRETS_CONCURRENCY = 4
@@ -98,9 +82,7 @@ _X509_CERTIFICATE_CONCURRENCY = 4
 
 
 async def _get(client: IRISClient, path: str, params: dict[str, Any] | None, not_found: str) -> Any:
-    """GET an IRIS path, mapping IRIS's documented 404 (unknown name) to a
-    404 with a safe, fixed message; every other failure is the shared
-    generic mapping."""
+    """GET a path, turning IRIS's 404 (unknown name) into a plain 404."""
     try:
         return await client.get(path, params=params) if params else await client.get(path)
     except IRISResponseError as exc:
@@ -121,9 +103,9 @@ async def get_users(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelo
 async def get_user_detail(
     name: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[SecurityUserDetail]:
-    """One user's account, roles and password-policy flags. Personal fields
-    are dropped before the response is built; their names (only those IRIS
-    actually sent) are listed in `WithheldFields`. Values never are."""
+    """One user's account, roles and password flags. Personal fields are removed
+    and their names listed in `WithheldFields`.
+    """
     raw = await _get(client, "/v2/security/user", {"name": name}, "IRIS reports no user with this name")
     result = raw.get("result") if isinstance(raw, dict) else None
     if isinstance(result, dict):
@@ -136,8 +118,7 @@ async def get_user_detail(
 
 @router.get("/roles", response_model=IRISEnvelope[list[SecurityRoleEntry]])
 async def get_roles(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[list[SecurityRoleEntry]]:
-    """IRIS's role list exactly as returned — including its omission of
-    %SQLTuneTable, which is never added here (see /roles/access-map)."""
+    """IRIS's role list as returned (without %SQLTuneTable; see /roles/access-map)."""
     raw = await _get(client, "/v2/security/roles", None, "IRIS reports no roles")
     return IRISEnvelope[list[SecurityRoleEntry]].model_validate(raw)
 
@@ -154,8 +135,7 @@ async def get_role_detail(
 async def get_role_owners(
     name: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[list[RoleOwnerEntry]]:
-    """Users and roles holding a role, including "User (escalation)" rows,
-    exactly as IRIS reports them."""
+    """Users and roles holding a role, including "User (escalation)" rows."""
     raw = await _get(
         client, "/v2/security/role/owners", {"name": name}, "IRIS reports no role with this name"
     )
@@ -166,15 +146,12 @@ async def get_role_owners(
 async def get_role_access_map(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[RoleAccessEntry]]:
-    """Every role's granted roles and resource permissions in one response —
-    the data behind resource → role lookups and privileged-access views.
+    """Every role's granted roles and resource permissions in one response.
 
-    Starts from IRIS's role list (Listed=True), then adds roles that exist
-    but are not listed (Listed=False): names in _KNOWN_UNLISTED_ROLES and
-    any role named in another role's GrantedRoles, each only if its own
-    detail call returns it. A missing one (404) is simply not added. A
-    failed detail call for a listed role gives Detail=None plus a warning
-    in status.errors, never a guess.
+    Starts from the listed roles (Listed=True), then adds roles that exist but
+    aren't listed (Listed=False), found in _KNOWN_UNLISTED_ROLES or in another
+    role's GrantedRoles, if their detail call returns them. If a listed role's
+    detail call fails, its Detail is None and a warning is added.
     """
     raw = await _get(client, "/v2/security/roles", None, "IRIS reports no roles")
     listing = IRISEnvelope[list[SecurityRoleEntry]].model_validate(raw)
@@ -213,7 +190,7 @@ async def get_role_access_map(
             detail = None
         entries.append(RoleAccessEntry(Name=name, Listed=True, Detail=detail))
     for name, detail in unlisted.items():
-        # Only roles IRIS itself confirms exist are added; nothing else is.
+        # Only add roles IRIS confirms exist.
         if isinstance(detail, SecurityRoleDetail):
             entries.append(RoleAccessEntry(Name=name, Listed=False, Detail=detail))
 
@@ -265,9 +242,9 @@ async def get_service_detail(
 
 @router.get("/web-auth", response_model=IRISEnvelope[WebAuthSettings])
 async def get_web_auth(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[WebAuthSettings]:
-    """System-wide authentication settings. SMTPUsername and TwoFactorFrom
-    are dropped before the response is built; their names (only those IRIS
-    sent) are listed in `WithheldFields`, their values never are."""
+    """System-wide authentication settings, with SMTPUsername and TwoFactorFrom
+    removed (their names are listed in `WithheldFields`).
+    """
     raw = await _get(client, "/v2/security/web-auth", None, "IRIS reports no web authentication settings")
     result = raw.get("result") if isinstance(raw, dict) else None
     if isinstance(result, dict):
@@ -282,9 +259,9 @@ async def get_web_auth(client: IRISClient = Depends(get_iris_client)) -> IRISEnv
 async def get_superservers(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[SuperserverEntry]]:
-    """Every superserver from the list, each merged with its own detail
-    (keyed by the list's real Port + BindAddress). A failed detail call
-    gives Detail=None and a warning in status.errors, never a guess."""
+    """Every superserver merged with its detail (by Port + BindAddress). A failed
+    detail call gives Detail=None and a warning.
+    """
     raw = await _get(client, "/v2/security/superservers", None, "IRIS reports no superservers")
     listing = IRISEnvelope[list[dict[str, Any]]].model_validate(raw)
     semaphore = asyncio.Semaphore(_SUPERSERVER_DETAIL_CONCURRENCY)
@@ -324,8 +301,7 @@ async def get_superservers(
 async def get_class_access(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[ClassAccessEntry]]:
-    """Application class-access (IRIS's "percent class access") entries:
-    which % classes each web application may use."""
+    """Which % classes each web application is allowed to use."""
     raw = await _get(client, "/v2/web-app/pct-accesses", None, "IRIS reports no class-access entries")
     return IRISEnvelope[list[ClassAccessEntry]].model_validate(raw)
 
@@ -337,9 +313,9 @@ async def get_class_access(
 async def get_wallet_overview(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[WalletCollectionOverview]]:
-    """Every wallet collection with its secrets' names and types. A failed
-    secret-list call gives Secrets=None plus a warning in status.errors
-    (naming only the collection), never a guess. Only GETs are sent."""
+    """Wallet collections with their secrets' names and types. If a collection's
+    secret list fails, Secrets is None and a warning is added.
+    """
     raw = await _get(client, "/v2/wallet/collections", None, "IRIS reports no wallet collections")
     listing = IRISEnvelope[list[WalletCollectionEntry]].model_validate(raw)
     semaphore = asyncio.Semaphore(_WALLET_SECRETS_CONCURRENCY)
@@ -376,8 +352,7 @@ async def get_wallet_overview(
 async def get_wallet_collection_detail(
     name: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[WalletCollectionDetail]:
-    """One collection's edit/use resources. IRIS answers 404 for an unknown
-    name (observed live: ERROR #5809)."""
+    """One collection's edit/use resources. Unknown names return 404."""
     raw = await _get(
         client, "/v2/wallet/collection", {"name": name}, "IRIS reports no wallet collection with this name"
     )
@@ -388,8 +363,7 @@ async def get_wallet_collection_detail(
 async def get_wallet_secrets(
     collection: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[list[WalletSecretEntry]]:
-    """Names and types of the secrets in one collection — never values.
-    `collection` is IRIS's own required parameter name."""
+    """Names and types of the secrets in one collection (no values)."""
     raw = await _get(
         client,
         "/v2/wallet/secrets",
@@ -406,10 +380,9 @@ async def get_wallet_secrets(
 async def get_x509_overview(
     client: IRISClient = Depends(get_iris_client),
 ) -> IRISEnvelope[list[X509CredentialOverview]]:
-    """Every X.509 credential with its certificate's metadata (subject,
-    issuer, serial, validity). A failed certificate call gives
-    Certificate=None plus a warning in status.errors (naming only the
-    alias), never a guess. Only GETs are sent."""
+    """Every X.509 credential with its certificate details (subject, issuer,
+    serial, validity). A failed certificate call gives None and a warning.
+    """
     raw = await _get(client, "/v2/security/x509-credentials", None, "IRIS reports no X.509 credentials")
     listing = IRISEnvelope[list[X509CredentialEntry]].model_validate(raw)
     semaphore = asyncio.Semaphore(_X509_CERTIFICATE_CONCURRENCY)
@@ -443,8 +416,7 @@ async def get_x509_overview(
 async def get_x509_credential_detail(
     alias: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[X509CredentialDetail]:
-    """One credential's owners, peer names and CA file. IRIS answers 404 for
-    an unknown alias (observed live: ERROR #914)."""
+    """One credential's owners, peer names and CA file. Unknown aliases return 404."""
     raw = await _get(
         client, "/v2/security/x509-credential", {"alias": alias}, "IRIS reports no X.509 credential with this alias"
     )
@@ -455,7 +427,7 @@ async def get_x509_credential_detail(
 async def get_x509_certificate(
     alias: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[X509CertificateInfo]:
-    """The certificate's metadata for one credential — never key material."""
+    """Certificate details for one credential (no key material)."""
     raw = await _get(
         client,
         "/v2/security/x509-credential/certificate",
@@ -467,22 +439,18 @@ async def get_x509_certificate(
 
 # --- OAuth 2.0 (allowlisted metadata only) ---
 
-# The two services IRIS accepts for resource-server mappings (the spec:
-# 'Valid values are "%Service_WebGateway" and "%Service_Bindings"').
+# The two services IRIS accepts for resource-server mappings.
 _OAUTH_MAPPING_SERVICES = ("%Service_WebGateway", "%Service_Bindings")
 _OAUTH_CONCURRENCY = 4
 
 
 @router.get("/oauth/overview", response_model=IRISEnvelope[OAuth2Overview])
 async def get_oauth_overview(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[OAuth2Overview]:
-    """Every OAuth 2.0 area in one response: authorization server
-    configuration, registered clients, server definitions (each with its
-    client configurations), resource servers and resource-server mappings.
+    """All OAuth 2.0 data in one response: server config, clients, server
+    definitions (with their client configs), resource servers and mappings.
 
-    Only GETs are sent, and every part is built from an allowlist model. The
-    documented 404 "not configured" answer for the authorization server is
-    ServerConfigured=False, not an error. Any other failed part is None plus
-    a warning in status.errors (naming only the area), never a guess.
+    IRIS's 404 for "no authorization server" becomes ServerConfigured=False.
+    Any other failed part is None with a warning.
     """
     errors: list[dict[str, Any]] = []
     semaphore = asyncio.Semaphore(_OAUTH_CONCURRENCY)
@@ -573,8 +541,7 @@ async def get_oauth_overview(client: IRISClient = Depends(get_iris_client)) -> I
 async def get_oauth_server_client_detail(
     clientId: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[OAuth2ServerClientDetail]:
-    """A client registered with this authorization server. `clientId` is the
-    IRIS parameter name. No client secret is modelled."""
+    """A client registered with this authorization server (no client secret)."""
     raw = await _get(
         client, "/v2/security/oauth2/server/client", {"clientId": clientId}, "IRIS reports no OAuth 2.0 client with this id"
     )
@@ -598,7 +565,7 @@ async def get_oauth_server_definition_detail(
 async def get_oauth_client_configuration_detail(
     applicationName: str, client: IRISClient = Depends(get_iris_client)
 ) -> IRISEnvelope[OAuth2ClientConfigDetail]:
-    """A client configuration. No ClientSecret / ClientPassword is modelled."""
+    """A client configuration (no client secret or password)."""
     raw = await _get(
         client,
         "/v2/security/oauth2/client/client-configuration",

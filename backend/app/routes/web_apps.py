@@ -1,20 +1,8 @@
-"""Mutating routes for web applications: web_app.set_enabled
-(`POST /api/iris/web-apps/set-enabled`) and web_app.update_description
-(`POST /api/iris/web-apps/update-description`, same rules — see
-app/execution/web_app_update_description_handler.py).
+"""Web application operations: set-enabled and update-description.
 
-web_app.set_enabled is exposed as `POST /api/iris/web-apps/set-enabled`, alongside the read-only
-`GET /api/iris/web-apps*` routes in app/routes/iris.py. Every request runs
-through the shared OperationExecutor (authorization -> confirmation ->
-execution -> verification, with a recorded trace), exactly like
-POST /api/iris/databases/mount.
-
-Privilege: this project's registry requires Manage; the handler also
-requires Secure, the privilege IRIS's own implementation of PUT
-/v2/web-app enforces — see app/execution/web_app_set_enabled_handler.py.
-
-No real PUT /v2/web-app has been executed against IRIS as of this
-implementation — see that module's docstring.
+Both run through the executor (authorization, confirmation, execution,
+verification). The registry asks for Manage; the handlers also require
+Secure because IRIS's own PUT /v2/web-app checks it.
 """
 
 from fastapi import APIRouter, Depends
@@ -33,9 +21,9 @@ _OPERATION_NAME = "web_app.set_enabled"
 
 
 class WebAppSetEnabledOperationRequest(BaseModel):
-    """Public request body. Same discipline as the database routes:
-    `confirmed` defaults to False and is the only way to confirm, there is
-    no force/skip field, and extra fields are rejected (422)."""
+    """Request body. Nothing happens without confirmed=true, there's no force/skip
+    field, and unknown fields are rejected with 422.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -51,8 +39,7 @@ async def set_web_app_enabled(
     client: IRISClient = Depends(get_iris_client),
     privileges: frozenset[str] = Depends(get_caller_privileges),
 ) -> OperationResult:
-    """Always HTTP 200 with a structured OperationResult — the real outcome
-    is in `result.status`, the same convention as the database routes."""
+    """Always returns 200 with an OperationResult; the outcome is in `status`."""
     executor = OperationExecutor({_OPERATION_NAME: WebAppSetEnabledHandler(client)})
     request = OperationRequest(
         operation_name=_OPERATION_NAME,
@@ -70,9 +57,7 @@ _UPDATE_DESCRIPTION_OPERATION = "web_app.update_description"
 
 
 class WebAppUpdateDescriptionOperationRequest(BaseModel):
-    """Public request body for web_app.update_description. Same discipline:
-    only Name and Description, `confirmed` defaults to False, no force/skip
-    field, and extra fields are rejected (422)."""
+    """Request body for update-description: just Name and Description (same rules)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -88,8 +73,7 @@ async def update_web_app_description(
     client: IRISClient = Depends(get_iris_client),
     privileges: frozenset[str] = Depends(get_caller_privileges),
 ) -> OperationResult:
-    """Always HTTP 200 with a structured OperationResult, like
-    set_web_app_enabled above."""
+    """Always returns 200 with an OperationResult; the outcome is in `status`."""
     executor = OperationExecutor({_UPDATE_DESCRIPTION_OPERATION: WebAppUpdateDescriptionHandler(client)})
     request = OperationRequest(
         operation_name=_UPDATE_DESCRIPTION_OPERATION,

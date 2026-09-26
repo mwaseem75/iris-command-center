@@ -1,8 +1,5 @@
-"""Route-level tests for POST /api/iris/namespaces (namespace.create) —
-proves the HTTP wiring (including privilege sourcing via
-get_caller_privileges, which calls GET /info) works end-to-end, using a
-mocked IRISClient. No real network call is made anywhere in this file, and
-no test performs a real namespace creation.
+"""Route tests for POST /api/iris/namespaces (namespace.create), including
+privileges from GET /info. Uses a mocked IRISClient.
 """
 
 from typing import Any
@@ -129,10 +126,8 @@ def test_route_dry_run_with_confirmation_never_calls_put(
 def test_route_rejects_extra_field_with_422(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A caller attempting to also set an unlisted field via this endpoint
-    gets an explicit 422, not a silently-ignored extra field. PUT is never
-    reached (see test_journal_route.py's identical test for the note on
-    why /info may still be called before the body is ultimately rejected).
+    """An extra field gives a 422 and the PUT is never sent (/info may still be
+    called first; see test_journal_route.py).
     """
     mock_iris_client.get.return_value = INFO_BODY_MANAGE
 
@@ -148,10 +143,9 @@ def test_route_rejects_extra_field_with_422(
 def test_route_rejects_system_namespace_name_as_a_structured_failure(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A %-prefixed Name is a domain validation failure (HandlerOutcome.
-    FAILURE), not an HTTP-level rejection — the route still returns 200
-    with a structured, non-success OperationResult, the same convention
-    every other validation failure in this project uses."""
+    """A %-prefixed name is a validation failure, so the route still returns 200 with a
+    failed OperationResult, like every other validation failure.
+    """
     mock_iris_client.get.return_value = INFO_BODY_MANAGE
 
     response = client.post(

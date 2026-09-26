@@ -1,24 +1,18 @@
-// Security view — Identity & Access: KPI cards, a Privileged Access panel,
-// Users / Roles / Resources tabs with client-side search/filters, and one
-// shared detail drawer that can walk user → role → resource (with Back).
-// OAuth 2.0 on the same page stays in security.js.
+// Security page, Identity & Access: KPI cards, a Privileged Access panel,
+// Users / Roles / Resources tabs with search and filters, and a shared
+// detail drawer you can walk through (user -> role -> resource, with Back).
+// OAuth 2.0 is in security.js.
 //
-// Reads only through these GET endpoints (all via IrisApi, see
-// backend/app/routes/security_access.py). Its ONE mutating action is the user
-// drawer's Login Access section (user.set_enabled via IrisApi.setUserEnabled,
-// see "Login Access" below):
-//   - getSecurityUsers / getSecurityUserDetail(name) — personal fields
-//     (email, phone, free-text comment) are withheld by the backend; only their names arrive,
-//     in WithheldFields. IRIS returns no password or hash.
-//   - getSecurityRoles, getSecurityRoleDetail(name), getSecurityRoleOwners(name)
-//   - getSecurityRoleAccessMap — every role's grants in one response, the
-//     source of resource → role lookups and per-role counts.
-//   - getSecurityResources / getSecurityResourceDetail(name)
+// Reads: getSecurityUsers / getSecurityUserDetail (the backend withholds
+// email, phone and comment, and only lists their names in WithheldFields),
+// getSecurityRoles / RoleDetail / RoleOwners, getSecurityRoleAccessMap
+// (all role grants in one call) and getSecurityResources / ResourceDetail.
+// The one change it can make is Login Access in the user drawer
+// (user.set_enabled, see below).
 //
-// IRIS's role list omits %SQLTuneTable (observed on 2026.2). The Roles KPI
-// is IRIS's own list count; roles the access map confirms exist but that
-// the list omits are shown separately, marked "Not in IRIS list", and never
-// folded into that count.
+// IRIS's role list leaves out %SQLTuneTable. The Roles KPI is IRIS's list
+// count; roles that exist but aren't listed are shown separately as "Not in
+// IRIS list" and aren't counted.
 
 import { IrisApi, ApiError } from "./api.js";
 
@@ -99,33 +93,28 @@ const dom = {
   drawerBody: $("security-drawer-body"),
 };
 
-// "authentication" (security-auth.js), "wallet" (security-wallet.js),
-// "x509" (security-x509.js) and "oauth" (security.js) are owned by their own
-// modules: this module only shows their panels and announces them with a
-// "security-tab-shown" event on the tab bar.
+// The authentication, wallet, x509 and oauth tabs belong to their own
+// modules. Here we just show their panels and fire a "security-tab-shown"
+// event on the tab bar.
 const TABS = ["users", "roles", "resources", "authentication", "wallet", "x509", "oauth"];
 
-// Resource permission letters, per mainspec_v2.json ("a string consisting
-// only of 'R', 'W', and 'U'").
+// Resource permission letters (R, W, U).
 const PERMISSION_NAMES = { R: "Read", W: "Write", U: "Use" };
 
-// User AutheEnabled bits, per mainspec_v2.json ("Two factor Authentication
-// options ... 2**20 - SMS Text authentication, 2**21 - Time-based One-time
-// Password").
+// Two-factor bits in a user's AutheEnabled (2**20 SMS, 2**21 TOTP).
 const TWO_FACTOR_BITS = [
   [20, "SMS text"],
   [21, "Time-based one-time password"],
 ];
 
-// Data from the last successful load. Filtering and the drawer read from
-// these; neither re-fetches the lists.
+// Last loaded data. Filtering and the drawer read from these.
 let users = [];
-let listedRoles = []; // IRIS's role list, exactly as returned
-let accessMap = null; // Map name → {Listed, Detail}, or null if it failed to load
+let listedRoles = [];  // IRIS's role list as returned
+let accessMap = null;  // Map of name -> {Listed, Detail}, or null if it failed
 let resources = [];
 let superUserOwners = null; // owners of %All, or null if unavailable
 let activeTab = "users";
-let drawerStack = []; // [{kind, name}] — the drawer's Back history
+let drawerStack = [];  // [{kind, name}], the drawer's Back history
 let drawerSeq = 0;
 let loadSeq = 0;
 
@@ -141,9 +130,10 @@ function formatBoolean(value) {
   return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
 }
 
-/** role/owners' AdminOption: documented boolean, observed as "0" (string)
- * on User/Role rows and false on escalation rows. "0"/"1" are read as the
- * boolean strings IRIS uses; anything else is shown raw. */
+/**
+ * AdminOption is "0" on User/Role rows and false on escalation rows.
+ * "0"/"1" are read as booleans; anything else is shown as-is.
+ */
 function formatAdminOption(value) {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (value === "0") return "No";
@@ -171,9 +161,7 @@ function includesText(value, query) {
   return typeof value === "string" && value.toLowerCase().includes(query);
 }
 
-// Every row, cell and drawer value is built with createElement +
-// textContent — never innerHTML — so IRIS-supplied names/descriptions can
-// never be interpreted as markup.
+// Everything is built with createElement/textContent (no innerHTML).
 function makeCell(text, { mono = false, title = text } = {}) {
   const cell = document.createElement("td");
   cell.className = mono ? "data-table__cell data-table__cell--mono" : "data-table__cell";
@@ -245,7 +233,7 @@ function makeNote(text) {
   return note;
 }
 
-/** Chips that open another entity in the drawer (e.g. a user's roles). */
+/** Chips that open another item in the drawer (e.g. a user's roles). */
 function makeLinkChips(kind, names, labelFor = (name) => name) {
   if (!Array.isArray(names) || names.length === 0) return document.createTextNode("None");
   const list = document.createElement("ul");
@@ -264,10 +252,11 @@ function makeLinkChips(kind, names, labelFor = (name) => name) {
   return list;
 }
 
-/** A compact table whose rows open another entity in the drawer.
+/**
+ * Small table whose rows open another item in the drawer.
  * `rows` is [{kind, name, label?, cells: [text, ...]}]; the first column
- * shows `label` when given (e.g. a display name for a composite key),
- * otherwise `name`. */
+ * shows `label` if given, otherwise `name`.
+ */
 function makeLinkTable(headers, rows) {
   const wrapper = document.createElement("div");
   wrapper.className = "table-wrapper";
@@ -318,14 +307,14 @@ function uniqueSorted(values) {
   return [...new Set(values.filter((v) => typeof v === "string" && v !== ""))].sort();
 }
 
-// --- derived views over the access map (real grants only) ---
+// --- views over the access map ---
 
 function roleDetail(name) {
   const entry = accessMap && accessMap.get(name);
   return entry ? entry.Detail : null;
 }
 
-/** Roles not in IRIS's role list that the access map confirms exist. */
+/** Roles missing from IRIS's list that the access map says exist. */
 function unlistedRoleNames() {
   if (!accessMap) return [];
   return [...accessMap.entries()].filter(([, entry]) => !entry.Listed).map(([name]) => name);
@@ -342,7 +331,7 @@ function rolesGranting(resource) {
   return grants;
 }
 
-/** Every role row shown in the Roles table: IRIS's list, then unlisted. */
+/** All rows for the Roles table: IRIS's list, then the unlisted ones. */
 function roleRows() {
   const rows = listedRoles.map((role) => ({ ...role, Listed: true, Detail: roleDetail(role.Name) }));
   for (const name of unlistedRoleNames()) {
@@ -350,7 +339,7 @@ function roleRows() {
     rows.push({
       Name: name,
       Description: detail ? detail.Description : "",
-      CreatedBy: null, // not reported: only IRIS's list carries CreatedBy
+      CreatedBy: null,  // only IRIS's list has CreatedBy
       EscalationOnly: detail ? detail.EscalationOnly : null,
       Listed: false,
       Detail: detail,
@@ -434,8 +423,8 @@ function showFilteredTab(tab, filters) {
 
 // --- Privileged Access ---
 
-// The holders table and %Admin_Secure list start collapsed to keep the page
-// short; renderPrivileged() fills them exactly as before either way.
+// The holders table and %Admin_Secure list start collapsed to keep the
+// page short.
 function setPrivilegedExpanded(expanded) {
   dom.privilegedDetails.hidden = !expanded;
   dom.privilegedToggle.setAttribute("aria-expanded", String(expanded));
@@ -657,20 +646,17 @@ function errorMessage(err, what) {
   return `An unexpected error occurred while loading this ${what}.`;
 }
 
-// --- Login Access (user.set_enabled — the Security page's one MUTATING
-// action) ---
+// --- Login Access (user.set_enabled, the only change on this page) ---
 //
-// Same flow as the Web Apps drawer's Enabled State: "Check" sends a dry run
-// (IrisApi.setUserEnabled(fields, true, true) — the executor's dry-run branch
-// is only reached with confirmed=true, and the handler's dry_run() never
-// sends the PUT). Only a successful preview offers the confirm control,
-// which is enabled only after the acknowledgment checkbox; the real request
-// is sent only from its click handler. The backend alone authorizes,
-// hard-denies protected users, executes and verifies — this code never
-// decides any of that itself; it only shows what the backend returned.
+// Same flow as Enabled State in the Web Apps drawer. "Check" sends a dry
+// run (setUserEnabled(fields, true, true); the dry run still needs
+// confirmed=true to get past the executor, and never sends the PUT). Only a
+// successful preview shows the confirm button, which needs the checkbox
+// ticked, and only its click handler sends the real request. The backend
+// does all the authorization and protection checks; this just shows what
+// it says.
 
-// The last operation result per user name, so it stays visible after the
-// real change reloads the lists and re-renders the drawer.
+// Last result per user, so it stays visible after the lists reload.
 const lastUserResults = new Map();
 
 function makeResultList(result) {
@@ -779,7 +765,7 @@ function makeLoginAccessSection(name, enabled) {
         preview.textContent = handlerResult.detail;
         confirm.hidden = false;
       } else {
-        // Unauthorized, protected, no-op, unknown user… shown exactly as the
+        // Unauthorized, protected, no change, unknown user... shown as the
         // backend explained it.
         showError((handlerResult && handlerResult.detail) || result.detail || "This change could not be validated against IRIS.");
       }
@@ -799,9 +785,8 @@ function makeLoginAccessSection(name, enabled) {
     confirmButton.disabled = !(pendingFields && ack.checked);
   });
 
-  // The ONLY place in this file that sends a real (non-dry-run) change —
-  // reachable only via this button, enabled only after a successful preview
-  // and the acknowledgment checkbox.
+  // The only place that sends a real change. Only reachable from this button,
+  // after a successful preview and the checkbox.
   confirmButton.addEventListener("click", async () => {
     const fields = pendingFields;
     if (!fields) return;
@@ -824,8 +809,8 @@ function makeLoginAccessSection(name, enabled) {
     setBusy(false);
     resultHolder.replaceChildren(makeResultList(result));
     if (result.status === "success" || result.status === "verification_failed") {
-      // Re-read the real lists rather than patching local state; the drawer
-      // re-renders from them and shows the kept result.
+      // Reload the lists instead of patching local state; the drawer re-renders
+      // and keeps showing the result.
       await loadSecurityAccess();
     }
   });
@@ -1008,7 +993,7 @@ function drawerBack() {
 
 function closeDrawer() {
   drawerStack = [];
-  drawerSeq += 1; // discard any in-flight response
+  drawerSeq += 1;  // ignore any response still in flight
   dom.drawerLoading.hidden = true;
   dom.drawerBackdrop.hidden = true;
   dom.drawer.hidden = true;
@@ -1032,9 +1017,8 @@ function resultList(settled) {
 }
 
 /**
- * Loads users, roles, the role access map, resources and the holders of
- * %All in parallel. Promise.allSettled: one failing call never blocks the
- * others. Only GETs — no mutating request exists in this file.
+ * Load users, roles, the access map, resources and the %All holders in
+ * parallel. allSettled so one failure doesn't block the rest.
  */
 export async function loadSecurityAccess() {
   const seq = ++loadSeq;
@@ -1097,18 +1081,17 @@ export async function loadSecurityAccess() {
   setTab(activeTab);
   setLoading(false);
 
-  // Re-open the drawer's current entity with fresh data after a refresh.
+  // After a refresh, reopen the drawer's current item with fresh data.
   if (!dom.drawer.hidden && drawerStack.length > 0) renderDrawerTop();
 }
 
-// --- API for other Security modules (security-auth.js) ---
+// --- API for the other Security modules ---
 //
-// Lets another module render its own entity kinds (e.g. "service") in this
-// module's shared drawer, with the same Back history, loading/error states
-// and stale-response guard, and reuse the same DOM helpers. A renderer is
-// `async (name, isCurrent) => void`: it fills `securityUi.drawerBody` and
-// must stop if `isCurrent()` is false after an await; a thrown ApiError is
-// shown as the drawer's error.
+// Lets them show their own item kinds (e.g. "service") in this drawer, with
+// the same Back history, loading/error states and stale-response check, and
+// use the same DOM helpers. A renderer is `async (name, isCurrent) => void`:
+// it fills `securityUi.drawerBody` and should stop if `isCurrent()` turns
+// false after an await. A thrown ApiError is shown in the drawer.
 
 const extraDrawerRenderers = new Map();
 
@@ -1181,7 +1164,7 @@ export function initSecurityAccessControls() {
     dom.tabs.querySelector(`[data-tab="${activeTab}"]`).focus();
   });
 
-  // Filtering is client-side over the last fetched lists — never a request.
+  // Filters the last loaded data locally, no request.
   const tables = [
     [dom.users, [dom.users.status, dom.users.type], renderUsersTable],
     [dom.roles, [dom.roles.escalation, dom.roles.resource], renderRolesTable],
@@ -1204,7 +1187,7 @@ export function initSecurityAccessControls() {
     dom.privilegedBody.addEventListener(type, (event) => onActivate(event, (kind, name) => openEntity(kind, name, { push: false })));
     dom.adminSecureList.addEventListener(type, (event) => onActivate(event, (kind, name) => openEntity(kind, name, { push: false })));
   }
-  // Links inside the drawer push onto its history, so Back returns.
+  // Links in the drawer push onto its history so Back works.
   for (const type of ["click", "keydown"]) {
     dom.drawerBody.addEventListener(type, (event) => onActivate(event, (kind, name) => openEntity(kind, name)));
   }

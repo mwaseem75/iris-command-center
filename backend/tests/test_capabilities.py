@@ -1,10 +1,7 @@
-"""Tests for the API Capability Explorer's backend route
-(GET /api/iris/capabilities) and its underlying registry
-(app/capabilities.py).
+"""Tests for GET /api/iris/capabilities and app/capabilities.py.
 
-No IRIS call is possible from this route — it serves a static,
-project-maintained registry — so these tests use the real FastAPI app
-directly (via the shared `client` fixture) rather than mocking IRIS.
+The route serves a static registry and never calls IRIS, so these use the
+real app directly.
 """
 
 from fastapi.testclient import TestClient
@@ -47,8 +44,8 @@ def test_list_capabilities_marks_internal_only_iris_calls_unavailable(
     response = client.get("/api/iris/capabilities")
 
     entries = {c["capability"]: c for c in response.json()["capabilities"]}
-    # Used internally by app/auth/iris_auth.py and app/iris_client/client.py's
-    # wait_for_async_task respectively — never exposed as their own routes.
+    # Used internally (by iris_auth.py and wait_for_async_task), not routes
+    # of their own.
     assert entries["Authenticate and obtain JWT access/refresh tokens"]["available"] is False
     assert (
         entries["View the status/result of an async task started by another operation"][
@@ -70,9 +67,9 @@ def test_list_capabilities_marks_untested_catch_all_entry_unavailable_and_not_te
 
 
 def test_capability_registry_command_center_paths_are_real_registered_routes() -> None:
-    """Guards against registry drift: every entry that CLAIMS to be backed
-    by a Command Center route must actually be one, checked against the
-    live app's own OpenAPI schema — never hand-duplicated or assumed."""
+    """Every entry that claims a Command Center route must really have one,
+    checked against the app's OpenAPI schema.
+    """
     registered_paths = fastapi_app.openapi()["paths"]
 
     for entry in CAPABILITY_REGISTRY:

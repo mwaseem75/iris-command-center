@@ -1,49 +1,25 @@
-"""The handler for `task.run_now` — ask IRIS's Task Manager to run an existing
-USER task immediately. Same architecture and discipline as
-web_app.set_enabled / user.set_enabled: real validation against live IRIS
-read data in both dry_run() and execute(), and only execute() ever calls the
-real write — dry_run() never does.
+"""Handler for task.run_now (POST /v2/task/run?id=..., %Admin_Task:U).
 
-Endpoint: `POST /v2/task/run?id=<Id>` ("(%Admin_Task:U) Run a task right
-now or at a specified time", mainspec_v2.json), body `{"RunNow": true}` and
-nothing else. Scheduling a run for a later time (`Datetime`) is deliberately
-not offered.
+Sends {"RunNow": true} and nothing else; scheduling for a later time
+isn't offered. Both dry_run() and execute() validate against live IRIS
+data; only execute() sends the POST.
 
-Request-shape evidence. IRIS's own implementation was read (read-only, via
-the Atelier API) before this handler was written —
-`%Api.Admin.Endpoints.Task.CRUD` on IRIS 2026.2:
-  - `RunRun()` returns 404 when `%SYS.Task.%OpenId(id)` fails; with
-    `RunNow` true it calls `%SYS.Task.RunNow(id)` and returns `{}`.
-  - It does NOT check whether the task is already running (its own comment:
-    "Enhancement: check if it is already running") — so this handler does.
-  - `ResourcesOR()` for the run is `%Admin_Task` only (the registry entry's
-    privilege); the reads used here (GET /v2/task, /v2/task/info,
-    /v2/task/manager) accept %Admin_Task too.
-  - `%SYS.TaskSuper.RunNow()` is documented: "Schedule a task to run
-    immediately. Note that the Task Manager only polls for new Tasks every
-    60 seconds" — so a run may start up to a minute later.
+Notes from reading %Api.Admin.Endpoints.Task.CRUD on 2026.2:
+- An unknown id gives 404; otherwise it calls %SYS.Task.RunNow(id).
+- IRIS doesn't check whether the task is already running, so we do.
+- The Task Manager only polls every 60 seconds, so the run can start up
+  to a minute later.
 
-Safety policy (the smallest safe operation):
-  - Only tasks whose /v2/task/info Type is "User" may be run. The spec
-    reserves "System" and "Maintenance" for IRIS's own tasks; on IRIS 2026.2
-    those include irreversible purges (journals, audit, errors/logs, task
-    history), journal switches, integrity checks and stats collection, and
-    tasks that send data to InterSystems (Feature Tracker, Diagnostic
-    Report). All 16 tasks on icc-iris-dev are System tasks, so there this
-    operation is always refused.
-  - Refused as well: unknown ids, suspended tasks, a task that is already
-    running (Status -1, the spec's JobRunning), and any request while the
-    Task Manager is not "Running" (the task would never be picked up).
+Only "User" tasks can be run. System and Maintenance tasks belong to IRIS
+(purges, journal switches, integrity checks, tasks that send data to
+InterSystems...), so they're refused. On a stock instance every task is a
+System task, so this is always refused there. We also refuse unknown ids,
+suspended tasks, tasks already running (Status -1), and any request while
+the Task Manager isn't "Running".
 
-Verification. Because the Task Manager polls every 60 seconds, there is no
-immediate, definitive "it ran" signal. verify() re-reads /v2/task/info with a
-bounded retry and reports VERIFIED only on an observed change caused after
-the request: Status -1 (running), or a changed LastSchedule, LastStarted or
-NextScheduled. Otherwise it reports VERIFICATION_FAILED and says why.
-
-No real POST /v2/task/run has been executed against IRIS as of this
-implementation. All tests use a fake/mock IRIS client (see
-backend/tests/test_task_run_now.py).
+Because of the 60 s polling there's no instant "it ran" signal. verify()
+re-reads /v2/task/info a few times and reports VERIFIED only if it sees
+Status -1 or a changed LastSchedule, LastStarted or NextScheduled.
 """
 
 import asyncio
@@ -69,10 +45,10 @@ _INFO_PATH = "/v2/task/info"
 _MANAGER_PATH = "/v2/task/manager"
 
 _RUNNABLE_TYPE = "User"
-_RUNNING_STATUS = "-1"  # mainspec_v2.json: "If the job is currently running (JobRunning) Status will be -1"
+_RUNNING_STATUS = "-1"  # Status is -1 while the job is running
 _OBSERVED_FIELDS = ("Status", "LastSchedule", "LastStarted", "NextScheduled")
 
-# Bounded: one immediate check plus three increasing delays.
+# One immediate check, then three growing delays.
 _VERIFY_RETRY_DELAYS_SECONDS: tuple[float, ...] = (0.5, 1.0, 2.0)
 
 
@@ -99,8 +75,7 @@ def _snapshot(info: dict[str, Any]) -> dict[str, str | None]:
 
 
 class TaskRunNowHandler(OperationHandler):
-    """Requires an IRISClient supplied by the caller (typically a route), so
-    it can be unit-tested with a fake/mock client."""
+    """Takes an IRISClient so tests can pass a fake."""
 
     def __init__(
         self,
@@ -125,9 +100,9 @@ class TaskRunNowHandler(OperationHandler):
     async def _validate(
         self, request: OperationRequest, context: ExecutionContext
     ) -> tuple[TaskRunNowParameters, dict[str, Any]] | tuple[None, HandlerExecutionResult]:
-        """Every check that precedes the run, in order: request shape,
-        existence, task type, suspended, already running, Task Manager
-        status. Read-only — safe for both dry_run() and execute()."""
+        """All checks before the run, in order: request, existence, task type,
+        suspended, already running, Task Manager status. Read-only.
+        """
         try:
             params = TaskRunNowParameters.model_validate(request.parameters)
         except ValidationError as exc:
@@ -186,7 +161,7 @@ class TaskRunNowHandler(OperationHandler):
         }
 
     async def dry_run(self, request: OperationRequest, context: ExecutionContext) -> HandlerExecutionResult:
-        """Validation and read-only IRIS lookups only — never calls post()."""
+        """Validate and read from IRIS only; never sends the POST."""
         params, result = await self._validate(request, context)
         if params is None:
             return result
@@ -233,10 +208,9 @@ class TaskRunNowHandler(OperationHandler):
         context: ExecutionContext,
         execution_result: HandlerExecutionResult,
     ) -> PostActionVerificationResult:
-        """Fresh GET /v2/task/info reads, retried with the bounded policy
-        above: VERIFIED on an observed run signal (Status -1, or a changed
-        LastSchedule / LastStarted / NextScheduled), never on the POST's own
-        (empty) response."""
+        """Re-read /v2/task/info (with retries). VERIFIED only on a visible run
+        signal: Status -1 or a changed LastSchedule / LastStarted / NextScheduled.
+        """
         data = execution_result.data
         task_id = data.get("id")
         before = data.get("before") or {}
@@ -247,8 +221,8 @@ class TaskRunNowHandler(OperationHandler):
             if delay_before_this_attempt:
                 await asyncio.sleep(delay_before_this_attempt)
             attempts_made += 1
-            # The run was already requested; a read failure here must surface
-            # as VERIFICATION_FAILED, not an unhandled error.
+            # The run was already requested, so a failed read here is a
+            # VERIFICATION_FAILED result, not an exception.
             try:
                 info = await self._result(_INFO_PATH, {"id": task_id})
             except IRISClientError as exc:

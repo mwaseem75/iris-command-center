@@ -1,34 +1,23 @@
-"""One-time automatic Demo Activity at backend startup.
+"""Runs the Demo Activity once, automatically, when the backend starts.
 
-Off by default (Settings.auto_run_demo_activity). When on, app/main.py's
-lifespan starts StartupDemoActivity in the background; it:
+Off by default; enable with AUTO_RUN_DEMO_ACTIVITY=true. On startup,
+app/main.py starts StartupDemoActivity in the background, which:
 
-1. Waits for IRIS: fetches the session's privileges with the same
-   get_caller_privileges() the manual POST /api/iris/demo/rehearsal route
-   uses (a bounded number of attempts; if IRIS never answers, this startup
-   gives up and a later startup tries again).
-2. Reads the completion marker ^CommandCenterDemo("autoRun","completedAt")
-   from the persistent USER database (Settings.iris_namespace) over IRIS's
-   Native API — the same driver and lazy-connection pattern as
-   app/observability/iris_trace_writer.py. If it is set, nothing runs. If
-   it cannot be read, nothing runs either (running without knowing would
-   break "only once").
-3. Runs the EXISTING rehearsal — app/execution/demo_rehearsal.run_rehearsal,
-   unchanged: the same executor, handlers, authorization, verification and
-   restoration, and the same process-wide lock, so it can never overlap a
-   manually triggered rehearsal (if one is running, this run is skipped).
-4. Sets the marker ONLY when the rehearsal's status is "completed". A
-   stopped or restore_failed rehearsal leaves it unset, so a later startup
-   retries.
+1. Waits for IRIS (fetching the session privileges the same way the
+   manual /api/iris/demo/rehearsal route does). Gives up after a few
+   tries; the next startup will try again.
+2. Reads ^CommandCenterDemo("autoRun","completedAt") in the USER
+   namespace over the Native API. If it's set, or can't be read, nothing
+   runs.
+3. Runs demo_rehearsal.run_rehearsal as-is, with the same lock, so it
+   never overlaps a manual run (if one is running this is skipped).
+4. Sets the marker only if the rehearsal finished with "completed", so a
+   failed run is retried next startup.
 
-Confirmation: the rehearsal is run with confirmed=True. The explicit
-confirmation is the operator's deliberate AUTO_RUN_DEMO_ACTIVITY=true
-opt-in (default false); every operation still goes through the existing
-authorization → execution → post-action verification framework. No other
-operation is run.
+The rehearsal runs with confirmed=True: turning on AUTO_RUN_DEMO_ACTIVITY
+is the confirmation. Authorization and verification still apply.
 
-The marker is a single global node (no table, class or new dependency);
-it holds only an ISO-8601 UTC timestamp.
+The marker is a single global holding an ISO-8601 UTC timestamp.
 """
 
 from __future__ import annotations
@@ -56,19 +45,20 @@ READY_ATTEMPTS = 12
 READY_DELAY_SECONDS = 5.0
 
 AutoRunOutcome = Literal[
-    "completed",          # rehearsal completed and the marker was set
-    "completed_unmarked",  # rehearsal completed but the marker could not be written
-    "already_completed",  # marker found — nothing ran
-    "failed",             # rehearsal did not complete — marker left unset
-    "busy",               # a manual rehearsal was running — skipped
-    "iris_unavailable",   # IRIS (REST or marker) not reachable — nothing ran
+    "completed",  # ran and marker set
+    "completed_unmarked",  # ran but couldn't write the marker
+    "already_completed",  # marker already set, nothing ran
+    "failed",  # rehearsal didn't complete, marker not set
+    "busy",  # manual rehearsal was running, skipped
+    "iris_unavailable",  # IRIS not reachable, nothing ran
 ]
 
 
 class DemoAutoRunMarker:
-    """The persistent completion marker. Blocking Native API calls — use
-    only off the event loop. Each method raises on failure (after dropping
-    the connection so the next call reconnects)."""
+    """The completion marker. These are blocking Native API calls, so keep them
+    off the event loop. On failure they drop the connection (so the next call
+    reconnects) and raise.
+    """
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -124,8 +114,7 @@ class DemoAutoRunMarker:
 
 
 class StartupDemoActivity:
-    """Created and started by app/main.py's lifespan only when
-    Settings.auto_run_demo_activity is True."""
+    """Started by app/main.py only when auto_run_demo_activity is on."""
 
     def __init__(
         self,
@@ -152,7 +141,7 @@ class StartupDemoActivity:
         return None
 
     async def run(self) -> AutoRunOutcome:
-        """Never raises (except cancellation). Returns what happened."""
+        """Never raises (except on cancellation). Returns what happened."""
         privileges = await self._wait_for_privileges()
         if privileges is None:
             logger.warning("Automatic Demo Activity skipped: IRIS was not reachable; a later startup will retry.")
@@ -205,9 +194,9 @@ class StartupDemoActivity:
         self._task = asyncio.create_task(self.run())
 
     async def stop(self) -> None:
-        """Called at shutdown. Still waiting for IRIS → cancelled. Once the
-        rehearsal has started it is awaited instead, so its restoration
-        steps are never interrupted."""
+        """Called at shutdown. If we're still waiting for IRIS, cancel. If the
+        rehearsal already started, wait for it so its restore steps finish.
+        """
         if self._task is not None:
             if not self._rehearsal_started:
                 self._task.cancel()

@@ -1,19 +1,10 @@
-"""Structured execution tracing, inspired by OpenTelemetry's span/trace
-model but deliberately minimal — no external telemetry SDK/dependency, no
-database. A trace is built once per app.execution.executor.OperationExecutor
-.execute() call (see app/observability/tracer.py, the only place these
-models are constructed) and recorded into an in-memory store
-(app/observability/store.py).
+"""Execution trace models, loosely following OpenTelemetry (trace, spans,
+events), without any telemetry SDK.
 
-Safety: only safe, non-sensitive attributes are ever recorded here —
-operation names, timestamps, durations, statuses, privilege NAMES (never
-values a caller supplied), and short status/reason strings. Nothing in
-this module has a field for a password, JWT, Authorization header, or any
-other credential — there is nowhere to put one. The discipline of only
-ever calling `Span(..., attributes={...})` with safe values lives at each
-call site in app/execution/executor.py, the same way
-app/routes/iris.py's `_as_http_exception` already only ever surfaces an
-exception's class name, never its message or a raw response body.
+One trace is built per OperationExecutor.execute() call (by tracer.py) and
+kept in store.py. Only safe values are recorded: operation names, times,
+durations, statuses, privilege names and short reasons. There's no field
+for passwords, tokens or headers.
 """
 
 from datetime import datetime, timezone
@@ -28,8 +19,7 @@ def utc_now() -> datetime:
 
 
 class SpanEvent(BaseModel):
-    """A single, timestamped point of interest within a span — e.g.
-    "authorization denied"."""
+    """A timestamped event inside a span, e.g. "authorization denied"."""
 
     name: str
     timestamp: datetime = Field(default_factory=utc_now)
@@ -37,12 +27,11 @@ class SpanEvent(BaseModel):
 
 
 class Span(BaseModel):
-    """One stage of the authorization -> confirmation -> execution ->
-    verification pipeline. A stage that did not run (e.g. verification
-    after execution already failed) is still recorded, with
-    status="skipped" and a `reason` attribute, so every trace has a
-    complete, consistent four-span shape regardless of where the attempt
-    stopped."""
+    """One stage: authorization, confirmation, execution or verification.
+
+    Stages that didn't run are still recorded as status="skipped" with a
+    `reason`, so every trace has the same four spans.
+    """
 
     name: str
     start_time: datetime
@@ -54,17 +43,16 @@ class Span(BaseModel):
 
 
 class ExecutionTrace(BaseModel):
-    """The full, structured record of one OperationExecutor.execute()
-    call. `trace_id` is a fresh, random identifier — it is not derived
-    from and never contains any session/request identifier that could be
-    linked back to a credential."""
+    """Everything recorded for one OperationExecutor.execute() call. `trace_id`
+    is random and not tied to any session.
+    """
 
     trace_id: str = Field(default_factory=lambda: uuid4().hex)
     operation_name: str
     start_time: datetime = Field(default_factory=utc_now)
     end_time: datetime | None = None
     duration_ms: float | None = None
-    status: str | None = None  # set once, mirrors OperationResultStatus.value
+    status: str | None = None  # same as OperationResultStatus.value
     authorization_result: str | None = None
     confirmation_result: str | None = None
     execution_result: str | None = None

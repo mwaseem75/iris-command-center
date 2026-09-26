@@ -1,12 +1,7 @@
-// Application bootstrap: wires sidebar navigation and starts the initial
-// view. Every nav item is functional: Dashboard, System, Namespaces,
-// Processes, Databases, Web Apps, Tasks, Security, Journal, Operations,
-// AI Assistant, Observability, Extensions, Investigation, and the API
-// Capability Explorer.
+// App startup: sets up sidebar navigation and loads the first page.
 //
-// Also wires the one cross-link between Observability and Investigation
-// (see nav.js's navigateTo() and each view's own setTimeWindow()) — this
-// is the only place either view's module is aware the other exists.
+// Also connects Observability and Investigation (each can open the other
+// for the same time window). This is the only place that knows about both.
 
 import { initNavigation, navigateTo } from "./nav.js";
 import { initThemeSelector } from "./theme.js";
@@ -43,20 +38,17 @@ import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 
 function init() {
   initThemeSelector();
-  // Shared modal behaviour for every detail workspace (dialog semantics,
-  // scroll lock, focus trap and focus return) — see detail-workspace.js.
+  // Modal behaviour for all detail panels (see detail-workspace.js).
   initDetailWorkspaces();
-  // Opening a trace from the Dashboard or Demo Activity reuses the
-  // existing Observability detail: focus the trace, then navigate, so the
-  // view's normal view-opened load renders the real, fresh trace list.
+  // Opening a trace from the Dashboard or Demo Activity: focus it, then go to
+  // Observability, which loads the trace list as usual.
   const openTrace = (traceId) => {
     focusObservabilityTrace(traceId);
     navigateTo("observability");
   };
   initDashboardControls({ onOpenTrace: openTrace });
   initDemoActivity({
-    // After every rehearsal attempt, re-read the real traces everywhere
-    // they are shown — nothing is injected client-side.
+    // After a rehearsal, reload the traces wherever they're shown.
     onCompleted: () => {
       loadDashboard();
       loadExecutionTraces();
@@ -77,10 +69,8 @@ function init() {
   initJournalControls();
   initOperationsControls();
   initAiAssistantControls({ onOpenTrace: openTrace });
-  // These two cross-links are the only coupling between Observability and
-  // Investigation: each just sets the OTHER view's own filter fields
-  // (never re-implementing the other's rendering) and then navigates,
-  // so the target view's normal view-opened load picks the filter up.
+  // Each link sets the other page's time filter and switches to it; the page
+  // picks the filter up when it loads.
   initObservabilityControls({
     onInvestigateTimeWindow: ({ begin, end }) => {
       setInvestigationTimeWindow(begin, end);
@@ -97,8 +87,7 @@ function init() {
   });
   initCapabilitiesControls();
 
-  // Fetch fresh data every time a detail view is opened, so it can never
-  // show stale information from an earlier visit.
+  // Reload data each time a page is opened so it's never stale.
   initNavigation((view) => {
     if (view === "dashboard") {
       onDashboardShown();

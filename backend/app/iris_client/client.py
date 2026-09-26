@@ -1,37 +1,13 @@
-"""Reusable IRIS SysAdmin REST API client abstraction.
+"""HTTP client for the IRIS Admin REST API (/api/admin) and /api/mgmnt.
 
-Provides generic, authenticated GET and PUT methods. It intentionally does
-NOT expose per-endpoint methods (e.g. get_namespaces()) yet — those are
-added as each one is deliberately wired up. This keeps authentication/request
-handling in one place so endpoint-specific handlers can reuse it without
-duplicating login or error-handling logic.
+Handles login and error mapping in one place; endpoint-specific code lives
+in the routes and handlers. Responses are returned as parsed JSON exactly as
+IRIS sent them, because the shape varies: some endpoints wrap results in
+status/console/result, others (like /login) don't.
 
-PUT was added in Phase 2 Step 7 for the project's first real mutating
-operation (PUT /v2/journal/settings — see docs/first-mutation-selection.md
-and docs/first-mutation-implementation.md). Adding it here does not call it
-anywhere against a real IRIS instance; only a handler explicitly registered
-for a confirmed, authorized mutating operation ever invokes it, and no such
-call has been made against icc-iris-dev as of this step.
-
-`post_async_task`/`wait_for_async_task` were added for the Logs/Investigation
-view's GET /api/iris/security/audit/records route. Several read-only IRIS
-SysAdmin endpoints (audit records being the first one this project wires up)
-are documented and observed to run as an ASYNC TASK: the initiating call is
-a POST that returns 202 with a Location header pointing to a polling
-endpoint, not a normal synchronous response — see
-docs/api-capability-matrix.md's "POST /v2/security/audit/records" entry for
-exactly what was observed against a real instance. This is a read/query
-mechanism (IRIS's own API shape for a potentially long-running query), not a
-mutating operation — it changes no IRIS state and is not gated by this
-project's authorization/confirmation/execution framework, the same way every
-other read-only route in app/routes/iris.py isn't.
-
-The response body is returned exactly as IRIS sent it (parsed JSON), with no
-assumption about a result/status/console wrapper being present — verification
-showed that wrapper is used by some operations (e.g. GET /info) but not others
-(e.g. POST /login, which is flat). See docs/api-capability-matrix.md for the
-per-endpoint, per-operation breakdown. Callers are responsible for interpreting
-the shape appropriate to the specific endpoint they called.
+Some read endpoints (e.g. audit records) run as IRIS async tasks: a POST
+returns 202 with a Location header, and we poll /v2/async-result for the
+result. See post_async_task() and wait_for_async_task().
 """
 
 import asyncio
@@ -51,24 +27,19 @@ from app.iris_client.exceptions import (
 
 _API_BASE_PATH = "/api/admin"
 
-# IRIS's API Management REST application (dispatch class %Api.Mgmnt.v2.disp).
-# Verified against icc-iris-dev: its web app has JWT disabled
-# (JWTAuthEnabled: false, AutheEnabled: 32 = Password only), so it rejects
-# the /api/admin Bearer token with 401 and accepts only HTTP Basic with the
-# same configured IRIS credentials. See get_mgmnt().
+# /api/mgmnt has JWT turned off on 2026.2 (password auth only), so it
+# rejects the /api/admin Bearer token. We use HTTP Basic there. See get_mgmnt().
 _MGMNT_BASE_PATH = "/api/mgmnt"
 
-# Verified against icc-iris-dev (see docs/api-capability-matrix.md): a real
-# audit-record query task completed within a single poll. These defaults
-# give real, larger queries room to complete without making a caller wait
-# indefinitely — 20 attempts x 0.5s = 10s of polling before giving up.
+# Polling limits for async tasks: 20 x 0.5s = 10s before giving up.
+# Small queries usually finish on the first poll.
 _DEFAULT_ASYNC_TASK_MAX_ATTEMPTS = 20
 _DEFAULT_ASYNC_TASK_POLL_INTERVAL_SECONDS = 0.5
 _ASYNC_TASK_TERMINAL_STATES = frozenset({"Finished", "Failed", "Canceled"})
 
 
 class IRISClient:
-    """Authenticated HTTP client for the IRIS SysAdmin REST API (read-only so far)."""
+    """Authenticated HTTP client for the IRIS Admin REST API."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -85,26 +56,15 @@ class IRISClient:
         await self._http.aclose()
 
     async def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Perform an authenticated GET against the IRIS SysAdmin REST API.
-
-        `path` is relative to /api/admin, e.g. "/info" or "/v2/namespaces".
-        Returns the parsed JSON response body verbatim.
-        """
+        """GET a path under /api/admin (e.g. "/info") and return the JSON body."""
         response = await self._request("GET", path, params=params)
         return response.json()
 
     async def get_mgmnt(self, path: str) -> Any:
-        """Perform a read-only GET against IRIS's API Management REST API.
+        """GET a path under /api/mgmnt using HTTP Basic auth.
 
-        `path` is relative to /api/mgmnt, e.g. "/" or
-        "/v1/%25SYS/spec/api/admin". Authenticates with HTTP Basic using the
-        same configured IRIS credentials the JWT login already uses (this
-        application does not accept the JWT — see _MGMNT_BASE_PATH). The
-        credentials are passed only via httpx's `auth=`, never placed in a
-        URL, log line, or exception message. Deliberately GET-only: this
-        client exposes no way to call /api/mgmnt's mutating operations.
-        Returns the parsed JSON body verbatim (a list for "/", an object for
-        a spec).
+        Credentials are only passed through httpx's auth=, never in the URL or
+        logs. There's intentionally no way to call /api/mgmnt's write operations.
         """
         url = self._mgmnt_url(path)
         auth = httpx.BasicAuth(
@@ -114,19 +74,15 @@ class IRISClient:
         return response.json()
 
     def _mgmnt_url(self, path: str) -> httpx.URL:
-        """Builds the /api/mgmnt URL for `path`, refusing (before any request
-        exists, so the Basic credentials are never attached) anything that
-        would not land on the configured IRIS host strictly under
-        /api/mgmnt/. httpx normalizes "../" segments, so "/../admin/..."
-        would otherwise reach /api/admin/..., and a percent-encoded "%2e%2e"
-        survives normalization but decodes to ".." — any dot segment is
-        rejected, as is a path not starting with "/" (e.g. "@host" or
-        ".suffix"). The error message deliberately names no path or
-        credential."""
+        """Build a URL under /api/mgmnt, refusing anything that could escape it.
+
+        Rejects paths that don't start with "/" and any "." / ".." segments,
+        including percent-encoded ones (httpx would otherwise normalize
+        "/../admin" onto /api/admin and send our Basic credentials there).
+        """
         base = httpx.URL(self._settings.iris_base_url.rstrip("/") + _MGMNT_BASE_PATH + "/")
         url = httpx.URL(f"{self._settings.iris_base_url.rstrip('/')}{_MGMNT_BASE_PATH}{path}")
-        # Checked both before normalization (literal "./" or "../" anywhere —
-        # no legitimate /api/mgmnt path has one) and after (decoded "%2e%2e").
+        # Check both the raw path and the decoded one.
         segments = path.split("/") + url.path.split("/")
         if (
             not path.startswith("/")
@@ -141,14 +97,7 @@ class IRISClient:
     async def put(
         self, path: str, json: dict[str, Any], params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Perform an authenticated PUT against the IRIS SysAdmin REST API.
-
-        `path` is relative to /api/admin, e.g. "/v2/journal/settings". `json`
-        is sent as the request body exactly as given — this method does not
-        add, remove, or infer any field. `params` are optional query
-        parameters (e.g. PUT /v2/web-app's required `name`). Returns the
-        parsed JSON response body verbatim.
-        """
+        """PUT to a path under /api/admin. `json` is sent as-is; `params` are optional query parameters."""
         response = await self._request("PUT", path, params=params, json=json)
         return response.json()
 
@@ -158,19 +107,12 @@ class IRISClient:
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Perform an authenticated, SYNCHRONOUS POST against the IRIS
-        SysAdmin REST API — for endpoints documented to return their result
-        directly (e.g. `POST /v2/database-dir`'s `201 Created` with the
-        created resource in `result`), unlike post_async_task()'s
-        202-plus-poll pattern used by IRIS's separate async-query endpoints.
-        `path` is relative to /api/admin, e.g. "/v2/database-dir". `json` is
-        sent as the request body exactly as given — this method does not
-        add, remove, or infer any field. Returns the parsed JSON response
-        body verbatim.
+        """Synchronous POST to a path under /api/admin.
 
-        `params`: some synchronous endpoints (e.g. POST /v2/database-dir/
-        mount) are keyed by a documented query parameter (`dir`) rather
-        than a body field — sent exactly as given, same as post_async_task().
+        For endpoints that answer directly (e.g. POST /v2/database-dir returns
+        201 with the new resource), not the 202-and-poll ones. `json` is sent
+        as-is; some endpoints take their key as a query parameter instead
+        (e.g. POST /v2/database-dir/mount?dir=...).
         """
         response = await self._request("POST", path, params=params, json=json)
         return response.json()
@@ -181,27 +123,13 @@ class IRISClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> str:
-        """Start an IRIS async-task-backed query (e.g. POST
-        /v2/security/audit/records) and return its task id.
+        """Start an IRIS async task and return its task id.
 
-        A successful call returns HTTP 202 with a `Location` header of the
-        form `/api/admin/v1/async-result?id=<task-id>` (verified against a
-        real instance — see docs/api-capability-matrix.md; note the actual
-        Location path uses `v1`, not `v2`, even though the spec files this
-        under `/v2/async-result` — both were verified to work, and
-        `wait_for_async_task` always uses the documented `/v2/async-result`
-        path itself rather than replaying the Location header's path). Only
-        the `id` query parameter is ever extracted; nothing else from the
-        header is used or trusted.
+        IRIS answers 202 with Location: /api/admin/v1/async-result?id=<id>. We only
+        take the id from it and poll /v2/async-result ourselves. Some endpoints
+        take a JSON body (e.g. integrity-check), others query params.
 
-        `json`: some async-task-backed endpoints (e.g. POST /v2/database-dir/
-        integrity-check) take their real parameters as a JSON request body
-        rather than query params, unlike audit-records/database-dir/info —
-        added here, not guessed, once a caller with that real shape needed
-        it. Sent exactly as given, same discipline as put()/post().
-
-        Raises IRISAsyncTaskError if no Location header (or no `id` within
-        it) is present — this project never guesses a task id.
+        Raises IRISAsyncTaskError if there's no Location header or no id.
         """
         response = await self._request("POST", path, params=params, json=json)
         location = response.headers.get("Location")
@@ -224,15 +152,10 @@ class IRISClient:
         max_attempts: int = _DEFAULT_ASYNC_TASK_MAX_ATTEMPTS,
         poll_interval_seconds: float = _DEFAULT_ASYNC_TASK_POLL_INTERVAL_SECONDS,
     ) -> dict[str, Any]:
-        """Poll GET /v2/async-result?id=<task_id> until the task reaches a
-        terminal state, then return its `result` object (IRIS's `AsyncTask`
-        shape: State, TaskName, Console, FailureReason, Result,
-        TimeQueued/TimeStarted/TimeFinished — see docs/api-capability-matrix.md).
+        """Poll /v2/async-result until the task finishes and return its result.
 
-        Raises IRISAsyncTaskError if the task ends in IRIS's own "Failed" or
-        "Canceled" state, or if it never reaches a terminal state within
-        `max_attempts` polls — this method never returns a partial/unfinished
-        result.
+        Raises IRISAsyncTaskError if the task fails, is canceled, or doesn't
+        finish within max_attempts.
         """
         last_state: str | None = None
         for attempt in range(max_attempts):
@@ -279,9 +202,7 @@ class IRISClient:
         headers: dict[str, str] | None = None,
         auth: httpx.Auth | None = None,
     ) -> httpx.Response:
-        """Shared transport + error mapping for every IRIS request. `path`
-        (never the full URL) is the only request detail put in an error
-        message."""
+        """Send a request and map errors. Only the path (not the full URL) goes into error messages."""
         try:
             response = await self._http.request(
                 method,
@@ -298,13 +219,9 @@ class IRISClient:
             raise IRISConnectionError(f"Could not connect to IRIS calling {method} {path}") from exc
 
         if response.status_code >= 400:
-            # Note for future endpoint-specific wrappers: verification showed
-            # some 4xx responses are documented, valid outcomes rather than
-            # errors (e.g. GET /v2/security/oauth2/server returns 404 when
-            # OAuth2 simply isn't configured — see api-capability-matrix.md).
-            # This generic client always raises on 4xx/5xx; callers that need
-            # to treat a specific documented status as non-error should catch
-            # IRISResponseError and inspect .status_code / .body themselves.
+            # Some 4xx answers are normal outcomes (e.g. 404 from the OAuth2 server
+            # endpoint when OAuth2 isn't configured). We always raise here; callers
+            # that expect one can catch IRISResponseError and check .status_code.
             try:
                 error_body = response.json()
             except ValueError:

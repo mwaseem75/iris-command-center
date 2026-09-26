@@ -1,8 +1,5 @@
-"""Tests for the nine Step 3 IRIS read-only routes.
-
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. Canned bodies are the ACTUAL response bodies captured during
-Phase 1 verification (see docs/api-capability-matrix.md), not invented.
+"""Tests for the security/config read routes (OAuth2, wallet, audit,
+fs-access-purposes, ...). Canned bodies are real IRIS responses.
 """
 
 from typing import Any
@@ -215,8 +212,7 @@ def test_get_wallet_collections_handles_empty_result(
 def test_get_oauth2_server_not_configured_is_not_treated_as_error(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """IRIS's documented 404 "not configured" case must be surfaced as a
-    normal, successful read from our own API — not a 502 upstream error."""
+    """IRIS's 404 "not configured" is a normal answer here, not a 502."""
     mock_iris_client.get.side_effect = IRISResponseError(
         404, body=OAUTH2_SERVER_NOT_CONFIGURED_BODY
     )
@@ -233,8 +229,7 @@ def test_get_oauth2_server_not_configured_is_not_treated_as_error(
 def test_get_oauth2_server_real_failure_without_body_is_translated(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A 404 WITHOUT a parsed body (e.g. IRIS unreachable at a bad path)
-    should still be treated as a real error, not silently swallowed."""
+    """A 404 without a body (e.g. a bad path) is still an error."""
     mock_iris_client.get.side_effect = IRISResponseError(404, body=None)
 
     response = client.get("/api/iris/security/oauth2/server")
@@ -242,8 +237,7 @@ def test_get_oauth2_server_real_failure_without_body_is_translated(
     assert response.status_code == 502
 
 
-# --- Representative error handling for a Step 3 endpoint (pattern already
-#     covered more broadly in test_iris_routes.py for the first four routes) ---
+# --- Error handling (test_iris_routes.py covers this more) ---
 
 
 def test_get_tasks_translates_response_error(

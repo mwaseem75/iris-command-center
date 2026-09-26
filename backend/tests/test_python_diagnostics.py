@@ -1,7 +1,6 @@
-"""Tests for the Embedded Python host diagnostics (app/embedded_python/
-diagnostics.py) and GET /api/iris/python/diagnostics. No test here
-contacts a real IRIS instance — the Native API handle is always a fake
-that records every call made through it."""
+"""Tests for the Embedded Python diagnostics and GET /api/iris/python/diagnostics.
+The Native API handle is a fake that records every call.
+"""
 
 import asyncio
 import json
@@ -24,7 +23,7 @@ MEMINFO = "MemTotal:        8017536 kB\nMemFree:         6165072 kB\nMemAvailabl
 
 
 class _FakePyObject:
-    """Stands in for an IRISObject wrapping a Python object inside IRIS."""
+    """Fake IRISObject wrapping a Python object."""
 
     def __init__(self, name: str, methods: dict[str, Any] | None = None, value: Any = None):
         self.name = name
@@ -38,8 +37,7 @@ class _FakePyObject:
 
 
 class _FakeIRIS:
-    """Records every classMethodValue call; %SYS.Python.Import returns a
-    fake module from `modules`."""
+    """Records classMethodValue calls; %SYS.Python.Import returns a module from `modules`."""
 
     def __init__(self, fail: set[str] | None = None):
         self.fail = fail or set()
@@ -97,7 +95,7 @@ class _FakeIRIS:
 
 def _diagnostics(fake: _FakeIRIS) -> EmbeddedPythonDiagnostics:
     diagnostics = EmbeddedPythonDiagnostics(get_settings())
-    diagnostics._iris = fake  # _ensure_connected() then makes no connection
+    diagnostics._iris = fake  # so _ensure_connected() doesn't connect
     return diagnostics
 
 

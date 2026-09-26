@@ -1,13 +1,9 @@
-"""Tests for user.set_enabled. Every test uses a fake/mock IRISClient — no
-real network call is made, and no test (or anything else in this project)
-performs a real PUT /v2/security/user.
+"""Tests for user.set_enabled, using a fake IRIS client.
 
-The fake IRIS mirrors IRIS's own implementation (see
-app/execution/user_set_enabled_handler.py's docstring): GET returns the full
-user object, PUT changes only the keys sent and responds with the full user
-object too. User records carry personal-data sentinels (email, phone,
-provider, comment) so every result, response and trace can be checked for
-leaks.
+Like the real API, GET and PUT return the full user object and a PUT only
+changes the keys sent. The users have fake personal data (email, phone,
+provider, comment) so we can check it never leaks into results, responses
+or traces.
 """
 
 import copy
@@ -38,7 +34,7 @@ PII = ("pii-email@example.invalid", "555-0100-pii", "pii-carrier", "pii-comment-
 
 
 def _user(enabled: bool, roles: list[str], escalation: list[str] | None = None) -> dict[str, Any]:
-    """A full GET /v2/security/user result, shaped like IRIS's Schema()."""
+    """A full GET /v2/security/user result."""
     return {
         "AccountNeverExpires": True, "AutheEnabled": 0, "ChangePassword": False,
         "Comment": "pii-comment-text", "EmailAddress": "pii-email@example.invalid", "Enabled": enabled,
@@ -58,8 +54,9 @@ _USERS: dict[str, dict[str, Any]] = {
 
 
 class FakeIris:
-    """GET/PUT /v2/security/user over `users`; a PUT changes only the keys
-    sent (like IRIS's UpdateUser) and answers with the full object."""
+    """GET/PUT /v2/security/user over `users`. A PUT only changes the keys sent
+    and returns the full object.
+    """
 
     def __init__(self) -> None:
         self.users = copy.deepcopy(_USERS)
@@ -129,7 +126,7 @@ def assert_no_pii(text: str) -> None:
         assert f'"{field}"' not in text
 
 
-# --- authorization / confirmation (the executor never reaches the handler) ---
+# --- authorization / confirmation (handler never reached) ---
 
 
 @pytest.mark.asyncio
@@ -291,7 +288,7 @@ async def test_successful_disable_sends_only_enabled_and_verifies(executor: Oper
     assert result.verification.status is PostActionVerificationStatus.VERIFIED
     assert "roles are unchanged" in result.verification.detail
     assert iris.users["jdoe"]["Enabled"] is False
-    # The PUT response carried the full user object — none of it is returned.
+    # The PUT response had the full user object; none of it comes back.
     assert_no_pii(result.model_dump_json())
 
 
@@ -419,7 +416,7 @@ def test_route_dry_run_never_writes(client: TestClient, mock_iris_client: AsyncM
 
 
 def test_route_protects_the_configured_iris_username(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """conftest.py sets IRIS_USERNAME=test-user — the Command Center's own account."""
+    """conftest.py sets IRIS_USERNAME=test-user, i.e. our own account."""
     _route_client(mock_iris_client)
 
     response = client.post("/api/iris/security/users/set-enabled",

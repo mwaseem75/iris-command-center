@@ -1,30 +1,13 @@
-"""In-memory, process-local store for execution traces — no database, no
-external telemetry dependency, per this step's explicit scope. Traces are
-lost on process restart, which is an accepted, deliberate limitation, not
-an oversight.
+"""In-memory store for execution traces (lost on restart unless IRIS
+persistence is on).
 
-Capped at `_MAX_TRACES` (newest evicts oldest) so a long-running process
-can never grow this without bound — this project's other explicit safety
-requirements (no traced field ever holding a credential — see
-app/observability/models.py) already keep every individual trace small
-and non-sensitive.
+Keeps the newest _MAX_TRACES. GET /api/iris/observability/traces reads only
+from here; list_traces()/get_trace() never call IRIS.
 
-This module remains the ONLY thing GET /api/iris/observability/traces
-reads from (see app/routes/observability.py) — that is unchanged by the
-optional IRIS persistence below. `list_traces()`/`get_trace()` never call
-IRIS and never will, by design of this feature.
-
-Optional IRIS persistence (app/observability/iris_trace_writer.py): off by
-default (`_persister` starts `None`, and nothing in this project calls
-`set_trace_persister()` except app/main.py's lifespan, and only when
-Settings.persist_traces_to_iris is True). When a persister IS registered,
-record_trace() additionally schedules a best-effort, fire-and-forget
-background write — never awaited inline, so it can never add latency or a
-new failure mode to whichever request happens to trigger it. Exceptions
-from that background write are swallowed (IRISTraceWriter.persist_sync()
-already swallows its own; the wrapper here is defense-in-depth, the same
-layered-safety style already used by app/execution/executor.py's own
-try/except around handler calls).
+If app/main.py registers a persister (only when persist_traces_to_iris is
+on), record_trace() also starts a background write to IRIS. It isn't
+awaited, so it can't slow down or fail the request, and any error from it
+is swallowed.
 """
 
 import asyncio
@@ -39,26 +22,22 @@ _traces: deque[ExecutionTrace] = deque(maxlen=_MAX_TRACES)
 
 
 class _TracePersister(Protocol):
-    """Structural type for the optional persister — satisfied by
-    IRISTraceWriter without this module needing to import it (and,
-    therefore, without needing the optional `iris` dependency at all)."""
+    """What a persister must provide. IRISTraceWriter fits it, and this way we
+    don't import it (or the optional `iris` package) here.
+    """
 
     def persist_sync(self, trace: ExecutionTrace) -> None: ...
 
 
 _persister: _TracePersister | None = None
 
-# Strong references to in-flight background persistence tasks. asyncio does
-# not keep a task alive on its own once nothing else references it — an
-# unreferenced task can be garbage-collected before it completes. Each task
-# removes itself from this set via its done-callback once finished.
+# Keep references to background tasks so they aren't garbage-collected
+# before finishing; each one removes itself when done.
 _pending_persist_tasks: set[asyncio.Task] = set()
 
 
 def set_trace_persister(persister: _TracePersister | None) -> None:
-    """Called only from app/main.py's lifespan. `None` (the default)
-    disables background persistence entirely — record_trace() then behaves
-    exactly as it did before this feature existed."""
+    """Called from app/main.py. None turns background persistence off."""
     global _persister
     _persister = persister
 
@@ -71,28 +50,27 @@ async def _persist_in_background(persister: _TracePersister, trace: ExecutionTra
 
 
 def record_trace(trace: ExecutionTrace) -> None:
-    _traces.appendleft(trace)  # newest first, matching list_traces()'s order
+    _traces.appendleft(trace)  # newest first, like list_traces()
 
     if _persister is None:
         return
     try:
         task = asyncio.get_running_loop().create_task(_persist_in_background(_persister, trace))
     except RuntimeError:
-        # No running event loop (e.g. called from synchronous code/tests
-        # outside asyncio) — nothing to schedule onto. The in-memory record
-        # above has already happened either way.
+        # No running event loop (sync code or tests), so nothing to schedule.
+        # The in-memory record is already done.
         return
     _pending_persist_tasks.add(task)
     task.add_done_callback(_pending_persist_tasks.discard)
 
 
 def hydrate_traces(traces: list[ExecutionTrace]) -> int:
-    """Startup-only: adds previously persisted traces (newest first, as
-    IRISTraceWriter.load_recent_sync() returns them) BEHIND anything already
-    in the store — they are older than any trace recorded by this process.
-    Never re-persists them, skips trace_ids already present, and never
-    exceeds _MAX_TRACES (appending past the cap would evict the NEWEST
-    entries, so it stops instead). Returns how many were added."""
+    """Startup only: add traces loaded from IRIS (newest first) after the ones
+    already in memory, since they're older.
+
+    Doesn't re-save them, skips duplicate trace_ids, and stops at _MAX_TRACES
+    so it never pushes out newer entries. Returns how many were added.
+    """
     present = {trace.trace_id for trace in _traces}
     added = 0
     for trace in traces:
@@ -118,6 +96,5 @@ def get_trace(trace_id: str) -> ExecutionTrace | None:
 
 
 def clear_traces() -> None:
-    """Test-only helper — production code never needs to clear the store;
-    it self-manages via the deque's maxlen."""
+    """For tests only."""
     _traces.clear()

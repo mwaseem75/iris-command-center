@@ -1,11 +1,8 @@
-"""Tests for the read-only Authentication Posture routes in
-app/routes/security_access.py: services, web-auth, superservers and
-class-access.
+"""Tests for the Authentication routes in app/routes/security_access.py:
+services, web-auth, superservers and class-access.
 
-Uses mocks (fixtures shared via conftest.py). Canned bodies are ACTUAL
-responses captured from icc-iris-dev, except where a test needs a value the
-instance doesn't have (e.g. a non-empty SMTPUsername or TwoFactorFrom), which
-is marked.
+Canned bodies are real responses, except where a test needs a value our
+instance doesn't have (like a non-empty SMTPUsername), which is marked.
 """
 
 import copy
@@ -42,9 +39,9 @@ WEB_AUTH = {
     "AutheLDAP": False, "AutheLDAPCache": False, "AutheLoginToken": False, "AutheOAuth2": False, "AutheOS": True,
     "AutheOSDelegated": False, "AutheOSLDAP": False, "AutheTwoFactorPW": False, "AutheTwoFactorSMS": False,
     "AutheUnauthenticated": True, "LoginCookieTimeout": 0, "SMTPServer": "",
-    # Not the live value (live is ""): a non-empty username proves it is withheld.
+    # Real value is ""; a non-empty one shows it gets withheld.
     "SMTPUsername": "mailer-account-not-real",
-    # Not the live value (live is ""): a non-empty sender proves it is withheld.
+    # Real value is ""; a non-empty one shows it gets withheld.
     "TwoFactorFrom": "2fa-sender@example.invalid",
     "TwoFactorTimeout": 180, "JWTIssuer": "", "JWTSigAlg": "ES256",
 }
@@ -144,7 +141,7 @@ def test_web_auth_withholds_smtp_username_and_two_factor_sender(client: TestClie
 
 
 def test_web_auth_drops_unmodelled_fields(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """An allowlist: a hypothetical SMTP password field never passes through."""
+    """A made-up SMTP password field doesn't get through."""
     mock_iris_client.get.return_value = envelope({**WEB_AUTH, "SMTPPassword": "not-a-real-password"})
 
     response = client.get("/api/iris/security/web-auth")

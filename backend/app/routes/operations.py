@@ -1,15 +1,7 @@
-"""A single, read-only route that lists the operations already registered
-in the authorization/execution framework (app/authorization/operations.py).
+"""Lists the registered operations (app/authorization/operations.py). No IRIS call.
 
-This route makes NO request to IRIS — it serializes OPERATION_REGISTRY, a
-static, in-process Python dict — and requires no privilege to call, since
-it exposes only metadata about what operations exist, not IRIS data itself.
-It exists so consumers (the frontend, in particular) never need their own
-copy of operation names, descriptions, required privileges, or
-confirmation rules: this is the single source of truth, already used
-internally by app/routes/journal.py's mutating route.
-
-No mutating call exists anywhere in this module.
+The frontend reads operation names, privileges and confirmation rules from
+here instead of keeping its own copy.
 """
 
 from fastapi import APIRouter

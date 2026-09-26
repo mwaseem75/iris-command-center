@@ -1,11 +1,9 @@
-// Color themes: Midnight (the default :root palette), Slate and Light.
-// Each theme is a set of CSS color-token overrides on
-// <html data-theme="..."> (see css/styles.css); Midnight is simply no
-// attribute. The choice is remembered in localStorage — a per-viewer
-// convenience only, so every storage access is guarded and the app works
-// (in Midnight) when storage is unavailable. index.html's <head> applies the
-// saved theme before first paint; this module keeps the header's
-// Midnight/Slate/Light switch in sync.
+// Color themes: Midnight (default), Slate and Light.
+//
+// Each theme overrides the CSS color tokens via <html data-theme="...">;
+// Midnight is no attribute at all. The choice is saved in localStorage if
+// available. index.html applies it before first paint; this module keeps
+// the header switch in sync.
 
 const STORAGE_KEY = "icc-theme";
 const THEMES = ["midnight", "slate", "light"];
@@ -24,8 +22,8 @@ function saveTheme(theme) {
   try {
     window.localStorage.setItem(STORAGE_KEY, theme);
   } catch {
-    // Storage unavailable (private window, blocked site data): the theme
-    // still applies for this page view, it just isn't remembered.
+    // No storage (private window etc.): the theme still applies, it just
+    // isn't remembered.
   }
 }
 

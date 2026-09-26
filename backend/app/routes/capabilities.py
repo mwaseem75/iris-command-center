@@ -1,19 +1,8 @@
-"""A single, read-only route that serves the API Capability Explorer's data
-(app/capabilities.py's CAPABILITY_REGISTRY — see that module's docstring for
-what it is and where it comes from).
+"""Serves the API Explorer data (app/capabilities.py). No IRIS call.
 
-This route makes NO request to IRIS and requires no privilege to call: it
-exposes only project-maintained metadata about the IRIS SysAdmin REST API
-surface, not IRIS data itself — the exact same reasoning
-app/routes/operations.py already documents for OPERATION_REGISTRY.
-
-`available` is the one thing computed here rather than read verbatim off
-the registry: for each entry with a `command_center_path`, this checks the
-running app's OWN OpenAPI schema for a route matching that path and method
-— never a hand-maintained boolean — so this list can never silently drift
-out of sync with which routes actually exist. An entry with no
-`command_center_path` (IRIS capabilities this backend only ever calls
-internally, like login or async-task polling) is always `available=False`.
+`available` is worked out here by checking the app's own routes for each
+entry's command_center_path, so the list can't drift from what actually
+exists. Entries without a path (login, async polling) are never available.
 """
 
 from fastapi import APIRouter, Request

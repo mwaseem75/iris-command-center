@@ -1,12 +1,7 @@
-"""Tests for task.run_now. Every test uses a fake/mock IRISClient — no real
-network call is made, and no test (or anything else in this project)
-performs a real POST /v2/task/run.
+"""Tests for task.run_now, using a fake IRIS client.
 
-The fake IRIS mirrors IRIS's own implementation (see
-app/execution/task_run_now_handler.py's docstring): GET /v2/task/info and
-GET /v2/task answer 404 for an unknown id, POST /v2/task/run answers `{}`,
-and a run shows up in /v2/task/info as a changed LastSchedule (the Task
-Manager picked it up) or as Status -1 (running) — or, within a short window,
+Like the real API: unknown ids are 404, POST /v2/task/run returns {}, and
+a run shows up as a changed LastSchedule, as Status -1, or (for a while)
 not at all.
 """
 

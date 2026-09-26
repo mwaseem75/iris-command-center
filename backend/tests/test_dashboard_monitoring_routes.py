@@ -1,10 +1,9 @@
-"""Tests for the Dashboard's two read-only monitoring routes:
-GET /api/iris/monitor/dashboard (GET /v2/monitor/dashboard/main) and
-GET /api/iris/databases/storage (GET /v2/database-dirs).
+"""Tests for the Dashboard monitoring routes:
+GET /api/iris/monitor/dashboard (/v2/monitor/dashboard/main) and
+GET /api/iris/databases/storage (/v2/database-dirs).
 
-Canned bodies are ACTUAL responses captured from icc-iris-dev (trimmed),
-plus the spec's documented variants: LicenseUse "" when there is no license
-limit, and a BusyProcesses Process of "" (both observed forms).
+Canned bodies are trimmed real responses, plus LicenseUse "" (no license
+limit) and a BusyProcesses Process of "".
 """
 
 import copy
@@ -76,8 +75,8 @@ def test_monitor_dashboard_license_without_limit(client: TestClient, mock_iris_c
 def test_monitor_dashboard_busy_process_blank_commands_at_startup(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    # Observed live right after IRIS started: a busy process reported
-    # Commands as "" — previously a 500. Real values must be unchanged.
+    # Seen right after IRIS started: Commands was "" and we returned a 500.
+    # Normal values must still parse the same.
     body = copy.deepcopy(DASHBOARD)
     body["SystemUsage"]["BusyProcesses"] = [
         {"Process": 666, "Commands": 103855},

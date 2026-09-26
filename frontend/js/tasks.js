@@ -1,32 +1,28 @@
-// Tasks view: a read-only Tasks Explorer — KPI cards, a Run State strip,
-// a client-side search/filter toolbar, a compact table, and a detail
-// drawer with Overview / Schedule / Execution / Settings tabs. It reads
-// through exactly three GET endpoints, and its ONE mutating action is the
-// drawer's Run Now section (task.run_now via IrisApi.runTaskNow, see
-// "Run Now" below):
-//   - GET /api/iris/tasks/overview (IrisApi.getTaskOverview()): every task
-//     merged with its GET /v2/task/info and the backend-derived `State`,
-//   - GET /api/iris/tasks/manager (IrisApi.getTaskManager()): the Task
-//     Manager's own status, fetched alongside the overview, and
-//   - GET /api/iris/tasks/detail?id= (IrisApi.getTaskDetail()): one task's
-//     full configuration, fetched only when its drawer opens. The backend
-//     redacts sensitive Settings values before responding.
+// Tasks page: KPI cards, a Run State bar, search/filters, a table and a
+// detail drawer (Overview / Schedule / Execution / Settings tabs).
 //
-// Run state never comes from GET /v2/tasks' own `Suspended`: that flag was
-// observed reporting false for suspended tasks, so the backend drops it and
-// derives `State` from /v2/task/info (see backend/app/routes/iris.py's
-// _task_state). A task whose info could not be read has State null and is
-// shown as "Unknown", never guessed.
+// Reads:
+// - GET /api/iris/tasks/overview: every task with its /v2/task/info and a
+//   `State` worked out by the backend,
+// - GET /api/iris/tasks/manager: the Task Manager status,
+// - GET /api/iris/tasks/detail?id=: one task's full config, when its drawer
+//   opens (sensitive Settings are redacted by the backend).
+// The one change it can make is Run Now in the drawer (task.run_now, see
+// below).
 //
-// Timestamps are shown exactly as IRIS returns them (no timezone is
-// reported, so none is assumed). NextScheduled is not always a date —
-// live values include "" and "Runs After #1:00" — and is never parsed.
+// We don't use the list's `Suspended` flag, which reported false for
+// suspended tasks; `State` comes from /v2/task/info instead. If a task's
+// info couldn't be read, it shows "Unknown".
+//
+// Timestamps are shown as IRIS returns them (no timezone given).
+// NextScheduled isn't always a date ("" or "Runs After #1:00"), so it's
+// never parsed.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("tasks-loading-state"),
@@ -74,8 +70,7 @@ const dom = {
 
 const DRAWER_TABS = ["overview", "schedule", "execution", "settings"];
 
-// mainspec_v2.json's documented TaskExtraInfo.Status codes (negative
-// values). Any other value is shown raw.
+// TaskExtraInfo.Status codes (negative values). Others are shown as-is.
 const STATUS_CODES = {
   "-1": "Running (JobRunning)",
   "-2": "Untrapped error (JobUntrappedError)",
@@ -85,13 +80,11 @@ const STATUS_CODES = {
 };
 const ERROR_STATUS_CODES = new Set(["-2", "-3", "-4", "-5"]);
 
-// A "YYYY-MM-DD HH:MM[:SS]" value, the only date shapes observed or
-// documented for task timestamps. Used only to decide how a value is
-// labelled — the text itself is always shown exactly as IRIS sent it.
+// "YYYY-MM-DD HH:MM[:SS]", the date formats task timestamps use. Only
+// decides the label; the text is always shown as IRIS sent it.
 const DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/;
 
-// KPI cards: [label, State filter value (or null for Total), predicate].
-// Every count comes from the fetched overview — nothing invented.
+// KPI cards: [label, State filter value (null for Total), predicate].
 const SUMMARY_CARDS = [
   ["Total", null, () => true],
   ["Running", "Running", (task) => task.State === "Running"],
@@ -106,13 +99,12 @@ const CARD_COLORS = [
   "var(--color-chart-3)",
 ];
 
-// Real overview fields the free-text search matches against.
+// Fields the search box matches against.
 const SEARCH_FIELDS = ["Name", "Description", "Namespace", "Type"];
 
-// The full overview from the last successful fetch — filtering and the
-// drawer's Overview tab both read from this; neither triggers a re-fetch.
+// The last fetched overview; filtering and the Overview tab read from it.
 let allTasks = [];
-let managerStatus = null; // GET /v2/task/manager's Status, or null if unavailable
+let managerStatus = null;  // Task Manager status, or null if unavailable
 let currentDrawerId = null;
 let currentDetail = null;
 let detailRequestSeq = 0;
@@ -120,9 +112,7 @@ let activeDrawerTab = "overview";
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in dashboard.js/system.js/processes.js/databases.js/web-apps.js.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -166,14 +156,18 @@ function stateBadgeVariant(state) {
   return "status-badge--neutral";
 }
 
-/** Info's LastFinished carries seconds; the list's is truncated to the
- * minute. Both are real IRIS values — the more precise one is preferred. */
+/**
+ * Info's LastFinished has seconds, the list's only minutes; use the
+ * more precise one.
+ */
 function lastFinishedOf(task) {
   return task.Info ? task.Info.LastFinished : task.LastFinished;
 }
 
-/** [text, title] for a NextScheduled value, which IRIS reports as a
- * datetime, "" or free text (e.g. "Runs After #1:00"). Never parsed. */
+/**
+ * [text, title] for NextScheduled, which can be a datetime, "" or text like
+ * "Runs After #1:00". Not parsed.
+ */
 function describeNextScheduled(value) {
   if (typeof value !== "string" || value === "") {
     return [PLACEHOLDER, "IRIS reports no next scheduled time"];
@@ -187,9 +181,7 @@ function formatStatusCode(value) {
   return STATUS_CODES[value] ? `${value} — ${STATUS_CODES[value]}` : value;
 }
 
-// Table rows/drawer rows are always built via document.createElement +
-// .textContent — never innerHTML — so a name/description/setting value
-// containing HTML-special characters can never be interpreted as markup.
+// Rows are built with createElement/textContent (no innerHTML).
 function makeCell(text, { mono = false, title = text } = {}) {
   const cell = document.createElement("td");
   cell.className = mono ? "data-table__cell data-table__cell--mono" : "data-table__cell";
@@ -213,9 +205,10 @@ function makeBadgeCell(badge, title) {
   return cell;
 }
 
-/** The Last Result cell: IRIS's own Error text from /v2/task/info
- * ("Success", "" or error text), badged only where the spec's meaning is
- * unambiguous — "Success", or a documented error Status code. */
+/**
+ * Last Result cell: the Error text from /v2/task/info ("Success", "" or an
+ * error), with a badge only for "Success" or a known error Status code.
+ */
 function makeResultCell(task) {
   const info = task.Info;
   if (!info || info.Error === "") return makeCell(PLACEHOLDER);
@@ -260,7 +253,7 @@ function makeSection(title, rows) {
   return section;
 }
 
-// --- KPI cards, Run State strip, filters, table ---
+// --- KPI cards, Run State bar, filters, table ---
 
 function renderSummary() {
   dom.summaryGrid.replaceChildren();
@@ -285,14 +278,13 @@ function renderSummary() {
     dom.summaryGrid.append(card);
   });
 
-  // Tasks whose info could not be read — shown only when there are any,
-  // so a card never claims a count of something that did not happen.
+  // Tasks whose info couldn't be read. Only shown when there are some.
   const unknown = allTasks.filter((task) => task.State === null || task.State === undefined).length;
   if (unknown > 0) {
     dom.summaryGrid.append(makeStaticCard("State Unknown", String(unknown), "var(--color-chart-neutral)"));
   }
 
-  // "Never Started" is the spec's own meaning of LastStarted "".
+  // LastStarted "" means never started.
   const neverStarted = allTasks.filter((task) => task.Info && task.Info.LastStarted === "").length;
   const neverCard = makeStaticCard("Never Started", String(neverStarted), CARD_COLORS[4]);
   neverCard.title = "Tasks whose LastStarted is empty (IRIS: never started)";
@@ -337,7 +329,7 @@ function syncSummaryActiveState() {
 
 function applyCardFilter(index) {
   const [, stateValue] = SUMMARY_CARDS[index];
-  // Clicking the already-active card clears the filter.
+  // Clicking the active card again clears the filter.
   dom.filterState.value = !stateValue || dom.filterState.value === stateValue ? "" : stateValue;
   renderTable();
 }
@@ -347,8 +339,7 @@ function renderOverview() {
   renderStackedBar(dom.overviewViz, countBy(allTasks, stateLabel));
 }
 
-/** Rebuilds a <select>'s options from real values, keeping the current
- * selection if that value still exists after a refresh. */
+/** Rebuild a <select>'s options, keeping the current choice if it's still there. */
 function populateSelect(select, allLabel, values) {
   const previous = select.value;
   const allOption = document.createElement("option");
@@ -443,11 +434,10 @@ function asPositiveInt(value) {
 }
 
 /**
- * A plain-language schedule built ONLY from the TimePeriod/DailyFrequency
- * encoding mainspec_v2.json documents (e.g. Weekly day digits 1=Sunday …
- * 7=Saturday; Monthly day 31 = last day; Monthly Special "week^day", week 5
- * = last). Returns null — and the drawer shows only the raw fields — for
- * anything outside that encoding, rather than guessing.
+ * Describe the schedule in plain words from the TimePeriod/DailyFrequency
+ * fields (Weekly days 1=Sunday ... 7=Saturday; Monthly day 31 = last day;
+ * Monthly Special "week^day", week 5 = last). Returns null for anything
+ * else, and the drawer just shows the raw fields.
  */
 function describeSchedule(detail) {
   const every = asPositiveInt(detail.TimePeriodEvery);
@@ -496,20 +486,19 @@ function describeSchedule(detail) {
   return null;
 }
 
-// --- Run Now (task.run_now — this view's one MUTATING action) ---
+// --- Run Now (task.run_now, the only change on this page) ---
 //
-// Same flow as the Web Apps drawer's Enabled State: "Check" sends a dry run
-// (IrisApi.runTaskNow(fields, true, true) — the executor's dry-run branch is
-// only reached with confirmed=true, and the handler's dry_run() never sends
-// the POST). Only a successful preview offers the confirm control, which is
-// enabled only after the acknowledgment checkbox; the real request is sent
-// only from its click handler. The backend alone authorizes, refuses
-// System/Maintenance, suspended and running tasks, executes and verifies —
-// this code only shows what the backend returned.
+// Same flow as Enabled State in the Web Apps drawer. "Check" sends a dry
+// run (runTaskNow(fields, true, true); the dry run still needs
+// confirmed=true to get past the executor, and never sends the POST). Only
+// a successful preview shows the confirm button, which needs the checkbox
+// ticked, and only its click handler sends the real request. The backend
+// does the checks (System/Maintenance, suspended, running); this just
+// shows what it says.
 //
-// The section is built once per opened task and re-attached on every
-// Overview re-render, so an in-progress preview or a result survives the
-// drawer's detail load and the list reload after a run.
+// The section is built once per task and re-attached on each Overview
+// render, so a preview or result survives the detail load and the list
+// reload after a run.
 let runSection = null;
 let runSectionTaskId = null;
 
@@ -615,8 +604,8 @@ function buildRunNowSection(task) {
         preview.textContent = handlerResult.detail;
         confirm.hidden = false;
       } else {
-        // Unauthorized, protected, suspended, running, unknown task… shown
-        // exactly as the backend explained it.
+        // Unauthorized, protected, suspended, running, unknown task... shown as
+        // the backend explained it.
         showError((handlerResult && handlerResult.detail) || result.detail || "This run could not be validated against IRIS.");
       }
     } catch (err) {
@@ -635,9 +624,8 @@ function buildRunNowSection(task) {
     confirmButton.disabled = !(pendingFields && ack.checked);
   });
 
-  // The ONLY place in this file that sends a real (non-dry-run) request —
-  // reachable only via this button, enabled only after a successful preview
-  // and the acknowledgment checkbox.
+  // The only place that sends a real request. Only reachable from this
+  // button, after a successful preview and the checkbox.
   confirmButton.addEventListener("click", async () => {
     const fields = pendingFields;
     if (!fields) return;
@@ -660,8 +648,8 @@ function buildRunNowSection(task) {
     resultList.replaceChildren(...makeRunResultRows(result));
     resultList.hidden = false;
     if (result.status === "success" || result.status === "verification_failed") {
-      // Re-read the real task state rather than patching it locally; this
-      // section (and the result above) is re-attached by the re-render.
+      // Reload the task list instead of patching it locally; the re-render
+      // re-attaches this section.
       await loadTasks();
     }
   });
@@ -818,8 +806,10 @@ function clearDetailPanels() {
   dom.settingsList.replaceChildren();
 }
 
-/** Fetches GET /api/iris/tasks/detail for the open drawer's task. Only the
- * most recent request's result is ever rendered. */
+/**
+ * Load GET /api/iris/tasks/detail for the open task. Only the latest
+ * request's result is rendered.
+ */
 async function loadDrawerDetail(id) {
   const seq = ++detailRequestSeq;
   currentDetail = null;
@@ -895,8 +885,8 @@ function openDrawer(id) {
 function closeDrawer() {
   currentDrawerId = null;
   currentDetail = null;
-  detailRequestSeq += 1; // discard any in-flight detail response
-  runSection = null; // a reopened drawer starts with a fresh Run Now section
+  detailRequestSeq += 1;  // ignore any detail response still in flight
+  runSection = null;  // a reopened drawer gets a fresh Run Now section
   runSectionTaskId = null;
   activeDrawerTab = "overview";
   dom.drawerLoading.hidden = true;
@@ -926,16 +916,18 @@ function renderTasks(tasks) {
   renderOverview();
   renderTable();
 
-  // After a refresh, re-open (and re-fetch) the drawer's task with fresh
-  // data — or close it honestly if that task no longer exists.
+  // After a refresh, reopen the drawer's task with fresh data, or close it if
+  // the task is gone.
   if (currentDrawerId !== null) {
     if (allTasks.some((task) => task.Id === currentDrawerId)) openDrawer(currentDrawerId);
     else closeDrawer();
   }
 }
 
-/** GET /api/iris/tasks/manager, reduced to its Status string or null. A
- * failure here never fails the page — the card just says Unavailable. */
+/**
+ * GET /api/iris/tasks/manager, as its Status string or null. If it fails,
+ * the card just says Unavailable.
+ */
 async function fetchManagerStatus() {
   try {
     const response = await IrisApi.getTaskManager();
@@ -946,11 +938,7 @@ async function fetchManagerStatus() {
   }
 }
 
-/**
- * Fetches GET /api/iris/tasks/overview (and, in parallel, the Task
- * Manager status) and renders them. No mutating request exists anywhere
- * in this file.
- */
+/** Load the overview (and the Task Manager status in parallel) and render. */
 export async function loadTasks() {
   setLoading(true);
   setErrorBanner(null);
@@ -962,8 +950,7 @@ export async function loadTasks() {
   try {
     response = await IrisApi.getTaskOverview();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load task information. The Command Center backend may be unreachable."
@@ -990,8 +977,8 @@ export async function loadTasks() {
   }
 
   if (envelopeErrors.length > 0) {
-    // status.errors includes the backend's own per-task "run state
-    // unavailable" warnings — real, reported failures, not a threshold.
+    // status.errors includes the backend's per-task "run state unavailable"
+    // warnings.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {
@@ -1012,8 +999,7 @@ export function initTasksControls() {
     navigateTo("dashboard");
   });
 
-  // Filtering is purely client-side over the last fetched overview —
-  // instant, and never a new request.
+  // Filtering is local, no request.
   dom.filterForm.addEventListener("submit", (event) => event.preventDefault());
   dom.filterSearch.addEventListener("input", renderTable);
   for (const select of [dom.filterState, dom.filterType, dom.filterNamespace]) {
@@ -1025,8 +1011,7 @@ export function initTasksControls() {
     renderTable();
   });
 
-  // Event delegation for KPI cards and table rows — the same pattern
-  // web-apps.js/processes.js/databases.js use.
+  // Delegated listeners for KPI cards and table rows.
   dom.summaryGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".stat-card[data-card-index]");
     if (card) applyCardFilter(Number(card.dataset.cardIndex));
@@ -1057,7 +1042,7 @@ export function initTasksControls() {
     if (event.key === "Escape" && !dom.drawer.hidden) closeDrawer();
   });
 
-  // Drawer tabs, with arrow-key switching per the WAI-ARIA tabs pattern.
+  // Drawer tabs, with arrow-key switching (WAI-ARIA tabs pattern).
   dom.drawerTabs.addEventListener("click", (event) => {
     const tab = event.target.closest("[role=tab]");
     if (tab) setDrawerTab(tab.dataset.tab);

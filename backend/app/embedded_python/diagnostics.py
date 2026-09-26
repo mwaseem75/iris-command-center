@@ -1,32 +1,14 @@
-"""Read-only host diagnostics computed by Embedded Python running INSIDE the
-connected IRIS instance — the values come from IRIS's own Python runtime
-(%SYS.Python), not from this backend's host.
+"""Host diagnostics collected by Embedded Python inside IRIS.
 
-Transport: IRIS's Native API (`intersystems-irispython`), the same driver
-and the same lazy-connection pattern app/observability/iris_trace_writer.py
-already uses (superserver port + namespace from Settings). No new IRIS
-class, table, global, web application or Python package is created or
-required — everything below is a built-in Python stdlib module imported
-through the built-in %SYS.Python.Import() class method.
+The values come from IRIS's own Python runtime (%SYS.Python), not from the
+backend machine. We connect with the iris Native API driver and only call
+stdlib modules through %SYS.Python.Import().
 
-Safety:
-- FIXED CALLS ONLY. Every module name, method name and argument used here
-  is a literal in this file (see _PROBES). collect_sync() takes no input,
-  so no caller-supplied text can ever reach %SYS.Python.Import() or
-  IRISObject.invoke() — which together could otherwise run arbitrary
-  Python inside IRIS.
-- READ-ONLY. Every call only reads process/host state (versions, CPU
-  count, load average, disk usage, /proc/meminfo, installed package
-  metadata); nothing writes to disk, IRIS, or any global.
-- BLOCKING. The Native API driver is synchronous, so collect_sync() must
-  only run off the event loop (see app/routes/python.py's run_in_executor),
-  and a lock serializes use of the single, non-thread-safe connection.
-- GRACEFUL. A failing individual probe yields a null field (listed in
-  `unavailable`) rather than an error; only an unreachable IRIS — or every
-  probe failing — raises EmbeddedPythonUnavailableError, which the route
-  turns into a fixed, credential-free 502 message.
-- The `iris` package is imported lazily, so this module can be imported
-  and tested without a live IRIS instance.
+Every module, method and argument is hard-coded in _PROBES, and
+collect_sync() takes no input, so nothing from a request can decide what
+Python runs inside IRIS. All probes only read state. A failing probe just
+leaves its field null; we only raise if IRIS is unreachable or every probe
+fails. The driver is blocking, so run this off the event loop.
 """
 
 from __future__ import annotations
@@ -47,8 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmbeddedPythonUnavailableError(Exception):
-    """IRIS (or its Embedded Python runtime) could not be reached. Never
-    carries connection details or credentials."""
+    """IRIS or its Embedded Python couldn't be reached."""
 
 
 class DiskUsage(BaseModel):
@@ -63,8 +44,7 @@ class HostMemory(BaseModel):
 
 
 class PythonDiagnostics(BaseModel):
-    """Every field is nullable: a probe that fails is reported as null and
-    named in `unavailable` — values are never guessed or defaulted."""
+    """All fields are optional; a failed probe is null and listed in `unavailable`."""
 
     python_version: str | None = None
     platform: str | None = None
@@ -85,8 +65,7 @@ def _import(db: Any, module: str) -> Any:
 
 
 def _to_json(db: Any, value: Any) -> Any:
-    """Tuples/named tuples come back over the Native API as opaque object
-    handles, so they are serialized inside IRIS and parsed here."""
+    """Tuples come back as opaque handles, so serialize them to JSON inside IRIS."""
     raw = _import(db, "json").invoke("dumps", value)
     if isinstance(raw, bytes):
         raw = raw.decode("utf-8")
@@ -98,7 +77,7 @@ def _text(value: Any) -> str:
 
 
 def parse_meminfo(text: str) -> HostMemory:
-    """Parses /proc/meminfo's `MemTotal`/`MemAvailable` (reported in kB)."""
+    """Read MemTotal and MemAvailable (kB) from /proc/meminfo."""
     values: dict[str, int] = {}
     for line in text.splitlines():
         key, _, rest = line.partition(":")
@@ -117,8 +96,8 @@ def _manager_disk(db: Any) -> DiskUsage:
 
 
 def _host_memory(db: Any) -> HostMemory:
-    # pathlib.Path objects are converted to plain strings over the Native
-    # API, so the file is opened, read and explicitly closed instead.
+    # pathlib.Path comes back as a plain string over the Native API, so
+    # open, read and close the file ourselves.
     handle = _import(db, "builtins").invoke("open", "/proc/meminfo")
     try:
         return parse_meminfo(_text(handle.invoke("read")))
@@ -132,7 +111,7 @@ def _package_count(db: Any) -> int:
     return int(builtins.invoke("len", builtins.invoke("list", distributions)))
 
 
-# The complete, fixed set of calls this module can make: (field, probe).
+# Every call this module can make: (field, probe).
 _PROBES: tuple[tuple[str, Callable[[Any], Any]], ...] = (
     ("python_version", lambda db: _text(_import(db, "platform").invoke("python_version"))),
     ("platform", lambda db: _text(_import(db, "platform").invoke("platform"))),
@@ -148,9 +127,7 @@ _PROBES: tuple[tuple[str, Callable[[Any], Any]], ...] = (
 
 
 class EmbeddedPythonDiagnostics:
-    """One instance is created at app startup (see app/main.py's lifespan).
-    Constructing it makes no network call; the Native API connection is
-    opened on first use and reused, mirroring IRISTraceWriter."""
+    """Created at startup; the Native API connection opens on first use."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -175,7 +152,7 @@ class EmbeddedPythonDiagnostics:
         self._iris = iris.createIRIS(self._connection)
 
     def _reset(self) -> None:
-        """Drops a possibly broken connection so the next call reconnects."""
+        """Drop the connection so the next call reconnects."""
         connection, self._connection, self._iris = self._connection, None, None
         if connection is not None:
             try:
@@ -184,9 +161,7 @@ class EmbeddedPythonDiagnostics:
                 pass
 
     def collect_sync(self) -> PythonDiagnostics:
-        """Blocking. Runs every probe in _PROBES inside IRIS's Embedded
-        Python. Raises EmbeddedPythonUnavailableError only if IRIS can't be
-        reached or every probe fails."""
+        """Run all probes inside IRIS. Raises only if IRIS is unreachable or every probe fails."""
         with self._lock:
             started = time.perf_counter()
             try:
@@ -216,7 +191,6 @@ class EmbeddedPythonDiagnostics:
             )
 
     def close(self) -> None:
-        """Best-effort connection close, called from app/main.py's lifespan
-        shutdown. Never raises."""
+        """Close the connection at shutdown."""
         with self._lock:
             self._reset()

@@ -1,29 +1,10 @@
-"""The API Capability Explorer's static registry.
+"""Static list of IRIS Admin API capabilities for the API Explorer page.
 
-Every entry below is transcribed directly from docs/api-capability-matrix.md's
-Matrix table — the project's hand-maintained, human-verified record of which
-IRIS SysAdmin REST API capabilities have actually been exercised against a
-real running instance, under which privilege, with what result. Nothing here
-is invented: `capability`/`endpoint`/`method`/`required_privilege`/
-`iris_version`/`notes` all restate facts already recorded in that document
-(condensed for a table cell, never changed in substance) — see that file for
-the full prose and detailed per-endpoint verification records this
-summarizes.
-
-This module makes NO request to IRIS. `command_center_path`/
-`command_center_method` record whether — and how — this Command Center
-backend currently exposes each capability as its own route; `None` means it
-does not (e.g. IRIS's login and async-task-polling endpoints are used
-internally by app/iris_client/, never exposed as their own public route).
-Whether that recorded path is genuinely still live is never taken on faith
-here: app/routes/capabilities.py checks it against this backend's own,
-actually-registered FastAPI routes at request time, the same
-never-hand-duplicate discipline tests/test_frontend_smoke.py already uses
-for the frontend's own API paths.
-
-Updating this file: add a row only after docs/api-capability-matrix.md
-itself has been updated with a real verification record for it — this
-registry must never get ahead of that document.
+Each row records an IRIS endpoint we've tested, the privilege it needs, the
+result, and which Command Center route (if any) exposes it. None means it's
+only used internally (e.g. login, async-task polling).
+app/routes/capabilities.py checks the listed routes against the real app
+routes at request time, so a stale path shows up as unavailable.
 """
 
 from pydantic import BaseModel, ConfigDict
@@ -37,7 +18,7 @@ class CapabilityEntry(BaseModel):
     method: str
     required_privilege: str
     iris_version: str
-    verification_status: str  # "Verified" | "Not tested" — matches the matrix doc's own two states
+    verification_status: str  # "Verified" or "Not tested"
     notes: str
     command_center_path: str | None = None
     command_center_method: str | None = None

@@ -1,14 +1,11 @@
-// Thin fetch layer for the Command Center backend's /api/iris/* routes.
-// This module ONLY talks to our own backend, never to IRIS directly — the
-// backend holds the IRIS session/JWT; the browser never sees it.
+// Small fetch wrapper for the backend's /api/iris/* routes.
 //
-// Response shapes here match backend/app/models/iris.py exactly (verified
-// against the actual backend, not guessed) — every endpoint wraps its
-// payload in { status, console, result }. See docs/api-capability-matrix.md
-// for how those shapes were originally verified against IRIS itself.
+// The browser only ever talks to our backend, never to IRIS; the backend
+// holds the IRIS session. Most endpoints wrap their data in
+// { status, console, result }.
 
-// Matches the backend's default app_port (see backend/app/config.py).
-// Adjust this if the backend is run on a different host/port.
+// The backend's default port (see backend/app/config.py). Change it if
+// you run the backend somewhere else.
 const API_BASE_URL = "http://localhost:8000";
 
 class ApiError extends Error {
@@ -20,16 +17,10 @@ class ApiError extends Error {
   }
 }
 
-// The header's connection pill (index.html's #connection-status) is shell
-// chrome shared by every view, but only Dashboard used to keep it updated —
-// so it went stale (frozen at Dashboard's last state) the moment the
-// operator navigated anywhere else. Every view already funnels its IRIS
-// reads through this one fetchIris() function, so updating the header pill
-// here — the single real choke point — keeps it honest for whichever view
-// is actually active, without any per-view module needing to know about it.
-// A richer, view-specific label (e.g. Dashboard's own "Connected as X")
-// set right after its own batch of requests settles simply overwrites this
-// generic one, since that happens strictly after these per-request updates.
+// Update the header's connection pill on every request. All pages go
+// through fetchIris(), so this keeps it right whichever page is open.
+// Pages that set a more specific label (e.g. Dashboard's "Connected as X")
+// do so after their requests finish, so theirs wins.
 function setHeaderConnectionStatus(state, label) {
   const dot = document.getElementById("connection-status");
   const labelEl = document.getElementById("connection-status-label");
@@ -39,9 +30,8 @@ function setHeaderConnectionStatus(state, label) {
 }
 
 /**
- * Fetch and parse a GET /api/iris/* endpoint. Never logs or includes
- * headers, credentials, or response bodies from failed requests — only a
- * short, safe status summary reaches the caller.
+ * GET an /api/iris/* endpoint and parse it. On failure only a short, safe
+ * status message reaches the caller (no headers or response bodies).
  */
 async function fetchIris(path) {
   let response;
@@ -68,14 +58,9 @@ async function fetchIris(path) {
 }
 
 /**
- * POST /api/iris/journal/purge-archived — the app's ONLY mutating request,
- * and the sole reason this file has a second fetch helper at all. It never
- * duplicates the backend's authorization/confirmation logic: this function
- * only forwards exactly what the caller decided (PurgeArchived + an
- * explicit, user-driven `confirmed` flag) to the existing, already-tested
- * route (backend/app/routes/journal.py), which alone decides whether
- * anything is authorized to happen. There is no "force"/"bypass" field
- * here — nothing this function accepts can skip that route's own checks.
+ * POST /api/iris/journal/purge-archived. Sends PurgeArchived and the
+ * user's `confirmed` flag; the backend decides whether it's allowed. There's
+ * no force/bypass option.
  */
 async function postJournalPurgeArchived(purgeArchived, confirmed) {
   const path = "/api/iris/journal/purge-archived";
@@ -104,20 +89,11 @@ async function postJournalPurgeArchived(purgeArchived, confirmed) {
 }
 
 /**
- * POST /api/iris/namespaces — this project's second mutating request,
- * alongside postJournalPurgeArchived above (namespace.create, backend/app/
- * routes/namespaces.py). Same discipline: forwards exactly what the
- * caller decided (the five request fields plus an explicit, user-driven
- * `confirmed` flag) to the existing, already-tested route, which alone
- * decides whether anything is authorized to happen. No "force"/"bypass"
- * field here either.
+ * POST /api/iris/namespaces (namespace.create). Sends the request fields
+ * and `confirmed`; the backend decides whether it's allowed.
  *
- * `dryRun` forwards the route's own `dry_run` field (already supported by
- * NamespaceCreateOperationRequest/NamespaceCreateHandler.dry_run() — never
- * calls put()/post_async_task(), so it can never mutate IRIS) — used by
- * the "New Namespace" wizard's Review step to get a real, server-
- * validated preview before the operator's explicit confirmation triggers
- * an actual (dryRun=false) execution.
+ * `dryRun` maps to the route's `dry_run`, used by the wizard's Review step
+ * for a preview (nothing is created).
  */
 async function postNamespaceCreate(fields, confirmed, dryRun = false) {
   const path = "/api/iris/namespaces";
@@ -146,103 +122,72 @@ async function postNamespaceCreate(fields, confirmed, dryRun = false) {
 }
 
 /**
- * POST /api/iris/databases — this project's third mutating request,
- * alongside postJournalPurgeArchived and postNamespaceCreate above
- * (database.create, backend/app/routes/databases.py). Same discipline:
- * forwards exactly what the caller decided (the request's own fields plus
- * an explicit, user-driven `confirmed` flag) to the existing,
- * already-tested route, which alone decides whether anything is
- * authorized to happen. No "force"/"bypass" field here either.
+ * POST /api/iris/databases (database.create). Sends the request fields and
+ * `confirmed`; the backend decides whether it's allowed.
  *
- * `dryRun` forwards the route's own `dry_run` field (already supported by
- * DatabaseCreateOperationRequest/DatabaseCreateHandler.dry_run() — never
- * calls post(), so it can never mutate IRIS) — used by the "New Database"
- * wizard's Review step to get a real, server-validated preview before the
- * operator's explicit confirmation triggers an actual (dryRun=false)
- * execution. Note: DatabaseCreateHandler's dry-run branch, like
- * NamespaceCreateHandler's, is only reached once `confirmed: true` is
- * also sent — see namespaces.js's module docstring for why (the
- * executor's confirmation gate runs before the dry_run branch); the
- * dry-run call itself still never mutates IRIS regardless.
+ * `dryRun` maps to the route's `dry_run`, used by the wizard's Review step.
+ * Like namespaces, the dry run also needs `confirmed: true` because the
+ * executor checks confirmation first. It still never creates anything.
  */
 async function postDatabaseCreate(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/databases", fields, confirmed, dryRun);
 }
 
 /**
- * database.mount (POST /api/iris/databases/mount,
- * backend/app/routes/databases.py) — same request/response discipline as
- * postDatabaseCreate: forwards the operator's fields plus explicit
- * `confirmed`/`dry_run` flags; the backend alone authorizes. Dry-run
- * (DatabaseMountHandler.dry_run()) only reads IRIS's database info and
- * never sends the mount request.
+ * database.mount (POST /api/iris/databases/mount). Sends the fields plus `confirmed` and `dry_run`;
+ * the backend does the authorization, checks, execution and verification.
+ * The dry run only reads the database info.
  */
 async function postDatabaseMount(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/databases/mount", fields, confirmed, dryRun);
 }
 
 /**
- * database.dismount (POST /api/iris/databases/dismount,
- * backend/app/routes/databases.py) — same discipline as postDatabaseMount:
- * forwards only {Directory} plus the explicit, user-driven `confirmed` flag
- * and `dry_run`; the backend alone authorizes, refuses system/critical
- * databases, executes and verifies.
+ * database.dismount (POST /api/iris/databases/dismount). Sends {Directory} plus `confirmed` and `dry_run`;
+ * the backend does the authorization, checks, execution and verification.
  */
 async function postDatabaseDismount(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/databases/dismount", fields, confirmed, dryRun);
 }
 
 /**
- * POST /api/iris/web-apps/set-enabled — web_app.set_enabled
- * (backend/app/routes/web_apps.py). Same body convention and helper as the
- * database operations: only the caller's fields plus an explicit
- * `confirmed` flag and `dry_run`; the backend alone authorizes (Manage,
- * plus IRIS's own Secure), hard-denies protected apps, executes, and
- * verifies. No force/bypass field exists.
+ * web_app.set_enabled (POST /api/iris/web-apps/set-enabled). Sends {Name, Enabled} plus `confirmed` and `dry_run`;
+ * the backend does the authorization, checks, execution and verification.
  */
 async function postWebAppSetEnabled(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/web-apps/set-enabled", fields, confirmed, dryRun);
 }
 
 /**
- * web_app.update_description (POST /api/iris/web-apps/update-description,
- * backend/app/routes/web_apps.py) — same discipline as postWebAppSetEnabled:
- * forwards only {Name, Description} plus the explicit, user-driven
- * `confirmed` flag and `dry_run`; the backend alone authorizes, refuses
- * protected apps, executes and verifies.
+ * web_app.update_description (POST /api/iris/web-apps/update-description). Sends {Name, Description} plus `confirmed` and `dry_run`;
+ * the backend does the authorization, checks, execution and verification.
  */
 async function postWebAppUpdateDescription(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/web-apps/update-description", fields, confirmed, dryRun);
 }
 
 /**
- * user.set_enabled (POST /api/iris/security/users/set-enabled,
- * backend/app/routes/security_users.py) — same request/response discipline
- * as postWebAppSetEnabled: forwards only {Name, Enabled} plus the explicit,
- * user-driven `confirmed` flag and `dry_run`; the backend alone authorizes,
- * hard-denies protected users, executes and verifies.
+ * user.set_enabled (POST /api/iris/security/users/set-enabled). Sends {Name, Enabled} plus `confirmed` and `dry_run`;
+ * the backend does the authorization, checks, execution and verification.
  */
 async function postUserSetEnabled(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/security/users/set-enabled", fields, confirmed, dryRun);
 }
 
 /**
- * task.run_now (POST /api/iris/tasks/run-now, backend/app/routes/tasks.py) —
- * same discipline: forwards only {Id} plus the explicit, user-driven
- * `confirmed` flag and `dry_run`; the backend alone authorizes, refuses
- * protected tasks, executes and verifies. No scheduling field exists.
+ * task.run_now (POST /api/iris/tasks/run-now). Sends {Id} plus `confirmed` and `dry_run`;
+ * the backend does the authorization, checks, execution and verification.
+ * No scheduling option.
  */
 async function postTaskRunNow(fields, confirmed, dryRun = false) {
   return postDatabaseOperation("/api/iris/tasks/run-now", fields, confirmed, dryRun);
 }
 
 /**
- * POST /api/iris/demo/rehearsal (backend/app/routes/demo.py) — the Demo
- * Activity rehearsal. The body is `{ confirmed }` only (the route forbids
- * any other field): the backend passes it unchanged to every existing
- * operation, which alone authorizes, executes, verifies and restores. The
- * response is the backend's RehearsalResult ({ status, confirmed, detail,
- * steps }). HTTP 409 means another rehearsal is already running.
+ * POST /api/iris/demo/rehearsal (Demo Activity). The body is just
+ * { confirmed, scenario }; the backend runs each operation through the
+ * normal framework and restores everything. Returns
+ * { status, confirmed, detail, steps }. 409 means one is already running.
  */
 async function postDemoRehearsal(confirmed, scenario = "standard") {
   const path = "/api/iris/demo/rehearsal";
@@ -298,61 +243,41 @@ export const IrisApi = {
   getInfo: () => fetchIris("/api/iris/info"),
   getNamespaces: () => fetchIris("/api/iris/namespaces"),
   getDatabases: () => fetchIris("/api/iris/databases"),
-  // Read-only — backed by IRIS's own async-task POST /v2/database-dir/info
-  // (the backend waits for that task to finish; see
-  // backend/app/routes/iris.py's get_database_info), the same pattern
-  // getAuditRecords() already uses. `directory` is the database's real
-  // Directory field, sent verbatim as the `dir` query parameter.
+  // Storage info for one database (IRIS runs it as an async task; the
+  // backend waits for it). `directory` is sent as the `dir` parameter.
   getDatabaseInfo: (directory) =>
     fetchIris(`/api/iris/databases/info?dir=${encodeURIComponent(directory)}`),
-  // Read-only — backed by IRIS's own async-task POST /v2/database-dir/
-  // integrity-check (see backend/app/routes/iris.py's
-  // get_database_integrity_check), the same async-task pattern
-  // getDatabaseInfo()/getAuditRecords() already use. `directory` is the
-  // database's real Directory field, sent verbatim as the `dir` query
-  // parameter. Unlike getDatabaseInfo(), the response is NOT an
-  // IRISEnvelope — it's IRIS's own raw async-task envelope (State,
-  // TaskName, Console, FailureReason, Result, Time*), since this
-  // operation's actual outcome/Result shape has never been observed
-  // against a real IRIS instance (see that route's own docstring) and
-  // this project never invents a shape to unwrap it into.
+  // Integrity check for one database (also an async task). Unlike
+  // getDatabaseInfo(), this returns IRIS's raw task envelope (State,
+  // TaskName, Console, FailureReason, Result, Time*), since we've never seen
+  // a real Result to unwrap.
   checkDatabaseIntegrity: (directory) =>
     fetchIris(`/api/iris/databases/integrity-check?dir=${encodeURIComponent(directory)}`),
   getProcesses: () => fetchIris("/api/iris/processes"),
   getWebApps: () => fetchIris("/api/iris/web-apps"),
-  // Read-only — full configuration of one web app via GET /v2/web-app
-  // (see backend/app/routes/iris.py's get_web_app_detail). `name` is the
-  // app's real Name (e.g. "/api/admin"), sent verbatim as the `name` query
-  // parameter — a query parameter because names contain slashes.
+  // Full config of one web app. `name` (e.g. "/api/admin") is a query
+  // parameter because names contain slashes.
   getWebAppDetail: (name) =>
     fetchIris(`/api/iris/web-apps/detail?name=${encodeURIComponent(name)}`),
-  // Read-only — the REST route map IRIS generates for a REST web app, via
-  // IRIS's API Management API (see backend/app/routes/iris.py's
-  // get_web_app_rest_endpoints). HTTP 404 means IRIS has no route map for
-  // this app (not a REST app, or IRIS could not generate one).
+  // REST route map for a REST web app (from IRIS's /api/mgmnt). 404 means
+  // there isn't one (not a REST app, or IRIS couldn't build it).
   getWebAppRestEndpoints: (name) =>
     fetchIris(`/api/iris/web-apps/rest-endpoints?name=${encodeURIComponent(name)}`),
-  // Read-only — active web sessions (GET /v2/web-sessions). The backend
-  // strips each session's IRIS ID before responding, so it never reaches
-  // the browser (see backend/app/routes/iris.py's get_web_sessions).
+  // Active web sessions. The backend removes the session IDs.
   getWebSessions: () => fetchIris("/api/iris/web-sessions"),
   getTasks: () => fetchIris("/api/iris/tasks"),
-  // Read-only — IRIS's own system dashboard (GET /v2/monitor/dashboard/main):
-  // performance counters, health indicators, alert counts, licensing.
+  // IRIS system dashboard: performance, health, alerts, licensing.
   getMonitorDashboard: () => fetchIris("/api/iris/monitor/dashboard"),
-  // Read-only — every local database's size in one read (GET /v2/database-dirs).
+  // Size of every local database in one call.
   getDatabaseStorage: () => fetchIris("/api/iris/databases/storage"),
-  // Read-only — every task merged with its GET /v2/task/info and a derived
-  // State (see backend/app/routes/iris.py's get_tasks_overview). The list's
-  // own Suspended flag is not included; it was observed to be wrong.
+  // Every task with its /v2/task/info and a derived State. The list's
+  // Suspended flag is left out because it's unreliable.
   getTaskOverview: () => fetchIris("/api/iris/tasks/overview"),
-  // Read-only — one task's full configuration; the backend redacts
-  // sensitive Settings values before responding.
+  // One task's full config, with sensitive Settings redacted by the backend.
   getTaskDetail: (id) => fetchIris(`/api/iris/tasks/detail?id=${encodeURIComponent(id)}`),
   getTaskManager: () => fetchIris("/api/iris/tasks/manager"),
-  // Read-only Identity & Access (backend/app/routes/security_access.py).
-  // User detail arrives with personal fields already withheld by the
-  // backend; no endpoint here returns a password, hash or secret.
+  // Identity & Access. The backend removes personal fields from user details;
+  // nothing here returns a password, hash or secret.
   getSecurityUsers: () => fetchIris("/api/iris/security/users"),
   getSecurityUserDetail: (name) =>
     fetchIris(`/api/iris/security/users/detail?name=${encodeURIComponent(name)}`),
@@ -365,31 +290,27 @@ export const IrisApi = {
   getSecurityResources: () => fetchIris("/api/iris/security/resources"),
   getSecurityResourceDetail: (name) =>
     fetchIris(`/api/iris/security/resources/detail?name=${encodeURIComponent(name)}`),
-  // Read-only Authentication Posture (same backend module). web-auth
-  // arrives with SMTPUsername already withheld by the backend.
+  // Authentication. web-auth comes without SMTPUsername.
   getSecurityServices: () => fetchIris("/api/iris/security/services"),
   getSecurityServiceDetail: (name) =>
     fetchIris(`/api/iris/security/services/detail?name=${encodeURIComponent(name)}`),
   getSecurityWebAuth: () => fetchIris("/api/iris/security/web-auth"),
   getSecuritySuperservers: () => fetchIris("/api/iris/security/superservers"),
   getSecurityClassAccess: () => fetchIris("/api/iris/security/class-access"),
-  // Read-only Wallet METADATA (same backend module): collections with their
-  // secrets' names and types. No endpoint returns a secret value.
+  // Wallet metadata: collections and their secrets' names and types, no values.
   getSecurityWalletOverview: () => fetchIris("/api/iris/security/wallet/overview"),
   getSecurityWalletCollectionDetail: (name) =>
     fetchIris(`/api/iris/security/wallet/collections/detail?name=${encodeURIComponent(name)}`),
   getSecurityWalletSecrets: (collection) =>
     fetchIris(`/api/iris/security/wallet/secrets?collection=${encodeURIComponent(collection)}`),
-  // Read-only X.509 credential and certificate METADATA (same backend
-  // module). No endpoint returns key material or key passwords.
+  // X.509 credential and certificate metadata, no keys or key passwords.
   getSecurityX509Overview: () => fetchIris("/api/iris/security/x509/overview"),
   getSecurityX509CredentialDetail: (alias) =>
     fetchIris(`/api/iris/security/x509/credentials/detail?alias=${encodeURIComponent(alias)}`),
   getSecurityX509Certificate: (alias) =>
     fetchIris(`/api/iris/security/x509/credentials/certificate?alias=${encodeURIComponent(alias)}`),
-  // Read-only OAuth 2.0 (same backend module): one allowlisted overview plus
-  // allowlisted details. No endpoint returns a client secret, key password or
-  // token — the backend models name only safe fields.
+  // OAuth 2.0: one overview plus details, with safe fields only (no secrets
+  // or tokens).
   getSecurityOAuthOverview: () => fetchIris("/api/iris/security/oauth/overview"),
   getSecurityOAuthServerClient: (clientId) =>
     fetchIris(`/api/iris/security/oauth/server-clients/detail?clientId=${encodeURIComponent(clientId)}`),
@@ -405,12 +326,9 @@ export const IrisApi = {
   getFsAccessPurposes: () => fetchIris("/api/iris/fs-access-purposes"),
   getWalletCollections: () => fetchIris("/api/iris/wallet/collections"),
   getAuditEnabled: () => fetchIris("/api/iris/security/audit/enabled"),
-  // `filters` is a plain object of the backend's own documented, optional
-  // query parameters (beginDateTime, endDateTime, eventTypes, usernames,
-  // ascending, jsonSearch, ...) — see backend/app/routes/iris.py's
-  // get_audit_records. Empty/undefined values are omitted entirely rather
-  // than sent as empty strings, so an unfilled filter behaves exactly like
-  // never having been supplied (IRIS's own "list everything" default).
+  // `filters` holds the optional query parameters (beginDateTime,
+  // endDateTime, eventTypes, usernames, ascending, jsonSearch, ...). Empty
+  // values are left out, so IRIS returns everything by default.
   getAuditRecords: (filters = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) {
@@ -423,43 +341,28 @@ export const IrisApi = {
   },
   getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
   getOperations: () => fetchIris("/api/iris/operations"),
-  // The Command Center's own PythonDiagnostics shape (backend/app/
-  // embedded_python/diagnostics.py), not an IRISEnvelope: host values
-  // computed by Embedded Python inside IRIS. Unavailable fields are null
-  // and listed in `unavailable`.
+  // Our own PythonDiagnostics shape (not an IRISEnvelope): host values from
+  // Embedded Python inside IRIS. Missing values are null and listed in
+  // `unavailable`.
   getPythonDiagnostics: () => fetchIris("/api/iris/python/diagnostics"),
-  // { issues: [...] } — read-only issue detection (backend/app/routes/issues.py).
+  // { issues: [...] } from our own issue check.
   getIssues: () => fetchIris("/api/iris/issues"),
-  // The Command Center's own KnowledgeSearchResponse shape (backend/app/
-  // knowledge/store.py): { query, results: [{ source, title, body, score }] }
-  // — stored corpus documents ranked by IRIS Vector Search. 503 while the
-  // feature is disabled (ENABLE_KNOWLEDGE_SEARCH).
+  // { query, results: [{ source, title, body, score }] }: stored documents
+  // ranked by IRIS Vector Search. 503 when ENABLE_KNOWLEDGE_SEARCH is off.
   searchKnowledge: (query) => fetchIris(`/api/iris/knowledge/search?q=${encodeURIComponent(query)}`),
-  // Unlike every other IrisApi method, the response here is the Command
-  // Center's own { reply, intent } shape (backend/app/models/schemas.py's
-  // AssistantQueryResponse) — not an IRISEnvelope — because this endpoint
-  // never returns raw IRIS data, only a natural-language summary of it.
+  // Returns our own { reply, intent } shape, not an IRISEnvelope.
   queryAssistant: (message) =>
     fetchIris(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`),
-  // The response is a plain OperationResult (backend/app/execution/models.py)
-  // — not an IRISEnvelope — the same structured shape
-  // POST /api/iris/journal/purge-archived has always returned.
+  // Returns an OperationResult (backend/app/execution/models.py).
   executeJournalPurgeArchived: (purgeArchived, confirmed) =>
     postJournalPurgeArchived(purgeArchived, confirmed),
-  // The response is a plain OperationResult, the same structured shape as
-  // executeJournalPurgeArchived above — POST /api/iris/namespaces
-  // (backend/app/routes/namespaces.py) has always returned it. Pass
-  // dryRun=true for a real, non-mutating server-validated preview.
+  // Returns an OperationResult. Pass dryRun=true for a preview.
   createNamespace: (fields, confirmed, dryRun = false) =>
     postNamespaceCreate(fields, confirmed, dryRun),
-  // The response is a plain OperationResult, the same structured shape as
-  // createNamespace above — POST /api/iris/databases
-  // (backend/app/routes/databases.py) has always returned it. Pass
-  // dryRun=true for a real, non-mutating server-validated preview.
+  // Returns an OperationResult. Pass dryRun=true for a preview.
   createDatabase: (fields, confirmed, dryRun = false) =>
     postDatabaseCreate(fields, confirmed, dryRun),
-  // Same OperationResult shape — POST /api/iris/databases/mount. Pass
-  // dryRun=true for a real, non-mutating server-validated preview.
+  // Same, for POST /api/iris/databases/mount.
   mountDatabase: (fields, confirmed, dryRun = false) =>
     postDatabaseMount(fields, confirmed, dryRun),
   dismountDatabase: (fields, confirmed, dryRun = false) =>
@@ -471,18 +374,13 @@ export const IrisApi = {
   setUserEnabled: (fields, confirmed, dryRun = false) =>
     postUserSetEnabled(fields, confirmed, dryRun),
   runTaskNow: (fields, confirmed, dryRun = false) => postTaskRunNow(fields, confirmed, dryRun),
-  // The Demo Activity rehearsal — existing operations run by the backend's
-  // own framework; never called on page load, only from demo-activity.js's
-  // Confirm button.
-  // scenario: "standard" (default) or "issue_resolution" (the manual IPM rehearsal).
+  // Demo Activity rehearsal, only called from demo-activity.js's Confirm
+  // button. scenario: "standard" (default) or "issue_resolution" (IPM).
   runDemoRehearsal: (confirmed, scenario = "standard") => postDemoRehearsal(confirmed, scenario),
-  // Read-only — this endpoint makes no IRIS call itself; it only reads the
-  // backend's in-memory execution trace store (backend/app/observability/).
+  // Our own execution traces (no IRIS call).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),
-  // Read-only — this endpoint makes no IRIS call itself either; it serves
-  // the backend's own project-maintained capability registry
-  // (backend/app/capabilities.py), with `available` computed against this
-  // backend's own currently-registered routes.
+  // Our own capability registry (no IRIS call); `available` says whether
+  // the route exists.
   getCapabilities: () => fetchIris("/api/iris/capabilities"),
 };
 

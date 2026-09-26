@@ -1,104 +1,38 @@
-// Databases view: fetches GET /api/iris/databases (via IrisApi.getDatabases())
-// as the source of truth for the Database Explorer — summary cards, a status
-// distribution strip, one card per database, and a read-only detail drawer.
+// Databases page: summary cards, a status bar, a card per database and a
+// detail drawer, from GET /api/iris/databases.
 //
-// It also calls IrisApi.getNamespaces() (the same existing, already-verified
-// read-only endpoint the Namespaces view itself uses) purely to compute the
-// drawer's "Namespace Usage" section — which namespaces reference a given
-// database via their own real Globals/Routines/SysGlobals/SysRoutines/
-// Library/TempGlobals fields. This is a real, derivable relationship from
-// data this project already fetches elsewhere, not an invented one and not
-// an extra "expensive" call: it is the exact same GET namespaces.js already
-// makes. A failure to load it never blocks or errors the primary database
-// list — the drawer just falls back to an honest "unavailable" state for
-// that one supplementary section (see renderNamespaceUsage()).
+// GET /api/iris/namespaces is also loaded (the same call the Namespaces page
+// makes) to show which namespaces use a database in the drawer. If it
+// fails, that section just says unavailable.
 //
-// The detail drawer also exposes one read-only action, database.info
-// ("View Info"): on click, it calls IrisApi.getDatabaseInfo() (GET
-// /api/iris/databases/info?dir=<Directory>, backend/app/routes/iris.py's
-// get_database_info) and renders whatever real storage facts IRIS returns
-// (block size, allocated size, available space, host disk free space,
-// mount/full/encrypted/mirrored status — see INFO_FIELDS below). Unlike
-// database.create, this is READ-ONLY — it changes nothing, so it needs no
-// confirmation step and is not staged through a wizard; see
-// handleViewInfoClick().
+// Drawer actions:
+// - View Info (read-only): storage facts from GET /api/iris/databases/info
+//   (see INFO_FIELDS).
+// - Run Integrity Check (read-only): shows IRIS's raw task envelope (State,
+//   Console, Failure Reason, Result, times). We've never run a real one, so
+//   Result is shown as JSON rather than named fields.
+// - Mount and Dismount: "Check" does a dry run, then the real request is only
+//   sent from the Confirm button (submitMount / submitDismount) after a
+//   valid preview and the checkbox. The backend does the authorization.
 //
-// The drawer also exposes a second read-only action, database.integrity_check
-// ("Run Integrity Check"): on click, it calls
-// IrisApi.checkDatabaseIntegrity() (GET /api/iris/databases/integrity-check
-// ?dir=<Directory>, backend/app/routes/iris.py's
-// get_database_integrity_check) and renders IRIS's own raw async-task
-// envelope (State, Console, Failure Reason, Result, Time*) exactly as
-// returned — see renderIntegrityCheckResult(). Unlike database.info,
-// this operation's `Result` shape has never been observed against a real
-// IRIS instance (a real integrity check is a resource-intensive scan of
-// live data, not a quick metadata read, and was out of scope to actually
-// execute during this implementation — see backend/app/models/iris.py's
-// DatabaseIntegrityCheckResult docstring), so `Result` is rendered via
-// formatUnknownValue() (verbatim JSON text) rather than named fields —
-// nothing here guesses a schema. Also read-only, also no confirmation
-// step; see handleRunIntegrityCheckClick().
+// The "New Database" wizard (database.create) works like the New Namespace
+// wizard: Configure -> Review (dry run) -> confirm -> create -> result. The
+// real request is only sent from Confirm & Create (submitCreate).
 //
-// The drawer also exposes a MUTATING action, database.mount ("Check Mount"
-// -> explicit confirmation -> "Confirm & Mount"), which calls
-// IrisApi.mountDatabase() (POST /api/iris/databases/mount,
-// backend/app/routes/databases.py). "Check Mount" is a dry-run preview
-// (the handler only reads POST /v2/database-dir/info's Mounted flag); the
-// real request is sent only from submitMount(), reachable only via the
-// Confirm & Mount button after an acknowledged, validated preview. As with
-// database.create, the backend alone authorizes — see handleMountCheckClick().
-// The drawer also exposes database.dismount the same way ("Check Dismount" ->
-// explicit confirmation -> "Confirm & Dismount", IrisApi.dismountDatabase(),
-// POST /api/iris/databases/dismount); its real request is sent only from
-// submitDismount().
+// The drawer shows all DatabaseEntry fields (Name, Directory, Server,
+// ClusterMountMode, MountRequired, MountAtStartup, StreamLocation, Status).
+// Sizes come separately from View Info, only when you click it.
 //
-// This view also exposes a second mutating capability, database.create,
-// via the "New Database" wizard drawer, which calls IrisApi.createDatabase()
-// (POST /api/iris/databases, backend/app/routes/databases.py). That is the
-// ONLY mutating HTTP call this module ever makes, and it is reachable ONLY
-// through the wizard's own explicit Confirm & Create button — see
-// submitCreate() below. This view never constructs its own authorization/
-// confirmation logic for it: the wizard only stages the operator's choices
-// (Configure -> Review -> explicit confirmation) and forwards them to the
-// existing authorization/execution/verification framework, which alone
-// decides whether the request is allowed to proceed. The wizard follows the
-// exact same Configure -> Review (dry-run preview) -> explicit confirmation
-// -> execute -> result pattern as namespaces.js's "New Namespace" wizard —
-// see that file's module docstring for the full rationale (in particular,
-// why the Review step's dry-run preview call sends confirmed=true).
-//
-// Fields shown are exactly the ones backend/app/models/iris.py's
-// DatabaseEntry actually defines (Name, Directory, Server, ClusterMountMode,
-// MountRequired, MountAtStartup, StreamLocation, Status) — nothing invented,
-// and the drawer shows ALL of them, not a subset. See
-// docs/api-capability-matrix.md for how that shape was originally verified
-// against a real IRIS instance. DatabaseEntry itself has no storage size,
-// free space, health, performance, or trend field, so none is shown from
-// it — but the drawer's separate "Storage Info" section (see
-// handleViewInfoClick()/INFO_FIELDS below) DOES show real storage facts,
-// sourced from a different, dedicated endpoint (database.info,
-// GET /api/iris/databases/info?dir=<Directory>), fetched only when the
-// operator clicks "View Info" — never fabricated, and never fetched
-// automatically for every card up front.
-//
-// The wizard's own fields (Directory, Resource Name, Size, Global Journal
-// State, Encryption) are exactly the ones
-// backend/app/execution/database_create_handler.py's DatabaseCreateParameters
-// accepts — verified by reading that handler directly, not guessed. There
-// is no "Name" field anywhere in this wizard: IRIS's own POST
-// /v2/database-dir request schema has no such field (see that handler's
-// module docstring) — a database is identified by Directory. verify()
-// confirms creation via GET /v2/database-dir?dir=<Directory> (the same
-// endpoint family, keyed by that same Directory) — its response has no
-// Name field either, so the Result step's Verification Detail never shows
-// one; it reports the real Directory, ResourceName, ReadOnly, and
-// GlobalJournalState IRIS returned instead.
+// The wizard fields (Directory, Resource Name, Size, Global Journal State,
+// Encryption) match DatabaseCreateParameters. There's no Name field:
+// databases are identified by Directory, and the verification result
+// doesn't include a name either.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar, topCategories } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("databases-loading-state"),
@@ -162,11 +96,8 @@ const dom = {
   drawerDismountResult: document.getElementById("databases-drawer-dismount-result"),
 };
 
-// The "New Database" wizard — a second, separate drawer from the
-// read-only detail drawer above (dom.*), so viewing an existing database's
-// fields and creating a new one never share, and can never accidentally
-// clobber, the same DOM state. Structure mirrors namespaces.js's createDom
-// exactly.
+// The New Database wizard. Separate drawer from the detail drawer so they
+// never share DOM state; same structure as the New Namespace wizard.
 const createDom = {
   openButton: document.getElementById("databases-create-button"),
   backdrop: document.getElementById("database-create-backdrop"),
@@ -205,81 +136,51 @@ const createDom = {
   doneButton: document.getElementById("database-create-done-button"),
 };
 
-// The fields the operator configured and reviewed — set only by
-// handleCreateNext(), read by renderReviewPreview()/submitCreate(), the
-// same "choose -> confirm -> execute" staging namespaces.js's wizard uses.
-// `confirmed` is always sent as `true` from submitCreate() alone, reachable
-// only via the Confirm & Create button's own click handler — never on
-// drawer open, never on a field change, never from the Review step's own
-// (non-mutating, dryRun=true) preview call.
+// What the user configured and reviewed. Set by handleCreateNext(), read by
+// renderReviewPreview()/submitCreate(). `confirmed: true` is only sent from
+// submitCreate(), i.e. the Confirm & Create button.
 let pendingCreateFields = null;
 
-// Whether the Review step's own dry-run call came back as a validated,
-// creatable request — the Confirm & Create button stays disabled unless
-// this AND the acknowledgment checkbox are both true (see
-// updateConfirmButtonEnabled()), so the operator can never confirm past a
-// request the backend's own validation has already rejected.
+// Whether the Review dry run said the request is OK. Confirm & Create
+// stays disabled unless this and the checkbox are both true.
 let reviewIsValid = false;
 
-// This project's own defensive, CLIENT-SIDE mirror of
-// DatabaseCreateParameters' Directory validation (backend/app/execution/
-// database_create_handler.py) — used only to fail obviously-invalid input
-// fast, before spending a round trip on it. It is not this app's
-// authorization logic and does not replace it: every Review step still
-// re-validates for real against live IRIS data via a dry-run call below,
-// and the backend re-validates again, independently, on the real
-// (non-dry-run) request — per the project rule "Do not duplicate backend
-// authorization logic in JavaScript".
+// Same Directory check as DatabaseCreateParameters on the backend, just to
+// catch obvious mistakes early. The dry run and the real request are still
+// validated by the backend.
 const DIRECTORY_PATTERN = /^\/[^\0]{0,499}$/;
 
-/** Mirrors database_create_handler.py's _normalize_directory(): every real
- * Directory value GET /api/iris/databases has ever returned ends with a
- * trailing slash (see docs/api-capability-matrix.md) — normalized here so
- * a caller-supplied Directory differing only by a missing/extra trailing
- * slash still compares equal to a real existing one. Deliberately NOT
- * case-folded — Directory is a Linux filesystem path and is genuinely
- * case-sensitive. */
+/**
+ * Same as the backend's _normalize_directory(): add a trailing slash (IRIS
+ * always returns one) so "/x" and "/x/" match. Case is kept (Linux paths).
+ */
 function normalizeDirectory(directory) {
   return `${directory.replace(/\/+$/, "")}/`;
 }
 
-/** Mirrors database_create_handler.py's _derive_expected_name(): this
- * project's OWN defensive heuristic — NOT a documented IRIS rule —
- * inferred from every existing real database (each one's Name matches its
- * Directory's final path segment, uppercased). Used only for pre-creation
- * collision defense below, never asserted as fact after creation. Nothing
- * in this wizard ever displays a database's real IRIS-assigned Name at
- * all — not even after successful creation — since neither
- * POST /v2/database-dir nor the GET /v2/database-dir?dir=<Directory> call
- * verify() uses to confirm creation returns one; see this file's module
- * docstring. */
+/**
+ * Same as the backend's _derive_expected_name(): last path segment,
+ * uppercased. Only used to spot likely name collisions before creating.
+ */
 function deriveExpectedName(directory) {
   const segments = directory.split("/").filter(Boolean);
   if (segments.length === 0) return null;
   return segments[segments.length - 1].toUpperCase();
 }
 
-// The full list from the last successful fetch — the drawer looks a
-// database back up here by name when a card is clicked (event delegation),
-// rather than re-fetching or capturing per-card closures.
+// The last fetched list; the drawer looks databases up here by name.
 let allDatabases = [];
-let onOpenTrace = null; // app.js's shared "open this trace in Observability" helper
+let onOpenTrace = null;  // app.js helper that opens a trace in Observability
 
-// The full namespace list from the last successful (best-effort) fetch —
-// used only to compute "Namespace Usage" in the drawer. `null` specifically
-// means "could not be loaded this time" (a distinct state from "loaded and
-// empty"), so renderNamespaceUsage() can show an honest "unavailable"
-// message instead of a false "no namespaces reference this database".
+// Namespaces from the last fetch, only for "Namespace Usage". null means
+// it failed to load (different from an empty list), so the drawer can say
+// "unavailable" instead of "none".
 let allNamespaces = null;
 
-// The Directory of whichever database the detail drawer currently shows —
-// set by openDrawer(), read by handleViewInfoClick() so the "View Info"
-// button knows which real database to query. Never guessed/derived: it is
-// exactly the same Directory value already displayed in DRAWER_FIELDS.
+// Directory of the database in the drawer, used by View Info.
 let currentDrawerDirectory = null;
 
-// [drawer label, DatabaseEntry field, value kind] — every field the drawer
-// shows, in the same order the backend model declares them.
+// [label, DatabaseEntry field, value kind] in model order.
 const DRAWER_FIELDS = [
   ["Name", "Name", "text"],
   ["Status", "Status", "text"],
@@ -291,11 +192,8 @@ const DRAWER_FIELDS = [
   ["Cluster Mount Mode", "ClusterMountMode", "bool"],
 ];
 
-// [drawer label, DatabaseInfoResult field, value kind] — every field
-// backend/app/models/iris.py's DatabaseInfoResult actually defines, in the
-// same order that model declares them. Nothing here is a computed/derived
-// metric — each row is exactly one field IRIS itself returned (see
-// app/routes/iris.py's get_database_info) for the "View Info" action.
+// [label, DatabaseInfoResult field, value kind] in model order, for View
+// Info.
 const INFO_FIELDS = [
   ["Size", "Size", "text"],
   ["Expansion Size", "ExpansionSize", "text"],
@@ -318,11 +216,8 @@ const INFO_FIELDS = [
   ["SFN", "SFN", "text"],
 ];
 
-// [namespace field, human role label] — every real NamespaceEntry field
-// that names a database, used by findReferencingNamespaces() below. Same
-// six fields namespaces.js's own drawer already lists (see its
-// DRAWER_FIELDS), just read in the other direction (by database, not by
-// namespace).
+// [namespace field, role label]: the NamespaceEntry fields that name a
+// database, used by findReferencingNamespaces().
 const NAMESPACE_DB_ROLE_FIELDS = [
   ["Globals", "Globals"],
   ["Routines", "Routines"],
@@ -332,12 +227,10 @@ const NAMESPACE_DB_ROLE_FIELDS = [
   ["TempGlobals", "Temp Globals"],
 ];
 
-/** A real Status-value distribution over the same `databases` array
- * renderDatabaseCards() below already renders as cards — no extra fetch,
- * no invented category. Hidden entirely when there's nothing to show.
- * Unchanged from the previous table-based design other than where it's
- * mounted in the page (see index.html) — the same shared `.view-overview`
- * component Processes/Web Apps/Tasks/Operations/Investigation also use. */
+/**
+ * Status bar over the same list as the cards. Hidden when there's nothing
+ * to show.
+ */
 function renderOverview(databases) {
   if (!Array.isArray(databases) || databases.length === 0) {
     dom.overview.hidden = true;
@@ -350,9 +243,7 @@ function renderOverview(databases) {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in dashboard.js/system.js/namespaces.js.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -382,13 +273,10 @@ function formatBoolean(value) {
   return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
 }
 
-/** For a value whose shape this app deliberately does NOT know ahead of
- * time (e.g. database.integrity_check's own `Result`, which
- * backend/app/models/iris.py's DatabaseIntegrityCheckResult intentionally
- * leaves untyped — see that model's docstring) — same fallback pattern
- * security.js's own formatValue() already uses for exactly this
- * situation: render objects/arrays as real, verbatim JSON text rather
- * than guessing named fields to pull out of them. */
+/**
+ * For values with no known shape (like the integrity check Result): show
+ * objects/arrays as JSON text instead of guessing fields.
+ */
 function formatUnknownValue(value) {
   if (value === null || value === undefined) return PLACEHOLDER;
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -397,12 +285,11 @@ function formatUnknownValue(value) {
   return str === "" ? PLACEHOLDER : str;
 }
 
-/** Classifies a real Status string (e.g. "Mounted/RW", "Mounted/R") into
- * one of this app's existing status-badge color variants — purely a
- * presentation choice over the real, verbatim string (which is always
- * shown as the badge's own text; see makeStatusBadge()), never a fabricated
- * label. A status that doesn't start with "Mounted" at all (never observed
- * live, but not assumed impossible) reads as an error state. */
+/**
+ * Map a Status string ("Mounted/RW", "Mounted/R", ...) to a badge color.
+ * The badge text is always the status itself. Anything not starting with
+ * "Mounted" is shown as an error.
+ */
 function statusBadgeVariant(status) {
   if (typeof status !== "string" || status.length === 0) return "status-badge--neutral";
   if (status.includes("RW")) return "status-badge--ok";
@@ -417,12 +304,10 @@ function makeStatusBadge(status) {
   return badge;
 }
 
-/** Classifies a real IRIS async-task State string ("Finished", "Failed",
- * "Canceled", or an in-progress state like "Running"/"Queued") into one
- * of this app's existing status-badge color variants — the same purely
- * presentational approach statusBadgeVariant() above uses for database
- * Status strings; the badge's own text is always the real, verbatim
- * State value (see the "Integrity Check" section's state badge). */
+/**
+ * Map an async task State ("Finished", "Failed", "Canceled", "Running",
+ * "Queued") to a badge color. The badge shows the State itself.
+ */
 function taskStateBadgeVariant(state) {
   if (typeof state !== "string" || state.length === 0) return "status-badge--neutral";
   if (state === "Finished") return "status-badge--ok";
@@ -430,11 +315,11 @@ function taskStateBadgeVariant(state) {
   return "status-badge--warning";
 }
 
-/** A small pill naming one real value — the same generic .db-chip
- * component namespaces.js already uses for database names, reused here
- * (without its color dot, which only makes sense when chips are being
- * cross-referenced against a shared color map, as namespaces.js's are) for
- * mount-flag chips on a card and namespace-name chips in the drawer. */
+/**
+ * Small pill for a value, the same .db-chip as on Namespaces but without
+ * the color dot. Used for mount flags on cards and namespace names in the
+ * drawer.
+ */
 function makeChip(label, { title } = {}) {
   const chip = document.createElement("span");
   chip.className = "db-chip";
@@ -465,8 +350,7 @@ function renderDatabaseCards(databases) {
 
   for (const db of databases) {
     const card = document.createElement("article");
-    // Reuses the exact same card component namespaces.js's Namespace
-    // Explorer already uses — same visual system, not a second one.
+    // Same card component as the Namespaces page.
     card.className = "namespace-card";
     card.dataset.database = db.Name;
     card.setAttribute("role", "button");
@@ -485,11 +369,8 @@ function renderDatabaseCards(databases) {
     directory.title = textOrPlaceholder(db.Directory);
     directory.textContent = textOrPlaceholder(db.Directory);
 
-    // Only the notable (true) mount flags — MountAtStartup is the common
-    // case and less interesting to call out on a compact card; all three
-    // booleans are always shown in full in the drawer (see DRAWER_FIELDS).
-    // The chip row is appended only when there's at least one to show, so
-    // a database with no notable flags doesn't leave an empty gap.
+    // Only the flags worth pointing out; MountAtStartup is the usual case.
+    // The drawer shows all three. No chip row if there's nothing to show.
     const chips = document.createElement("div");
     chips.className = "namespace-card__chips";
     if (db.MountRequired === true) chips.append(makeChip("Mount Required"));
@@ -506,13 +387,11 @@ function renderDatabaseCards(databases) {
   }
 }
 
-/** Every namespace whose Globals/Routines/SysGlobals/SysRoutines/Library/
- * TempGlobals field equals this database's real Name — the same kind of
- * derived, real relationship namespaces.js's own Database Topology section
- * already computes, just grouped by database instead of by namespace.
- * Returns `null` when the namespace list itself could not be loaded (a
- * distinct, honest "unknown" state from "loaded and genuinely empty") —
- * see renderNamespaceUsage(). */
+/**
+ * Namespaces whose Globals/Routines/SysGlobals/SysRoutines/Library/
+ * TempGlobals is this database. null if the namespace list didn't load
+ * (see renderNamespaceUsage()).
+ */
 function findReferencingNamespaces(databaseName) {
   if (!Array.isArray(allNamespaces)) return null;
 
@@ -554,10 +433,10 @@ function renderNamespaceUsage(databaseName) {
   dom.drawerUsage.append(chips);
 }
 
-/** Clears the "Storage Info" section back to its initial, not-yet-loaded
- * state — called every time the drawer opens for a (possibly different)
- * database, so a previous database's storage facts can never be shown
- * against the wrong one. */
+/**
+ * Reset Storage Info each time the drawer opens, so one database's info
+ * is never shown for another.
+ */
 function resetDrawerInfo() {
   dom.drawerInfoLoading.hidden = true;
   dom.drawerInfoError.hidden = true;
@@ -566,10 +445,7 @@ function resetDrawerInfo() {
   dom.drawerInfoButton.disabled = false;
 }
 
-/** Renders every real field backend/app/models/iris.py's DatabaseInfoResult
- * defines (see INFO_FIELDS) — never a computed/derived/fabricated metric,
- * only what IRIS's own POST /v2/database-dir/info actually returned for
- * this request. */
+/** Render the DatabaseInfoResult fields (INFO_FIELDS) as IRIS returned them. */
 function renderDatabaseInfo(info) {
   dom.drawerInfoFields.replaceChildren();
   for (const [label, key, kind] of INFO_FIELDS) {
@@ -590,11 +466,8 @@ function renderDatabaseInfo(info) {
 }
 
 /**
- * The ONLY place in this file that calls IrisApi.getDatabaseInfo() —
- * reachable only via the drawer's own "View Info" button. Read-only (GET
- * /api/iris/databases/info?dir=<Directory>, backed by IRIS's async-task
- * POST /v2/database-dir/info) — never mutates IRIS, so this needs no
- * confirmation step, unlike the "New Database" wizard's Confirm & Create.
+ * The only getDatabaseInfo() call, from the drawer's View Info button.
+ * Read-only, so no confirmation needed.
  */
 async function handleViewInfoClick() {
   if (!currentDrawerDirectory) return;
@@ -624,9 +497,7 @@ async function handleViewInfoClick() {
   }
 }
 
-/** Clears the "Integrity Check" section back to its initial, not-yet-run
- * state — called every time the drawer opens for a (possibly different)
- * database, same reasoning as resetDrawerInfo() above. */
+/** Reset the Integrity Check section each time the drawer opens. */
 function resetDrawerIntegrityCheck() {
   dom.drawerIntegrityLoading.hidden = true;
   dom.drawerIntegrityError.hidden = true;
@@ -639,25 +510,14 @@ function resetDrawerIntegrityCheck() {
   dom.drawerIntegrityButton.disabled = false;
 }
 
-/** Renders IRIS's own raw async-task envelope exactly as
- * IrisApi.checkDatabaseIntegrity() returned it — nothing here is parsed,
- * summarized, or invented:
- *  - State is promoted into the section's own status badge (next to the
- *    "Run Integrity Check" button) so it stays visible at a glance,
- *    rather than buried as just another row among the rest.
- *  - Console is rendered separately, in full, in a compact scrollable
- *    monospace panel (see the .integrity-console CSS rule and the <pre>
- *    element itself) — every line IRIS returned, verbatim, joined by
- *    real newlines; never truncated, reworded, or filtered. Hidden
- *    entirely when Console is genuinely empty (nothing to show), rather
- *    than showing an empty box.
- *  - Failure Reason, Result, and the three Time fields remain in the
- *    section's existing info-list. `Result` is shown via
- *    formatUnknownValue() (see that function's docstring for why: this
- *    operation's Result shape has never been observed against a real
- *    IRIS instance, so nothing here assumes a particular structure for
- *    it — the real, verbatim value is always shown, never a guessed
- *    field pulled out of it). */
+/**
+ * Render the task envelope as returned:
+ * - State goes in the badge next to the button so it's easy to see.
+ * - Console is shown in full in a scrollable monospace box (hidden if
+ *   empty).
+ * - Failure Reason, Result and the times go in the info list. Result is
+ *   shown with formatUnknownValue() since we don't know its shape.
+ */
 function renderIntegrityCheckResult(task) {
   dom.drawerIntegrityStateBadge.className = `status-badge ${taskStateBadgeVariant(task.State)}`;
   dom.drawerIntegrityStateBadge.textContent = textOrPlaceholder(task.State);
@@ -695,12 +555,8 @@ function renderIntegrityCheckResult(task) {
 }
 
 /**
- * The ONLY place in this file that calls IrisApi.checkDatabaseIntegrity()
- * — reachable only via the drawer's own "Run Integrity Check" button.
- * Read-only (GET /api/iris/databases/integrity-check?dir=<Directory>,
- * backed by IRIS's async-task POST /v2/database-dir/integrity-check) —
- * verifies existing data, never mutates IRIS, so this needs no
- * confirmation step, unlike the "New Database" wizard's Confirm & Create.
+ * The only checkDatabaseIntegrity() call, from the Run Integrity Check
+ * button. Read-only, so no confirmation needed.
  */
 async function handleRunIntegrityCheckClick() {
   if (!currentDrawerDirectory) return;
@@ -708,9 +564,8 @@ async function handleRunIntegrityCheckClick() {
   dom.drawerIntegrityButton.disabled = true;
   dom.drawerIntegrityError.hidden = true;
   dom.drawerIntegrityFields.hidden = true;
-  // Clear any previous run's badge/console too — otherwise a second click
-  // that fails would leave the FIRST run's "Finished" badge and console
-  // output visible, misleadingly paired with the new error banner.
+  // Clear the previous run's badge and console too, so a failed second run
+  // doesn't show the first run's "Finished" next to the error.
   dom.drawerIntegrityStateBadge.hidden = true;
   dom.drawerIntegrityConsoleLabel.hidden = true;
   dom.drawerIntegrityConsole.hidden = true;
@@ -736,18 +591,16 @@ async function handleRunIntegrityCheckClick() {
   }
 }
 
-// The fields the operator previewed via "Check Mount" — set only by a
-// successful dry-run in handleMountCheckClick(), cleared on any change
-// (drawer reopen, Read-only toggle), read by submitMount(). Confirm & Mount
-// stays disabled unless this is set AND the acknowledgment box is checked.
+// What was previewed with Check Mount. Set by a successful dry run,
+// cleared on any change (drawer reopen, Read-only toggle). Confirm & Mount
+// needs this and the checkbox.
 let pendingMountFields = null;
 
 function updateMountConfirmEnabled() {
   dom.drawerMountConfirmButton.disabled = !(pendingMountFields && dom.drawerMountAckCheckbox.checked);
 }
 
-/** Invalidates any previous preview — the operator must Check Mount again
- * before a (possibly different) request can be confirmed. */
+/** Throw away the preview; Check Mount has to be run again. */
 function clearMountPreview() {
   pendingMountFields = null;
   dom.drawerMountConfirm.hidden = true;
@@ -771,11 +624,10 @@ function showMountError(message) {
 }
 
 /**
- * Read-only preview: IrisApi.mountDatabase(fields, true, true) — the
- * executor's dry-run branch is only reached with confirmed=true (see
- * namespaces.js's module docstring), and DatabaseMountHandler.dry_run()
- * never sends the mount request. A rejection (e.g. "already mounted") is
- * shown verbatim and no confirm control is offered.
+ * Preview: mountDatabase(fields, true, true). The dry run needs
+ * confirmed=true to get past the executor and never sends the mount. A
+ * rejection (e.g. "already mounted") is shown and no confirm button
+ * appears.
  */
 async function handleMountCheckClick() {
   const directory = currentDrawerDirectory;
@@ -791,7 +643,7 @@ async function handleMountCheckClick() {
 
   try {
     const preview = await IrisApi.mountDatabase(fields, true, true);
-    if (currentDrawerDirectory !== directory) return; // drawer moved to another database
+    if (currentDrawerDirectory !== directory) return;  // drawer switched to another database
     const handlerResult = preview && preview.handler_result;
     if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
       pendingMountFields = fields;
@@ -817,9 +669,10 @@ async function handleMountCheckClick() {
   }
 }
 
-/** Status, detail, execution detail and verification exactly as the
- * backend returned them — same audit-friendly rendering as
- * renderCreateResult(). */
+/**
+ * Status, detail, execution detail and verification as the backend
+ * returned them (same as renderCreateResult()).
+ */
 function renderMountResult(result) {
   dom.drawerMountResult.replaceChildren();
   const rows = [
@@ -848,9 +701,8 @@ function renderMountResult(result) {
 }
 
 /**
- * The ONLY place in this file that sends a real (non-dry-run) mount
- * request — reachable only via Confirm & Mount, which is enabled only
- * after a successful Check Mount preview and the acknowledgment checkbox.
+ * The only place that sends a real mount. Only reachable from Confirm &
+ * Mount, after a successful Check Mount and the checkbox.
  */
 async function submitMount() {
   const fields = pendingMountFields;
@@ -867,7 +719,7 @@ async function submitMount() {
     renderMountResult(result);
     await appendMountTraceLink(startedMs);
     if (result.status === "success") {
-      // Re-read the real database list rather than patching local state.
+      // Reload the database list instead of patching local state.
       await loadDatabases();
     }
   } catch (err) {
@@ -886,15 +738,12 @@ async function submitMount() {
 
 // --- Dismount (database.dismount) ---
 //
-// The same flow as Mount above: "Check Dismount" is a dry-run preview
-// (IrisApi.dismountDatabase(fields, true, true) — the handler only reads
-// the database list, namespaces and database-dir/info, and never sends the
-// dismount); the real request is sent only from submitDismount(), reachable
-// only via Confirm & Dismount after an acknowledged, validated preview. The
-// backend alone authorizes and refuses system/critical databases.
+// Same flow as Mount: "Check Dismount" is a dry run
+// (dismountDatabase(fields, true, true)), and only submitDismount() sends
+// the real request, after a valid preview and the checkbox. The backend
+// refuses system and critical databases.
 
-// The fields the operator previewed via "Check Dismount" — set only by a
-// successful dry run, cleared whenever the drawer's database changes.
+// What was previewed with Check Dismount. Cleared when the database changes.
 let pendingDismountFields = null;
 
 function updateDismountConfirmEnabled() {
@@ -936,7 +785,7 @@ async function handleDismountCheckClick() {
 
   try {
     const preview = await IrisApi.dismountDatabase(fields, true, true);
-    if (currentDrawerDirectory !== directory) return; // drawer moved to another database
+    if (currentDrawerDirectory !== directory) return;  // drawer switched to another database
     const handlerResult = preview && preview.handler_result;
     if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
       pendingDismountFields = fields;
@@ -944,8 +793,8 @@ async function handleDismountCheckClick() {
       dom.drawerDismountConfirm.hidden = false;
       updateDismountConfirmEnabled();
     } else {
-      // Protected, already dismounted, unknown directory… shown exactly as
-      // the backend explained it.
+      // Protected, already dismounted, unknown directory... shown as the backend
+      // explained it.
       showDismountError(
         (handlerResult && handlerResult.detail) || preview.detail || "This dismount request could not be validated against IRIS.",
       );
@@ -989,9 +838,8 @@ function renderDismountResult(result) {
 }
 
 /**
- * The ONLY place in this file that sends a real (non-dry-run) dismount
- * request — reachable only via Confirm & Dismount, which is enabled only
- * after a successful Check Dismount preview and the acknowledgment.
+ * The only place that sends a real dismount. Only reachable from Confirm &
+ * Dismount, after a successful preview and the checkbox.
  */
 async function submitDismount() {
   const fields = pendingDismountFields;
@@ -1006,7 +854,7 @@ async function submitDismount() {
     const result = await IrisApi.dismountDatabase(fields, true, false);
     renderDismountResult(result);
     if (result.status === "success" || result.status === "verification_failed") {
-      // Re-read the real database list rather than patching local state.
+      // Reload the database list instead of patching local state.
       await loadDatabases();
     }
   } catch (err) {
@@ -1085,10 +933,10 @@ function renderDatabases(databases) {
   renderDatabaseCards(databases);
 }
 
-/** Best-effort, supplementary fetch for the drawer's Namespace Usage
- * section only — see this module's docstring. Never throws: any failure
- * just leaves `allNamespaces` as `null`, which renderNamespaceUsage()
- * shows as an honest "unavailable" state rather than a false empty one. */
+/**
+ * Load namespaces for the Namespace Usage section. Doesn't throw: on
+ * failure `allNamespaces` stays null and the section says unavailable.
+ */
 async function loadNamespacesForUsage() {
   try {
     const response = await IrisApi.getNamespaces();
@@ -1099,10 +947,8 @@ async function loadNamespacesForUsage() {
 }
 
 /**
- * Fetches GET /api/iris/databases (the source of truth for this view) and
- * renders it, plus the best-effort namespaces fetch used only for the
- * drawer's Namespace Usage section. No mutating request exists anywhere in
- * this file.
+ * Load GET /api/iris/databases and render it, plus the namespaces for the
+ * drawer.
  */
 export async function loadDatabases() {
   setLoading(true);
@@ -1113,8 +959,7 @@ export async function loadDatabases() {
   try {
     response = await IrisApi.getDatabases();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load database information. The Command Center backend may be unreachable."
@@ -1141,9 +986,7 @@ export async function loadDatabases() {
   }
 
   if (envelopeErrors.length > 0) {
-    // The backend's own response envelope flagged something — a real,
-    // observed field (status.errors), not an invented threshold. Same
-    // pattern already used and reviewed in system.js/namespaces.js.
+    // IRIS returned warnings in status.errors.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {
@@ -1158,13 +1001,12 @@ export async function loadDatabases() {
   loadIssues();
 }
 
-// --- Fix Issues (MVP): dismounted databases only ---
+// --- Fix Issues: dismounted databases ---
 //
-// Issues come from GET /api/iris/issues (read-only detection on the backend,
-// which applies the system/mirrored exclusions). "Fix Issue" only opens this
-// database's drawer at its existing Mount section, so the fix runs through
-// the unchanged flow: Check Mount (dry run) -> explicit confirmation ->
-// Confirm & Mount -> verification -> trace.
+// Issues come from GET /api/iris/issues (the backend skips system and
+// mirrored databases). "Fix Issue" just opens the database's drawer at the
+// Mount section, so the normal flow runs: Check Mount (dry run) -> confirm
+// -> Confirm & Mount -> verification -> trace.
 
 function hint(text) {
   const p = document.createElement("p");
@@ -1173,9 +1015,8 @@ function hint(text) {
   return p;
 }
 
-// "Why this fix?": the issue's own fields plus the detection rules it met
-// (backend/app/routes/issues.py reports only configured, not-mounted,
-// non-system, non-mirrored databases) — nothing inferred beyond that.
+// "Why this fix?": the issue's fields plus the rules it matched (configured,
+// not mounted, not a system database, not mirrored).
 function whyThisFix(issue) {
   const details = document.createElement("details");
   details.className = "db-issue__why";
@@ -1256,8 +1097,10 @@ async function loadIssues() {
   );
 }
 
-/** After a real mount attempt: the execution trace the framework recorded
- * for it (the newest database.mount trace started since `sinceMs`). */
+/**
+ * After a real mount: its execution trace (the newest database.mount trace
+ * since `sinceMs`).
+ */
 async function appendMountTraceLink(sinceMs) {
   if (!onOpenTrace) return;
   try {
@@ -1276,13 +1119,12 @@ async function appendMountTraceLink(sinceMs) {
     });
     dom.drawerMountResult.append(button);
   } catch {
-    // The trace link is a convenience; the mount result above stands alone.
+    // The trace link is just a shortcut; the mount result stands on its own.
   }
 }
 
-// --- "New Database" wizard: Configure -> Review (dry-run preview) ->
-// explicit confirmation -> create -> result --- (structure mirrors
-// namespaces.js's own wizard section)
+// --- New Database wizard: Configure -> Review (dry run) -> confirm ->
+// create -> result ---
 
 function setWizardStep(label) {
   createDom.stepLabel.textContent = label;
@@ -1341,14 +1183,12 @@ function collectCreateFields() {
   };
 }
 
-/** Obvious-error, client-side-only checks — required Directory, its
- * format, and (using the database list this view already has loaded —
- * "existing database data", never an extra fetch) a directory/derived-name
- * collision with an already-existing database. Mirrors
- * database_create_handler.py's own _validate() logic exactly (same regex,
- * same normalization, same heuristic) so obviously-invalid input fails
- * fast — the Review step's dry-run call and the backend's own validation
- * remain the real authority; this never replaces them. */
+/**
+ * Quick checks before the dry run: Directory is required and well formed,
+ * and doesn't collide (by directory or derived name) with a database we
+ * already loaded. Same logic as the backend's _validate(); the backend
+ * still has the final say.
+ */
 function validateCreateFields(fields) {
   if (!fields.Directory) {
     return "Directory is required.";
@@ -1392,13 +1232,11 @@ function updateConfirmButtonEnabled() {
   createDom.confirmButton.disabled = !(reviewIsValid && createDom.ackCheckbox.checked);
 }
 
-/** Renders the Review step: a "Create Database" summary containing
- * exactly the fields that will be sent (requirement: "exactly what will
- * change"), plus whatever the dry-run preview call found. When the
- * backend's own dry-run validation rejects the request, its exact detail
- * text is shown and the Confirm & Create button is kept disabled — the
- * operator cannot confirm past a request the backend has already told us
- * would fail. */
+/**
+ * Render the Review step: what will be sent, plus what the dry run found.
+ * If the dry run rejects it, show the reason and keep Confirm & Create
+ * disabled.
+ */
 function renderReviewPreview(previewResult) {
   createDom.reviewContent.hidden = false;
   createDom.summaryList.replaceChildren();
@@ -1439,14 +1277,11 @@ function renderReviewPreview(previewResult) {
   updateConfirmButtonEnabled();
 }
 
-/** The "choose values" step — deliberately NOT the confirmation itself.
- * Submitting the form only reads/validates the fields and moves to the
- * Review step, where it issues a real, non-mutating dry-run call
- * (IrisApi.createDatabase(fields, true, true) — `confirmed: true` is
- * required to reach the executor's dry-run branch at all, see
- * namespaces.js's module docstring) for a server-validated preview.
- * Nothing here, or in that dry-run call, can mutate IRIS — see
- * DatabaseCreateHandler.dry_run(), which never calls post(). */
+/**
+ * Submitting the form only validates and moves to Review, which runs a dry
+ * run (createDatabase(fields, true, true)) for the preview. Nothing is
+ * created here.
+ */
 async function handleCreateNext(event) {
   event.preventDefault();
   createDom.error.hidden = true;
@@ -1485,20 +1320,12 @@ function backToConfigureStep() {
   setWizardStep("Step 1 of 2 · Configure");
 }
 
-/** An audit-friendly record of exactly what the backend returned — status,
- * directory, detail, execution detail, and (when present) verification
- * status/detail — never re-worded, parsed, or summarized away, the same
- * discipline namespaces.js's renderCreateResult() already follows.
- * `result.verification.status`/`.detail` are always displayed verbatim,
- * as plain text, with no assumption about which IRIS endpoint verify()
- * used to produce them (database_create_handler.py's verify() calls GET
- * /v2/database-dir?dir=<Directory>, never GET /v2/databases — see that
- * handler's module docstring for why) — this function makes none of its
- * own, so a future change to verify()'s underlying endpoint or exact
- * detail wording needs no corresponding frontend change. On failure, the
- * "Edit and Retry" button is shown (never an automatic retry) and the
- * Step 1 field values are left exactly as entered, since
- * resetCreateWizard() only runs on drawer open. */
+/**
+ * Show what the backend returned: status, directory, detail, execution
+ * detail and verification, as plain text. On failure there's an "Edit and
+ * Retry" button (no automatic retry) and the fields keep what was
+ * entered.
+ */
 function renderCreateResult(result) {
   createDom.resultList.replaceChildren();
 
@@ -1537,14 +1364,9 @@ function renderCreateResult(result) {
 }
 
 /**
- * The ONLY place in this file that calls IrisApi.createDatabase with a
- * real (non-dry-run) request — reachable ONLY via the Confirm & Create
- * button's click handler below, never on drawer open, never on a field
- * change, never from the Review step's own preview call. `confirmed` is
- * always `true` and `dryRun` is always `false` here because this function
- * only runs after the operator reached Review via handleCreateNext(), saw
- * a validated preview, checked the acknowledgment box, and clicked
- * Confirm.
+ * The only real createDatabase call, from the Confirm & Create button.
+ * `confirmed` is true and `dryRun` false because you only get here after a
+ * validated preview, the checkbox and clicking Confirm.
  */
 async function submitCreate() {
   if (!pendingCreateFields) return;
@@ -1558,10 +1380,7 @@ async function submitCreate() {
     const result = await IrisApi.createDatabase(pendingCreateFields, true, false);
     renderCreateResult(result);
     if (result.status === "success") {
-      // Refresh the whole Database Explorer so the new database appears in
-      // the summary cards, status distribution, and card grid — the same
-      // real GET /api/iris/databases every other refresh already uses, not
-      // a locally-patched-in guess at what IRIS now has.
+      // Reload the page so the new database shows up.
       await loadDatabases();
     }
   } catch (err) {
@@ -1586,9 +1405,7 @@ export function initDatabasesControls({ onOpenTrace: openTrace } = {}) {
     navigateTo("dashboard");
   });
 
-  // Event delegation: one listener for every current and future database
-  // card, rather than attaching/detaching a listener per card on every
-  // refresh — the same pattern namespaces.js's card grid already uses.
+  // One delegated listener for all database cards (same as Namespaces).
   dom.cardGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".namespace-card");
     if (card) openDrawer(card.dataset.database);

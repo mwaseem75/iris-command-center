@@ -1,16 +1,8 @@
-"""The central operation/command model and registry.
+"""Registry of every operation the Command Center knows about.
 
-An `OperationDefinition` describes an action the Command Center backend
-*could* perform against IRIS — its classification, required privilege, risk,
-and whether it needs explicit confirmation — as pure data. Defining an
-operation here does NOT implement or execute it; nothing in this module (or
-anywhere in the authorization package) calls IRIS. See app/routes/iris.py
-for the operations that are actually wired up (all read-only, all
-registered here with confirmation_required=False).
-
-The registry is intentionally small and explicit: every operation the
-authorization layer knows about is listed in OPERATION_REGISTRY, in one
-place, rather than scattered as string literals across routes.
+Each entry describes an operation (read-only or mutating, required
+privileges, risk, whether it needs confirmation). This module doesn't run
+anything; the handlers in app/execution do.
 """
 
 from enum import Enum
@@ -33,28 +25,16 @@ class RiskLevel(str, Enum):
 
 
 class OperationDefinition(BaseModel):
-    """Immutable description of one operation. Three invariants are enforced
-    at construction time, not left to callers to remember:
+    """Description of one operation.
 
-    - A read-only operation can never require confirmation (there is
-      nothing to confirm — it doesn't change anything).
-    - A mutating operation must always require confirmation. This is a
-      deliberate project decision (see docs/authorization-model.md),
-      stricter than the minimum this step's requirements state, grounded
-      directly in docs/product-requirements.md's mandate that "the system
-      must require explicit, unambiguous confirmation before executing any
-      mutating operation" with no stated exception. There is no flag
-      anywhere to construct a mutating operation that skips confirmation.
-    - `required_privileges` must be non-empty.
+    Checked when it's created:
+    - read-only operations never require confirmation
+    - mutating operations always require confirmation
+    - at least one privilege is required
 
-    `required_privileges` is a set of ALTERNATIVES — the caller needs to
-    hold ANY ONE of them, matching how mainspec_v2.json documents most
-    operations (e.g. "%Admin_Manage:U or %Admin_Journal:U"). A single-member
-    set behaves exactly like the earlier single-privilege model it replaces
-    (Phase 2 Step 7 — see docs/authorization-model.md's "Known
-    Simplifications" section for the earlier limitation this resolves).
-    Nothing here invents a new privilege: every member must already be an
-    `IRISPrivilege` enum value.
+    `required_privileges` are alternatives: holding any one of them is enough
+    (the spec documents most operations as e.g. "%Admin_Manage:U or
+    %Admin_Journal:U").
     """
 
     model_config = ConfigDict(frozen=True)
@@ -88,10 +68,6 @@ class OperationDefinition(BaseModel):
 
 
 # --- The registry ---
-#
-# Read-only entries below correspond to the already-implemented, already
-# real-container-verified routes in app/routes/iris.py — see
-# docs/api-capability-matrix.md for their verification record.
 
 OPERATION_REGISTRY: dict[str, OperationDefinition] = {
     "list_tasks": OperationDefinition(
@@ -132,12 +108,8 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
             "integrity-check?dir=<Directory>, backed by IRIS's async-task "
             "POST /api/admin/v2/database-dir/integrity-check (same "
             "async-task pattern as database.info/audit-records). "
-            "Read-only: verifies existing data, changes nothing. This "
-            "operation has deliberately never been executed against a real "
-            "IRIS instance during implementation (a real scan is "
-            "resource-intensive); its result payload is therefore left "
-            "untyped rather than guessed — see "
-            "app/models/iris.py's DatabaseIntegrityCheckResult."
+            "Read-only: verifies existing data, changes nothing. The result "
+            "payload is passed through untyped."
         ),
         kind=OperationKind.READ_ONLY,
         required_privileges=frozenset({IRISPrivilege.OPERATE}),
@@ -147,13 +119,9 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
     "delete_task": OperationDefinition(
         name="delete_task",
         description=(
-            "Illustrative/example only — NOT implemented or callable anywhere in this "
-            "project yet. Corresponds to the spec-documented `DELETE /v2/task` "
-            "operation, which mainspec_v2.json lists as requiring "
-            "\"%Admin_Operate:U or %Admin_Task:U\" — now represented exactly as that "
-            "OR, since Phase 2 Step 7 added multi-privilege support. Exists solely so "
-            "the authorization layer's confirmation-gating behavior for mutating "
-            "operations has a real, grounded example to be tested against."
+            "Example only, not wired to any route. Mirrors IRIS's DELETE /v2/task "
+            "(\"%Admin_Operate:U or %Admin_Task:U\") and is used to test "
+            "confirmation gating for mutating operations."
         ),
         kind=OperationKind.MUTATING,
         required_privileges=frozenset({IRISPrivilege.OPERATE, IRISPrivilege.TASK}),
@@ -163,12 +131,9 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
     "demo.safe-operation": OperationDefinition(
         name="demo.safe-operation",
         description=(
-            "Phase 2 Step 5 demonstration/test operation for the OperationExecutor "
-            "framework. Its handler (app/execution/demo_handler.py) NEVER calls IRIS, "
-            "in dry-run or otherwise — it only returns a deterministic, synthetic "
-            "simulation result. It exists purely to exercise the execution framework "
-            "end-to-end (authorization, confirmation, dry-run, handler dispatch) "
-            "without any real IRIS mutation existing anywhere in this project yet."
+            "Test operation for the execution framework. Its handler never calls "
+            "IRIS; it returns a simulated result so authorization, confirmation "
+            "and dry runs can be exercised safely."
         ),
         kind=OperationKind.MUTATING,
         required_privileges=frozenset({IRISPrivilege.MANAGE}),
@@ -180,12 +145,7 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         description=(
             "Update the IRIS journal 'Purge Archived Files' setting "
             "(PUT /api/admin/v2/journal/settings, PurgeArchived field only). "
-            "Selected as the project's first real mutating operation per "
-            "docs/first-mutation-selection.md — see docs/first-mutation-implementation.md "
-            "for the handler/route implementation. Chosen because archiving is not "
-            "configured on icc-iris-dev (ArchiveName was empty in every Phase 1 "
-            "observation), so this specific field has no practical effect on that "
-            "instance today."
+            "Low risk: the setting only matters when journal archiving is configured."
         ),
         kind=OperationKind.MUTATING,
         required_privileges=frozenset({IRISPrivilege.MANAGE, IRISPrivilege.JOURNAL}),
@@ -340,8 +300,5 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
 
 
 def get_operation(name: str) -> OperationDefinition | None:
-    """Look up a registered operation by name. Returns None for anything not
-    explicitly registered — there is no fallback, default, or wildcard
-    operation. An unrecognized name is the caller's (or the service layer's)
-    signal to deny, never to guess."""
+    """Look up an operation by name. Unknown names return None (callers deny)."""
     return OPERATION_REGISTRY.get(name)

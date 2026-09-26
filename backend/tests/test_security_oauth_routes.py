@@ -1,15 +1,12 @@
-"""Tests for the read-only OAuth 2.0 routes: the new aggregate/detail routes
-in app/routes/security_access.py and the three existing
-/api/iris/security/oauth2/* routes in app/routes/iris.py, all of which now
-return explicit allowlist models only.
+"""Tests for the OAuth 2.0 routes (security_access.py and the three
+/api/iris/security/oauth2/* routes in iris.py).
 
-icc-iris-dev has no OAuth 2.0 configuration (server 404 "not configured",
-every list empty), so populated bodies follow mainspec_v2.json's shapes. To
-prove the allowlists, the canned bodies plant secret-bearing fields IRIS's
-OAuth2 classes hold (ClientSecret, ClientPassword, InitialAccessToken,
-registration_access_token, client_secret, jwks, ServerPassword,
-PrivateKeyPassword, an Authorization header, an Authenticator object) with
-sentinel values; none may ever appear in a response.
+Our instance has no OAuth config, so the populated bodies follow the spec.
+They include secret fields (ClientSecret, ClientPassword,
+InitialAccessToken, registration_access_token, client_secret, jwks,
+ServerPassword, PrivateKeyPassword, an Authorization header, an
+Authenticator object) set to a sentinel, which must never show up in a
+response.
 """
 
 import copy
@@ -181,7 +178,7 @@ def test_overview_not_configured_is_honest_not_an_error(client: TestClient, mock
 
 
 def test_overview_empty_instance(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """The live icc-iris-dev case: server not configured, every list empty."""
+    """Nothing configured: server 404, every list empty."""
 
     async def get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if path == "/v2/security/oauth2/server":

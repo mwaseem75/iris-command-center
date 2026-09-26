@@ -1,7 +1,4 @@
-"""Shared FastAPI dependencies. The single IRISClient instance is created
-once at application startup (see app/main.py's lifespan) and reused across
-requests, so routes never construct their own client or duplicate the
-authentication/session logic it wraps."""
+"""Shared FastAPI dependencies (the clients created at startup in app/main.py)."""
 
 from fastapi import Depends, HTTPException, Request
 
@@ -26,23 +23,17 @@ def get_python_diagnostics(request: Request) -> EmbeddedPythonDiagnostics:
 
 
 def get_knowledge_store(request: Request) -> IRISKnowledgeStore | None:
-    """None unless Settings.enable_knowledge_search is on (see app/main.py)."""
+    """Returns None when knowledge search is turned off."""
     return getattr(request.app.state, "knowledge_store", None)
 
 
 async def get_caller_privileges(
     client: IRISClient = Depends(get_iris_client),
 ) -> frozenset[str]:
-    """The ONLY legitimate source of `available_privileges` for the
-    authorization layer (app/authorization/service.py's `authorize()`).
+    """Privileges the current IRIS session actually holds.
 
-    Calls the already-Phase-1-verified GET /info endpoint (via the same
-    authenticated IRISClient used for every read route) and returns the set
-    of privilege names the CURRENT SESSION actually holds (`use: true`).
-    This deliberately does not accept anything from the incoming HTTP
-    request — a caller cannot claim a privilege by putting it in a request
-    body or header; the only way to be authorized is to actually hold the
-    privilege on the real IRIS session, confirmed by IRIS itself.
+    Read from IRIS's /info (entries with use: true). This is the only source
+    authorization uses, so a caller can't claim privileges through the request.
     """
     try:
         raw = await client.get("/info")

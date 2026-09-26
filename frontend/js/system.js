@@ -1,16 +1,12 @@
-// System view: fetches GET /api/iris/info ONLY and renders a detailed,
-// read-only technical breakdown. No other endpoint is called from this
-// module, and no mutating HTTP method is used anywhere in it.
+// System page: one call to GET /api/iris/info, shown in detail.
 //
-// Fields shown are exactly the ones backend/app/models/iris.py's
-// InfoResult actually defines (apiVersion, username, serverVersion,
-// systemMode, product, namespaces, privileges) — nothing invented. See
-// docs/api-capability-matrix.md for how that shape was originally
-// verified against a real IRIS instance.
+// The fields are the ones InfoResult defines in backend/app/models/iris.py
+// (apiVersion, username, serverVersion, systemMode, product, namespaces,
+// privileges).
 
 import { IrisApi, ApiError } from "./api.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("system-loading-state"),
@@ -41,10 +37,7 @@ const dom = {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op: a disabled <button> never
-  // dispatches a click event, so only one load can ever be in flight —
-  // the same pattern already used and reviewed in dashboard.js.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -73,9 +66,8 @@ function clearFields() {
   renderOverview(null);
 }
 
-// The release number and build, read out of IRIS's own serverVersion string
-// (e.g. "... 2026.2 (Build 221U) ..."). If the string does not contain them,
-// the full reported string is shown instead — nothing is guessed.
+// Release and build pulled out of serverVersion (e.g. "... 2026.2 (Build
+// 221U) ..."). If they're not there, show the whole string.
 function parseServerVersion(serverVersion) {
   if (typeof serverVersion !== "string" || !serverVersion) return null;
   const release = /\b(\d{4}\.\d+(?:\.\d+)?)\b/.exec(serverVersion);
@@ -83,7 +75,7 @@ function parseServerVersion(serverVersion) {
   return { release: release ? release[1] : null, build: build ? build[1] : null };
 }
 
-/** System Overview KPIs and card counts — all from the same GET /info. */
+/** KPI cards and counts, all from the same /info response. */
 function renderOverview(info) {
   if (!info) {
     for (const node of [dom.kpiVersion, dom.kpiApi, dom.kpiNamespaces, dom.kpiPrivileges]) node.textContent = PLACEHOLDER;
@@ -119,9 +111,8 @@ function renderOverview(info) {
   dom.privilegesCount.textContent = `${granted} of ${privileges.length} granted`;
 }
 
-// DOM nodes are always created via document.createElement + .textContent
-// below — never innerHTML — so a namespace/privilege name containing
-// HTML-special characters can never be interpreted as markup.
+// Built with createElement/textContent (no innerHTML), so names with
+// HTML characters are shown as text.
 
 function renderNamespaces(namespaces) {
   dom.namespacesList.replaceChildren();
@@ -168,10 +159,7 @@ function renderPrivileges(privileges) {
   }
 }
 
-/**
- * Fetches GET /api/iris/info and renders it. This is the ONLY network call
- * this module makes — no mutating request exists anywhere in this file.
- */
+/** Load GET /api/iris/info and render it. */
 export async function loadSystemInfo() {
   setLoading(true);
   setErrorBanner(null);
@@ -181,8 +169,7 @@ export async function loadSystemInfo() {
   try {
     response = await IrisApi.getInfo();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load system information. The Command Center backend may be unreachable."
@@ -213,9 +200,7 @@ export async function loadSystemInfo() {
   }
 
   if (envelopeErrors.length > 0) {
-    // The backend's own response envelope flagged something — a real,
-    // observed field (status.errors), not an invented threshold. See
-    // docs/api-capability-matrix.md for where this wrapper was verified.
+    // IRIS returned warnings in status.errors.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {

@@ -1,43 +1,30 @@
-"""Demo Activity rehearsal: a user-triggered, controlled sequence of REAL
-operations that produces meaningful execution traces on a fresh install —
-without leaving any IRIS change behind.
+"""Demo Activity: runs a few real operations so a fresh install has some
+execution traces to look at, and puts everything back afterwards.
 
-Every step is an existing, registered operation run through the existing
-OperationExecutor and its existing handler, exactly as the operation's own
-route runs it: authorization (privileges from the live IRIS session),
-confirmation (the caller's own `confirmed` flag — never assumed because
-this is a rehearsal), execution and post-action verification. Nothing here
-calls an IRIS mutation endpoint itself; the only direct IRIS calls are
-read-only GETs used to pick candidates and to capture/re-check the original
-values. No operation is added to the registry.
+Each step goes through the normal OperationExecutor and handler, same as
+the operation's own route (authorization, confirmation, execution,
+verification). We never call an IRIS write endpoint directly here; the
+direct calls are GETs to pick targets and to read original values.
 
-Sequence (stops at the first failure):
-  1. journal.update_purge_archived: toggle PurgeArchived, then restore it.
-  2. web_app.update_description: on a non-System, non-protected web app
-     (/csp/user when it is eligible, else the first safe app
-     alphabetically), set a temporary Description, then restore it.
-  3. database.mount and task.run_now: DRY-RUN ONLY (ExecutionContext
-     dry_run=True — the executor only ever calls the handler's dry_run()),
-     each on a valid candidate if one exists, otherwise skipped.
+Steps (stops at the first failure):
+1. journal.update_purge_archived: flip PurgeArchived, then restore it.
+2. web_app.update_description: on a safe web app (/csp/user if allowed,
+   otherwise the first safe one alphabetically) set a temporary
+   description, then restore it.
+3. database.mount and task.run_now: dry run only, on a candidate if
+   there is one, otherwise skipped.
 
-Issue Resolution Rehearsal (separate, manual only — run_issue_resolution_
-rehearsal(); never part of the automatic startup run): uses the IPM
-database to rehearse the Fix Issues flow end to end — dismount IPM with
-database.dismount (dry run first, so its safety rules apply), detect the
-issue through the existing issue detection (GET /api/iris/issues), fix it
-with database.mount using the detected issue's own parameters, then verify
-IPM is mounted and the issue is gone. If anything fails after the dismount,
-IPM is mounted again (a failed remount is reported as "restore_failed").
+After a change step, the value is re-read and restored if it differs (or
+can't be read). A failed restore gives overall status "restore_failed".
 
-Restoration: after a change step whose mutation may have been applied
-(success, verification failure or an execution failure), the current value
-is re-read; if it differs from the original — or cannot be read — the
-original is restored through the same operation, and a failed restoration
-is reported explicitly (overall status "restore_failed").
+The Issue Resolution Rehearsal (run_issue_resolution_rehearsal) is
+separate and only runs when triggered manually. It dismounts IPM (dry run
+first), checks the issue shows up in GET /api/iris/issues, fixes it with
+database.mount using the issue's parameters, and checks it's gone. If
+anything fails after the dismount, IPM is mounted again.
 
-Returned details are the executor's/handlers' own short detail strings plus
-names/ids of the chosen targets; no handler `data`, credential, token or
-header is ever included.
+The results only hold short detail strings and target names/ids, never
+handler data or credentials.
 """
 
 import asyncio
@@ -65,7 +52,7 @@ WEB_APP_DESCRIPTION_OPERATION = "web_app.update_description"
 MOUNT_OPERATION = "database.mount"
 TASK_RUN_OPERATION = "task.run_now"
 DISMOUNT_OPERATION = "database.dismount"
-ISSUE_DATABASE = "IPM"  # the one database the Issue Resolution Rehearsal uses
+ISSUE_DATABASE = "IPM"  # database used by the Issue Resolution Rehearsal
 
 _JOURNAL_SETTINGS_PATH = "/v2/journal/settings"
 _WEB_APPS_PATH = "/v2/web-apps"
@@ -78,11 +65,11 @@ REHEARSAL_MARKER = "[IRIS Command Center rehearsal]"
 PREFERRED_WEB_APP = "/csp/user"
 _DESCRIPTION_MAX_LENGTH = 256
 
-# Overridable only so tests can shrink the web-app verify retry delays.
+# Tests use this to shrink the web-app verify delays.
 WEB_APP_VERIFY_RETRY_DELAYS: tuple[float, ...] = _WEB_APP_VERIFY_DELAYS
 
-# One rehearsal at a time: two overlapping runs could each "restore" the
-# other's temporary value.
+# Only one rehearsal at a time, otherwise two runs could restore each
+# other's temporary values.
 _rehearsal_lock = asyncio.Lock()
 
 StepStatus = Literal["success", "dry_run", "skipped", "failed", "not_needed"]
@@ -94,7 +81,7 @@ class RehearsalStep(BaseModel):
     operation_name: str | None = None
     action: Literal["read", "select", "change", "restore", "dry_run", "detect", "fix", "verify"]
     status: StepStatus
-    operation_status: str | None = None  # the executor's own OperationResult.status
+    operation_status: str | None = None  # OperationResult.status
     target: str | None = None
     detail: str
     trace_id: str | None = None
@@ -112,11 +99,11 @@ class RehearsalInProgressError(Exception):
 
 
 class _Stop(Exception):
-    """Internal: a step failed; the sequence stops (after any restoration)."""
+    """A step failed; stop the sequence (after restoring)."""
 
 
 def build_rehearsal_executor(client: IRISClient) -> OperationExecutor:
-    """The same executor and handlers the operations' own routes use."""
+    """Same executor and handlers the operation routes use."""
     return OperationExecutor(
         {
             JOURNAL_OPERATION: JournalUpdatePurgeArchivedHandler(client),
@@ -141,8 +128,9 @@ def _result_object(body: Any) -> dict[str, Any]:
 
 
 def is_safe_web_app(entry: dict[str, Any]) -> bool:
-    """Non-System and not one of the apps the Command Center depends on
-    (/api/admin, /api/mgmnt) — the same rules the handler itself enforces."""
+    """Not a System app and not one we depend on (/api/admin, /api/mgmnt).
+    Same rules the handler applies.
+    """
     name = entry.get("Name")
     if not isinstance(name, str) or not name.startswith("/"):
         return False
@@ -172,13 +160,14 @@ class _Rehearsal:
         self.steps: list[RehearsalStep] = []
         self.restore_failed = False
 
-    # --- running one operation through the existing executor ---
+    # --- running one operation ---
 
     async def run_operation(
         self, operation_name: str, parameters: dict[str, Any], *, dry_run: bool
     ) -> tuple[OperationResult | None, str | None, str | None]:
-        """Returns (result, trace_id, error). `trace_id` is reported only when
-        exactly one new trace for this operation appeared during the call."""
+        """Returns (result, trace_id, error). trace_id is only set when exactly
+        one new trace for this operation showed up during the call.
+        """
         before = {trace.trace_id for trace in list_traces()}
         try:
             result = await self.executor.execute(
@@ -213,7 +202,7 @@ class _Rehearsal:
             raise _Stop
         return value
 
-    # --- a reversible change followed by guaranteed restoration ---
+    # --- change something, then always restore it ---
 
     async def change_and_restore(
         self,
@@ -236,8 +225,8 @@ class _Rehearsal:
             target=target, detail=error or result.detail, trace_id=trace_id,
         )
 
-        # The mutation may have been applied unless the framework stopped it
-        # before the handler's write (denied / unconfirmed / no handler).
+        # Assume the write may have happened unless the executor stopped
+        # before the handler (denied / unconfirmed / no handler).
         possibly_applied = status in (
             None,
             OperationResultStatus.SUCCESS,
@@ -308,7 +297,7 @@ class _Rehearsal:
         if not ok:
             raise _Stop
 
-    # --- the three phases ---
+    # --- steps ---
 
     async def journal_phase(self) -> None:
         async def read_purge_archived() -> bool | None:
@@ -334,8 +323,8 @@ class _Rehearsal:
             self.add(step="web_app.select", action="select", status="skipped",
                      detail=f"No non-System, non-protected web application found ({skipped} skipped).")
             return
-        # Prefer the least sensitive demo target when it passed the same
-        # safety rules; otherwise the first safe app alphabetically.
+        # Use /csp/user if it's allowed, otherwise the first safe app
+        # alphabetically.
         name = next((n for n in safe if _normalize(n) == _normalize(PREFERRED_WEB_APP)), safe[0])
         self.add(step="web_app.select", action="select", status="success", target=name,
                  detail=f"Selected {name!r} ({skipped} System/protected applications skipped).")
@@ -388,8 +377,7 @@ class _Rehearsal:
     # --- Issue Resolution Rehearsal (manual only) ---
 
     async def _ipm_state(self) -> tuple[str, bool] | None:
-        """(directory, mounted) for IPM from the existing read-only lists,
-        or None when IPM is not a configured database."""
+        """(directory, mounted) for IPM, or None if IPM isn't configured."""
         entry = next((e for e in await self._list(_DATABASES_PATH)
                       if isinstance(e.get("Name"), str) and e["Name"].upper() == ISSUE_DATABASE), None)
         if entry is None or not isinstance(entry.get("Directory"), str):
@@ -401,13 +389,12 @@ class _Rehearsal:
         return directory, isinstance(status, str) and status.lower().startswith("mounted")
 
     async def _ipm_issue(self) -> dict[str, Any] | None:
-        """IPM's entry in the existing issue detection (GET /api/iris/issues), if any."""
+        """IPM's entry in GET /api/iris/issues, if any."""
         issues = (await get_issues(self.client)).issues
         return next((i.model_dump() for i in issues if i.database.upper() == ISSUE_DATABASE), None)
 
     async def ensure_ipm_mounted(self, directory: str) -> None:
-        """Restore path: mount IPM again (through database.mount) unless it
-        is already mounted. A failed remount is reported explicitly."""
+        """Mount IPM again via database.mount unless it's already mounted."""
         try:
             state = await self._ipm_state()
         except Exception:  # noqa: BLE001 - unknown state: try the mount anyway
@@ -439,7 +426,7 @@ class _Rehearsal:
         self.add(step="issue.read", action="read", status="success", target=ISSUE_DATABASE,
                  detail=f"IPM ({directory}) is mounted.")
 
-        # Eligibility: database.dismount's own safety rules, dry run only.
+        # Dry run first so database.dismount's safety checks apply.
         await self.dry_run("issue", DISMOUNT_OPERATION, ISSUE_DATABASE, {"Directory": directory})
 
         result, trace_id, error = await self.run_operation(DISMOUNT_OPERATION, {"Directory": directory}, dry_run=False)
@@ -460,7 +447,7 @@ class _Rehearsal:
             self.add(step="issue.detect", action="detect", status="success", target=ISSUE_DATABASE,
                      detail=f"Command Center Issue: {issue['explanation']}")
 
-            # The Fix Issues flow: the recommended operation with the issue's own parameters.
+            # Fix it the way Fix Issues would: the recommended operation and the issue's parameters.
             result, trace_id, error = await self.run_operation(
                 issue["recommended_operation"], issue["parameters"], dry_run=False)
             fixed = result is not None and result.status is OperationResultStatus.SUCCESS
@@ -480,9 +467,8 @@ class _Rehearsal:
             self.add(step="issue.verify", action="verify", status="success", target=ISSUE_DATABASE,
                      detail="IPM is mounted again and the Command Center issue is gone.")
         except BaseException:
-            # Any failure after the dismount — including unexpected errors
-            # and cancellation (asyncio.CancelledError is a BaseException) —
-            # first makes sure IPM ends up mounted, then re-raises.
+            # On any failure after the dismount, including cancellation
+            # (CancelledError is a BaseException), remount IPM first, then re-raise.
             await self.ensure_ipm_mounted(directory)
             raise
 
@@ -526,8 +512,7 @@ async def run_rehearsal(
     *,
     executor: OperationExecutor | None = None,
 ) -> RehearsalResult:
-    """Runs the whole rehearsal once. Raises RehearsalInProgressError if one
-    is already running in this process."""
+    """Run the whole rehearsal once. Raises RehearsalInProgressError if one is running."""
     if _rehearsal_lock.locked():
         raise RehearsalInProgressError
     async with _rehearsal_lock:
@@ -542,9 +527,9 @@ async def run_issue_resolution_rehearsal(
     *,
     executor: OperationExecutor | None = None,
 ) -> RehearsalResult:
-    """The manual Issue Resolution Rehearsal (IPM). Shares the rehearsal
-    lock, so it never overlaps any other rehearsal; raises
-    RehearsalInProgressError if one is already running."""
+    """Run the Issue Resolution Rehearsal (IPM). Uses the same lock as
+    run_rehearsal, so raises RehearsalInProgressError if one is running.
+    """
     if _rehearsal_lock.locked():
         raise RehearsalInProgressError
     async with _rehearsal_lock:

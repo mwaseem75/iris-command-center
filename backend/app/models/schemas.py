@@ -1,7 +1,4 @@
-"""Pydantic response models for the Command Center backend's own API.
-
-These describe the Command Center's own responses, not IRIS's.
-"""
+"""Response models for the Command Center's own API (not IRIS's)."""
 
 from pydantic import BaseModel
 
@@ -15,12 +12,8 @@ class HealthResponse(BaseModel):
 
 
 class OperationSummary(BaseModel):
-    """Public, read-only view of one app.authorization.operations.OperationDefinition.
-
-    This is the ONLY place operation metadata (name, description, required
-    privileges, confirmation requirement) is serialized for API consumers —
-    it is read directly off the existing OPERATION_REGISTRY, never
-    duplicated or re-typed by hand.
+    """Public view of one OperationDefinition, built straight from
+    OPERATION_REGISTRY.
     """
 
     name: str
@@ -36,11 +29,8 @@ class OperationsListResponse(BaseModel):
 
 
 class AssistantQueryResponse(BaseModel):
-    """The AI Assistant's reply to one read-only natural-language question.
-
-    `intent` is the classified intent name (see
-    app.assistant.intents.Intent) — informational only, useful for tests
-    and debugging; the frontend only displays `reply`.
+    """The assistant's answer to one question. `intent` is only there for tests
+    and debugging; the UI just shows `reply`.
     """
 
     reply: str
@@ -48,11 +38,9 @@ class AssistantQueryResponse(BaseModel):
 
 
 class CapabilityViewEntry(CapabilityEntry):
-    """One app.capabilities.CapabilityEntry plus `available` — whether this
-    backend currently exposes a real, registered route for it. `available`
-    is computed fresh on every request by app/routes/capabilities.py
-    checking this backend's own actual route table; it is never a
-    hand-maintained boolean stored alongside the rest of the entry."""
+    """A CapabilityEntry plus `available`, which is worked out on each request
+    by checking whether the route is actually registered.
+    """
 
     available: bool
 
@@ -62,9 +50,8 @@ class CapabilityListResponse(BaseModel):
 
 
 class TraceListResponse(BaseModel):
-    """Read-only view of the in-memory execution trace store
-    (app/observability/store.py). Each ExecutionTrace already includes its
-    full spans list — there is deliberately no separate "detail" endpoint;
-    the frontend's expandable trace view renders straight from this."""
+    """The in-memory trace list. Each trace already includes its spans, so
+    there's no separate detail endpoint.
+    """
 
     traces: list[ExecutionTrace]

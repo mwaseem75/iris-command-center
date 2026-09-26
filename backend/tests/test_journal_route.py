@@ -1,7 +1,5 @@
-"""Route-level tests for POST /api/iris/journal/purge-archived — proves the
-HTTP wiring (including privilege sourcing via get_caller_privileges, which
-calls GET /info) works end-to-end, using a mocked IRISClient. No real
-network call is made anywhere in this file.
+"""Route tests for POST /api/iris/journal/purge-archived, including
+privileges from GET /info. Uses a mocked IRISClient.
 """
 
 from typing import Any
@@ -118,15 +116,10 @@ def test_route_dry_run_with_confirmation_never_calls_put(
 def test_route_rejects_extra_field_with_422(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A caller attempting to also set ArchiveName (or any other field) via
-    this endpoint gets an explicit 422, not a silently-ignored extra field.
+    """Setting ArchiveName (or any other field) gives a 422.
 
-    Note: FastAPI resolves Depends() sub-dependencies (here,
-    get_caller_privileges's real /info call) as part of the same overall
-    dependency-resolution pass as request-body validation — it does not
-    guarantee body validation happens first, so /info IS still called even
-    though the body is ultimately rejected. What matters for safety is that
-    PUT is never reached.
+    FastAPI doesn't guarantee body validation runs before dependencies, so the
+    /info call can still happen. The important part is the PUT never does.
     """
     mock_iris_client.get.return_value = INFO_BODY_MANAGE_AND_JOURNAL
 

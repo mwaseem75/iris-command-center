@@ -1,17 +1,8 @@
-"""Tests for GET /api/iris/databases/integrity-check?dir=<Directory> — the
-Database Explorer's "Run Integrity Check" drawer action (database.integrity_check).
+"""Tests for GET /api/iris/databases/integrity-check?dir=<Directory>.
 
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. UNLIKE test_database_info_route.py, the canned task bodies below
-are SYNTHETIC (deliberately invented for test coverage), not captured from a
-real IRIS response — this operation has never been executed against
-icc-iris-dev (a real integrity check is a resource-intensive scan of live
-data, out of scope for this implementation pass — see
-app/models/iris.py's DatabaseIntegrityCheckResult docstring). Several
-different, deliberately varied `Result` shapes (dict / list / null) are
-exercised below specifically to prove the route and model make no
-assumption about `Result`'s internal structure, not to claim any one of
-them is what IRIS actually returns.
+We've never run a real integrity check, so the task results below are made
+up. They use different `Result` shapes (dict, list, null) to show the route
+doesn't assume anything about it.
 """
 
 from typing import Any
@@ -23,10 +14,7 @@ from app.iris_client.exceptions import IRISAsyncTaskError, IRISResponseError
 
 
 def _finished_task(result: Any) -> dict[str, Any]:
-    """A structurally-real AsyncTask envelope (State/TaskName/Console/
-    FailureReason/Time* — this outer shape IS independently confirmed live,
-    see DatabaseIntegrityCheckResult's docstring) wrapping a synthetic
-    `result` payload."""
+    """The usual async-task envelope around a made-up `result`."""
     return {
         "State": "Finished",
         "TaskName": "POST /v2/database-dir/integrity-check",
@@ -65,10 +53,7 @@ def test_get_database_integrity_check_success_with_dict_result(
 def test_get_database_integrity_check_success_with_list_result(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A different, deliberately different Result shape (a list, not a
-    dict) must round-trip through the route and model exactly as
-    given — proving Result is genuinely untyped, not assumed to be an
-    object."""
+    """A list Result comes back unchanged too, not just a dict."""
     mock_iris_client.post_async_task.return_value = "task-list-002"
     mock_iris_client.wait_for_async_task.return_value = _finished_task(
         ["no errors found"]

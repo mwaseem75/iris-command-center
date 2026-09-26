@@ -1,8 +1,5 @@
-"""Tests for execution tracing (app/observability/) and its integration
-into OperationExecutor (app/execution/executor.py) and the read-only
-GET /api/iris/observability/traces route. Every test here uses a
-fake/mock IRISClient — no real network call is made anywhere in this file,
-and no real IRIS mutation occurs.
+"""Tests for execution tracing, how the executor records traces, and
+GET /api/iris/observability/traces. Uses a fake IRIS client.
 """
 
 from typing import Any
@@ -22,9 +19,7 @@ _OPERATION_NAME = "journal.update_purge_archived"
 
 @pytest.fixture(autouse=True)
 def _clear_trace_store() -> None:
-    # The trace store is module-level, process-global state — reset it
-    # before every test so tests never see traces left over from another
-    # test.
+    # The trace store is a module global, so clear it before each test.
     clear_traces()
 
 
@@ -83,7 +78,7 @@ async def test_successful_execution_records_a_complete_trace() -> None:
 
     assert trace.operation_name == _OPERATION_NAME
     assert trace.status == result.status.value == "success"
-    assert trace.trace_id  # a real, non-empty id was assigned
+    assert trace.trace_id  # got a real id
     assert trace.start_time is not None
     assert trace.end_time is not None
     assert trace.duration_ms is not None and trace.duration_ms >= 0
@@ -160,7 +155,7 @@ async def test_confirmation_required_records_skipped_execution_and_verification(
     client.put.assert_not_awaited()
 
 
-# --- safety: no trace ever contains a secret-shaped value ---
+# --- no trace ever contains a secret ---
 
 
 @pytest.mark.asyncio
@@ -179,11 +174,8 @@ async def test_trace_never_contains_forbidden_sensitive_substrings() -> None:
 
     trace = list_traces()[0]
     serialized = trace.model_dump_json().lower()
-    # "authorization" itself is legitimate domain vocabulary here (this
-    # project's own access-control concept, e.g. `authorization_result`)
-    # — checked instead for actual credential-shaped substrings, the same
-    # way app/execution/journal_purge_archived_handler.py's own tests do
-    # (see test_put_raising_becomes_structured_execution_failure).
+    # "authorization" is a normal word here (authorization_result), so we
+    # look for credential-like substrings instead.
     for forbidden in ("password", "bearer ", "jwt", "secret"):
         assert forbidden not in serialized, f"trace unexpectedly contains {forbidden!r}"
 

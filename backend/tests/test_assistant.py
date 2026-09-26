@@ -1,7 +1,5 @@
-"""Tests for the read-only AI Assistant: its pure intent classifier
-(no mocks needed) and the GET /api/iris/assistant/query route (using the
-existing mock_iris_client/client fixtures from conftest.py, same pattern
-as every other route test in this suite).
+"""Tests for the AI Assistant: the intent classifier and
+GET /api/iris/assistant/query (with the conftest mock client).
 """
 
 from typing import Any
@@ -13,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.assistant.intents import Intent, classify_intent, parse_purge_archived_request
 from app.iris_client.exceptions import IRISConnectionError
 
-# --- classify_intent: pure, no IRIS involved ---
+# --- classify_intent ---
 
 
 def test_classify_intent_system_status() -> None:
@@ -58,7 +56,7 @@ def test_classify_intent_journal_operation() -> None:
     assert classify_intent("journal.update_purge_archived") is Intent.JOURNAL_OPERATION
 
 
-# --- parse_purge_archived_request: pure, no IRIS involved ---
+# --- parse_purge_archived_request ---
 
 
 def test_parse_purge_archived_request_no_value_is_none() -> None:
@@ -86,7 +84,7 @@ def test_parse_purge_archived_request_confirmed_false() -> None:
 
 
 def test_parse_purge_archived_request_ambiguous_value_is_none() -> None:
-    # Both a true-word and a false-word present — never guess.
+    # Has both a true word and a false word, so don't guess.
     target, confirmed = parse_purge_archived_request("confirm purge archived true or false")
     assert target is None
     assert confirmed is True
@@ -275,7 +273,7 @@ def test_assistant_unknown_question_is_graceful_not_a_guess(
     body = response.json()
     assert body["intent"] == "unknown"
     assert "read-only questions" in body["reply"]
-    # An unrecognized question must never reach IRIS at all.
+    # An unrecognized question shouldn't call IRIS at all.
     mock_iris_client.get.assert_not_awaited()
 
 
@@ -288,10 +286,8 @@ def test_assistant_iris_unreachable_is_a_graceful_reply_not_an_http_error(
         "/api/iris/assistant/query", params={"message": "Show me the current IRIS system status"}
     )
 
-    # get_info() (reused from app/routes/iris.py) already translates this
-    # into an HTTPException; the assistant route catches that and replies
-    # in chat instead of surfacing an HTTP error — same graceful-degradation
-    # discipline every other view in this app already follows.
+    # get_info() turns this into an HTTPException; the assistant catches it
+    # and answers in chat instead of returning an error.
     assert response.status_code == 200
     body = response.json()
     assert body["intent"] == "system_status"
@@ -303,11 +299,8 @@ def test_assistant_unmapped_exception_still_surfaces_as_server_error(
 ) -> None:
     mock_iris_client.get.side_effect = RuntimeError("boom")
 
-    # Documents the boundary: only the ALREADY-translated HTTPException path
-    # (real IRIS client errors, tested above) gets the graceful chat reply.
-    # A genuinely unexpected exception is not silently swallowed — the
-    # TestClient re-raises it rather than turning it into a response, which
-    # is itself proof nothing in this route caught and hid it.
+    # Only HTTPExceptions get the friendly chat reply. Anything unexpected
+    # isn't swallowed: TestClient re-raises it.
     with pytest.raises(RuntimeError, match="boom"):
         client.get(
             "/api/iris/assistant/query",
@@ -316,17 +309,14 @@ def test_assistant_unmapped_exception_still_surfaces_as_server_error(
 
 
 def test_assistant_never_uses_a_mutating_http_method(client: TestClient) -> None:
-    # This endpoint is GET-only by construction (see app/routes/assistant.py)
-    # — verify no other method is even registered for it.
+    # The endpoint is GET only.
     response = client.post("/api/iris/assistant/query", params={"message": "hi"})
     assert response.status_code == 405
 
 
-# --- journal.update_purge_archived via the assistant: operation detection,
-# confirmation gating, authorization rejection, and successful confirmed
-# execution — ALL routed through the existing authorization/execution
-# framework (app/assistant/journal_operation.py), never a direct PUT from
-# this module. ---
+# --- journal.update_purge_archived through the assistant ---
+# Detection, confirmation, authorization and execution all go through
+# the normal framework (app/assistant/journal_operation.py). ---
 
 
 def _journal_settings_body(purge_archived: bool) -> dict[str, Any]:
@@ -370,8 +360,7 @@ def _info_body(privileges: dict[str, bool]) -> dict[str, Any]:
 def test_assistant_detects_journal_operation_without_calling_iris(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    # No target value was given, so this is pure operation detection/info —
-    # it must never touch IRIS at all (nothing to authorize or execute yet).
+    # No value given, so it just describes the operation and never calls IRIS.
     response = client.get(
         "/api/iris/assistant/query", params={"message": "change the purge archived setting"}
     )
@@ -389,8 +378,7 @@ def test_assistant_detects_journal_operation_without_calling_iris(
 def test_assistant_journal_operation_requires_confirmation(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    # A concrete value but no confirmation word — the existing framework's
-    # own confirmation gate (authorize()) must block this before any PUT.
+    # A value but no confirmation word: authorize() blocks it before the PUT.
     mock_iris_client.get.return_value = _info_body({"Manage": True})
 
     response = client.get(
@@ -408,9 +396,7 @@ def test_assistant_journal_operation_requires_confirmation(
 def test_assistant_journal_operation_authorization_rejection_is_explained(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    # Confirmed AND a value given, but the caller holds none of the
-    # required privileges (Manage/Journal) — must be denied with a clear
-    # explanation, never executed.
+    # Confirmed with a value, but no Manage/Journal privilege: denied.
     mock_iris_client.get.return_value = _info_body({"Operate": True, "Secure": True})
 
     response = client.get(
@@ -428,14 +414,12 @@ def test_assistant_journal_operation_authorization_rejection_is_explained(
 def test_assistant_journal_operation_successful_confirmed_execution(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    # Confirmed, a value given, AND the caller holds the required
-    # privilege — the existing execution framework should actually run the
-    # existing handler, using the mocked IRIS client only (no real IRIS
-    # mutation is possible in this test).
+    # Confirmed, a value, and the right privilege: the handler runs
+    # (against the mock client).
     mock_iris_client.get.side_effect = [
         _info_body({"Manage": True}),  # get_caller_privileges -> GET /info
-        _journal_settings_body(False),  # handler.execute()'s pre-action GET
-        _journal_settings_body(True),  # handler.verify()'s post-action GET
+        _journal_settings_body(False),  # handler.execute() reads the current value
+        _journal_settings_body(True),  # handler.verify() re-reads it
     ]
     mock_iris_client.put.return_value = _journal_settings_body(True)
 
@@ -455,9 +439,7 @@ def test_assistant_journal_operation_successful_confirmed_execution(
 
 
 def test_assistant_journal_operation_never_bypasses_confirmation() -> None:
-    # Structural guarantee, not just a behavioral one: there is no field on
-    # ExecutionContext this module (or any caller) could set to skip
-    # confirmation — see app/execution/models.py.
+    # ExecutionContext has no field for skipping confirmation.
     from app.execution.models import ExecutionContext
 
     assert set(ExecutionContext.model_fields.keys()) == {

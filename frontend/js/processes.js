@@ -1,27 +1,19 @@
-// Processes view: fetches GET /api/iris/processes ONLY and renders a
-// read-only Processes Explorer — per-State KPI cards, the State
-// Distribution strip, a client-side search/filter toolbar, a compact
-// table, and a detail drawer. No other endpoint is called from this
-// module, no mutating HTTP method is used anywhere in it, and there are
-// deliberately no process actions (suspend/resume/terminate): the
-// Can* capability flags are displayed as the facts IRIS reported, never
-// wired to anything.
+// Processes page: GET /api/iris/processes, shown as KPI cards per State, a
+// State bar, search/filters, a table and a detail drawer.
 //
-// Every value shown is a field backend/app/models/iris.py's ProcessEntry
-// actually defines — the table shows a subset, the drawer shows all 21
-// (see DRAWER_FIELDS). Every count (KPI cards, distribution, "Showing N of
-// M") is computed from the same already-fetched array — nothing invented,
-// no extra fetch. See docs/api-capability-matrix.md for how that shape was
-// originally verified against a real IRIS instance.
+// There are no process actions (suspend/resume/terminate); the Can* flags
+// are just shown. The drawer shows all 21 ProcessEntry fields
+// (DRAWER_FIELDS), the table a subset. All counts come from the one
+// response.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar, topCategories } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
-// Same palette order viz.js's renderStackedBar() assigns, so a State's KPI
-// card accent matches its segment in the State Distribution strip.
+// Same color order as viz.js's renderStackedBar(), so a State's card
+// matches its bar segment.
 const CHART_COLORS = [1, 2, 3, 4, 5, 6].map((n) => `var(--color-chart-${n})`);
 const NEUTRAL_COLOR = "var(--color-chart-neutral)";
 const OVERVIEW_MAX_CATEGORIES = 6;
@@ -58,10 +50,8 @@ const dom = {
   drawerClose: document.getElementById("processes-drawer-close"),
 };
 
-// [drawer label, ProcessEntry field, value kind] — every field
-// backend/app/models/iris.py's ProcessEntry defines, in the same order the
-// model declares them. The raw field name is also shown as the label's
-// tooltip so an administrator can map it back to IRIS's own naming.
+// [label, ProcessEntry field, value kind], in model order. The field name
+// is shown as a tooltip on the label.
 const DRAWER_FIELDS = [
   ["Job", "Job", "mono"],
   ["PID", "Pid", "mono"],
@@ -86,24 +76,22 @@ const DRAWER_FIELDS = [
   ["Elapsed Time", "ElapsedTime", "mono"],
 ];
 
-// Real ProcessEntry fields the free-text search matches against.
+// Fields the search box matches against.
 const SEARCH_FIELDS = [
   "Pid", "Job", "Username", "Nspace", "Routine", "State", "Device",
   "ClientName", "EXEname", "IPAddress", "OSUserName", "ParentPid",
 ];
 
-// The full list from the last successful fetch — filtering and the drawer
-// both read from this; neither triggers a re-fetch.
+// The last fetched list; filtering and the drawer both read from it.
 let allProcesses = [];
 
-// The Pid of whichever process the drawer currently shows (Pid is unique
-// per live process), so a Refresh can re-render it with fresh values — or
-// close the drawer honestly if that process no longer exists.
+// Pid of the process in the drawer, so Refresh can update it (or close the
+// drawer if the process is gone).
 let currentDrawerPid = null;
 
-// System daemons report an empty Nspace. It's offered as its own filter
-// choice under this value, since "" already means "All namespaces" and
-// parentheses can't appear in a real IRIS namespace name.
+// System daemons have an empty Nspace. They get their own filter value,
+// since "" already means "All namespaces" and namespace names can't
+// contain parentheses.
 const NO_NAMESPACE = "(none)";
 
 const stateKey = (proc) => proc.State || "Unknown";
@@ -111,9 +99,7 @@ const namespaceKey = (proc) => proc.Nspace || NO_NAMESPACE;
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in dashboard.js and system.js.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -144,18 +130,16 @@ function formatBoolean(value) {
 }
 
 function formatCpuTime(value) {
-  // ProcessEntry.CPUTime is a plain int (milliseconds, per IRIS's own
-  // %SYS.ProcessQuery convention) — not documented in our own OpenAPI
-  // schema beyond "int", so the unit label is applied, not invented data.
+  // CPUTime is in milliseconds.
   return typeof value === "number" ? `${value} ms` : PLACEHOLDER;
 }
 
-/** Classifies a real IRIS process State code (e.g. "RUN", "RUNW", "EVTW",
- * "READ", "HANG", "SEMW", "LOCK") into one of this app's existing
- * status-badge color variants — purely presentational; the badge text is
- * always the real, verbatim State. Actively running reads green, lock
- * waits and suspended processes amber (worth an administrator's glance),
- * and every other wait state neutral — idle waiting is normal. */
+/**
+ * Map a State code ("RUN", "RUNW", "EVTW", "READ", "HANG", "SEMW", "LOCK",
+ * ...) to a badge color. The badge text is always the State itself.
+ * Running is green, lock waits and suspended are amber, other waits are
+ * neutral (idle waiting is normal).
+ */
 function stateBadgeVariant(state) {
   if (typeof state !== "string" || state.length === 0) return "status-badge--neutral";
   const upper = state.toUpperCase();
@@ -171,9 +155,7 @@ function makeStateBadge(state) {
   return badge;
 }
 
-// Table rows are always built via document.createElement + .textContent —
-// never innerHTML — so a routine/device/username containing HTML-special
-// characters can never be interpreted as markup.
+// Rows are built with createElement/textContent (no innerHTML).
 function makeCell(text, { mono = false } = {}) {
   const cell = document.createElement("td");
   cell.className = mono ? "data-table__cell data-table__cell--mono" : "data-table__cell";
@@ -182,9 +164,10 @@ function makeCell(text, { mono = false } = {}) {
   return cell;
 }
 
-/** A real State-value distribution over the already-fetched array — the
- * same countBy()/topCategories() result the KPI cards are built from, so
- * the two always agree. Hidden entirely when there's nothing to show. */
+/**
+ * State distribution bar, from the same counts as the KPI cards. Hidden
+ * when there's nothing to show.
+ */
 function renderOverview(stateCounts) {
   if (stateCounts.length === 0) {
     dom.overview.hidden = true;
@@ -215,9 +198,10 @@ function makeSummaryCard({ label, value, accent, state, title }) {
   return card;
 }
 
-/** One "Total" card plus one card per real State value, each count read
- * straight off the fetched array. Clicking a State card toggles the State
- * filter; clicking Total clears it. */
+/**
+ * A Total card plus one per State. Clicking a State card toggles the State
+ * filter; clicking Total clears it.
+ */
 function renderSummary(processes, stateCounts) {
   dom.summaryGrid.replaceChildren(
     makeSummaryCard({
@@ -229,8 +213,8 @@ function renderSummary(processes, stateCounts) {
     }),
   );
 
-  // Mirror viz.js's color assignment: with more than OVERVIEW_MAX_CATEGORIES
-  // states, the tail is folded into a neutral "Other" segment in the bar.
+  // Same as viz.js: past OVERVIEW_MAX_CATEGORIES states, the rest become
+  // "Other" in the bar.
   const folded = stateCounts.length > OVERVIEW_MAX_CATEGORIES;
   stateCounts.forEach(({ key, count }, i) => {
     const accent =
@@ -257,8 +241,7 @@ function syncSummaryActiveState() {
   }
 }
 
-/** Rebuilds a <select>'s options from real values, keeping the current
- * selection if that value still exists after a refresh. */
+/** Rebuild a <select>'s options, keeping the current choice if it's still there. */
 function populateSelect(select, allLabel, values) {
   const previous = select.value;
   const allOption = document.createElement("option");
@@ -379,8 +362,10 @@ function closeDrawer() {
   dom.drawer.hidden = true;
 }
 
-/** After a refresh, keep an open drawer in sync with the new data — or
- * close it if that process is no longer running. */
+/**
+ * After a refresh, update the open drawer, or close it if the process
+ * is gone.
+ */
 function refreshOpenDrawer() {
   if (currentDrawerPid === null) return;
   const proc = allProcesses.find((entry) => entry.Pid === currentDrawerPid);
@@ -413,10 +398,7 @@ function renderProcesses(processes) {
   refreshOpenDrawer();
 }
 
-/**
- * Fetches GET /api/iris/processes and renders it. This is the ONLY network
- * call this module makes — no mutating request exists anywhere in this file.
- */
+/** Load GET /api/iris/processes and render it. */
 export async function loadProcesses() {
   setLoading(true);
   setErrorBanner(null);
@@ -426,8 +408,7 @@ export async function loadProcesses() {
   try {
     response = await IrisApi.getProcesses();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load process information. The Command Center backend may be unreachable."
@@ -454,9 +435,7 @@ export async function loadProcesses() {
   }
 
   if (envelopeErrors.length > 0) {
-    // The backend's own response envelope flagged something — a real,
-    // observed field (status.errors), not an invented threshold. Same
-    // pattern already used and reviewed in system.js.
+    // IRIS returned warnings in status.errors.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {
@@ -482,8 +461,7 @@ export function initProcessesControls() {
     navigateTo("dashboard");
   });
 
-  // Filtering is purely client-side over the last fetched list — instant,
-  // and never a new request.
+  // Filtering is local, no request.
   dom.filterForm.addEventListener("submit", (event) => event.preventDefault());
   dom.filterSearch.addEventListener("input", renderTable);
   dom.filterState.addEventListener("change", renderTable);
@@ -495,9 +473,8 @@ export function initProcessesControls() {
     renderTable();
   });
 
-  // Event delegation for KPI cards and table rows — one listener each for
-  // every current and future element, the same pattern databases.js's and
-  // namespaces.js's card grids use.
+  // One delegated listener each for the KPI cards and table rows (same as
+  // the card grids on Databases and Namespaces).
   dom.summaryGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".stat-card");
     if (card) toggleStateFilter(card.dataset.state);

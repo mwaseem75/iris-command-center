@@ -1,51 +1,27 @@
-// Namespaces view: fetches GET /api/iris/namespaces to render the IRIS
-// Namespace Explorer — summary cards, one card per namespace, a
-// database-sharing topology section, and a read-only detail drawer — and
-// exposes exactly one mutating capability, namespace.create, via the
-// "New Namespace" wizard drawer, which calls IrisApi.createNamespace()
-// (POST /api/iris/namespaces, backend/app/routes/namespaces.py). That is
-// the ONLY mutating HTTP call this module ever makes, and it is reachable
-// ONLY through the wizard's own explicit Confirm & Create button — see
-// submitCreate() below. This view never constructs its own authorization/
-// confirmation logic for it: the wizard only stages the operator's
-// choices (Configure -> Review -> explicit confirmation) and forwards
-// them to the existing authorization/execution/verification framework,
-// which alone decides whether the request is allowed to proceed.
+// Namespaces page: summary cards, a card per namespace, a database-sharing
+// view and a detail drawer, all from GET /api/iris/namespaces.
 //
-// The wizard's Review step also calls IrisApi.createNamespace() a SECOND
-// way — with dryRun=true — to show a real, server-validated preview
-// before the operator can confirm. That call is sent as (confirmed=true,
-// dryRun=true): OperationExecutor.execute() checks confirmation BEFORE
-// branching on dry_run (app/execution/executor.py), so `confirmed: true`
-// is required just to reach the dry-run branch at all — verified against
-// the actual running backend, not assumed. It still can never mutate
-// IRIS (see NamespaceCreateHandler.dry_run(), which never calls put()/
-// post_async_task() and returns "No PUT or POST request was sent."), so
-// it is not counted as "execution": only the final, explicit Confirm &
-// Create click (dryRun=false) in submitCreate() below does that.
+// The "New Namespace" wizard is the one change this page can make
+// (namespace.create via IrisApi.createNamespace). It goes Configure ->
+// Review -> confirm; the real request is only sent from Confirm & Create
+// (submitCreate). The backend decides whether it's allowed.
 //
-// This view also calls IrisApi.getDatabases() (read-only, GET /api/iris/
-// databases) to populate the wizard's Globals/Routines/Temp Globals
-// Database selectors from real, live database names — never a
-// hardcoded/guessed list.
+// The Review step also calls createNamespace with dryRun=true to get a
+// preview validated by the server. It has to send confirmed=true too,
+// because the executor checks confirmation before looking at dry_run. The
+// dry run never sends the PUT/POST.
 //
-// Fields shown in the read-only cards/topology/drawer are exactly the
-// ones backend/app/models/iris.py's
-// NamespaceEntry actually defines (Name, Globals, Routines, SysGlobals,
-// SysRoutines, Library, TempGlobals) — nothing invented; verified against
-// the live response (see docs/api-capability-matrix.md's "GET
-// /v2/namespaces" entry). There is no "interoperability enabled" or
-// similar field anywhere in this response, so no such summary card exists
-// here — inventing one would violate this project's "no fabricated data"
-// rule. Every derived number below (distinct Globals/
-// Routines database counts, the database-color grouping) is computed
-// client-side from these same seven real fields, never fetched or
-// guessed separately.
+// The wizard's database dropdowns are filled from GET /api/iris/databases.
+//
+// The cards show the NamespaceEntry fields (Name, Globals, Routines,
+// SysGlobals, SysRoutines, Library, TempGlobals). There's no
+// "interoperability enabled" field in the response, so there's no card for
+// it. The database counts and colors are worked out from those fields.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("namespaces-loading-state"),
@@ -73,10 +49,8 @@ const dom = {
   drawerClose: document.getElementById("namespaces-drawer-close"),
 };
 
-// The "New Namespace" wizard — a second, separate drawer from the
-// read-only detail drawer above (dom.*), so viewing an existing
-// namespace's fields and creating a new one never share, and can never
-// accidentally clobber, the same DOM state.
+// The New Namespace wizard. It's a separate drawer from the detail drawer
+// above, so the two never share DOM state.
 const createDom = {
   openButton: document.getElementById("namespaces-create-button"),
   backdrop: document.getElementById("namespace-create-backdrop"),
@@ -115,50 +89,30 @@ const createDom = {
   doneButton: document.getElementById("namespace-create-done-button"),
 };
 
-// The fields the operator configured and reviewed — set only by
-// handleCreateNext(), read by renderReviewPreview()/submitCreate(),
-// exactly the same "choose -> confirm -> execute" staging operations.js
-// already uses for journal.update_purge_archived. `confirmed` is always
-// sent as `true` from submitCreate() alone, reachable only via the
-// Confirm & Create button's own click handler — never on drawer open,
-// never on a field change, never on the Review step's own (non-mutating,
-// dryRun=true) preview call.
+// What the user configured and reviewed. Set by handleCreateNext(), read by
+// renderReviewPreview()/submitCreate(). `confirmed: true` is only sent from
+// submitCreate(), i.e. the Confirm & Create button.
 let pendingCreateFields = null;
 
-// Whether the Review step's own dry-run call came back as a validated,
-// creatable request — the Confirm & Create button stays disabled unless
-// this AND the acknowledgment checkbox are both true (see
-// updateConfirmButtonEnabled()), so the operator can never confirm past a
-// request the backend's own validation has already rejected.
+// Whether the Review dry run said the request is OK. Confirm & Create
+// stays disabled unless this and the checkbox are both true.
 let reviewIsValid = false;
 
-// This project's own defensive, CLIENT-SIDE mirror of
-// NamespaceCreateParameters' Name format check (backend/app/execution/
-// namespace_create_handler.py) — used only to fail obviously-invalid
-// input fast, before spending a round trip on it. It is not this app's
-// authorization logic and does not replace it: every Review step still
-// re-validates for real against live IRIS data via a dry-run call below,
-// and the backend re-validates again, independently, on the real
-// (non-dry-run) request — per the project rule "Do not duplicate backend
-// authorization logic in JavaScript".
+// Same name check as NamespaceCreateParameters on the backend, just to
+// catch obvious typos early. The dry run and the real request are still
+// validated by the backend.
 const NAMESPACE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,30}$/;
 
-// The full list from the last successful fetch — the drawer looks a
-// namespace back up here by name when a card is clicked (event
-// delegation), rather than re-fetching or capturing per-card closures.
+// The last fetched list; the drawer looks namespaces up here by name.
 let allNamespaces = [];
 
-// The color map from the most recent render — the drawer reuses it (via
-// openDrawer(), called after render) so its "Database Relationships"
-// section colors a database identically to the page's own card grid and
-// topology section, rather than computing its own separate mapping.
+// Color map from the last render, so the drawer colors databases the same
+// way as the cards and the sharing view.
 let currentColorMap = new Map();
 
-// A stable, deterministic color per distinct database name, reused
-// identically on namespace cards and in the topology section so the SAME
-// database always renders as the SAME color dot everywhere on this page
-// — the same qualitative palette app.css's dashboard donuts/bars use
-// (--color-chart-1..6), cycling for any additional distinct names.
+// One color per database name, used on the cards and the sharing view so
+// the same database always has the same color. Uses the chart palette
+// (--color-chart-1..6) and cycles after that.
 const CHIP_COLORS = [
   "var(--color-chart-1)",
   "var(--color-chart-2)",
@@ -168,8 +122,7 @@ const CHIP_COLORS = [
   "var(--color-chart-6)",
 ];
 
-// [label, NamespaceEntry field] — every field the drawer shows, in the
-// same order the backend model declares them.
+// [label, NamespaceEntry field] in model order.
 const DRAWER_FIELDS = [
   ["Name", "Name"],
   ["Globals Database", "Globals"],
@@ -182,9 +135,7 @@ const DRAWER_FIELDS = [
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in dashboard.js/system.js/databases.js.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -210,13 +161,10 @@ function textOrPlaceholder(value) {
   return str === "" ? PLACEHOLDER : str;
 }
 
-/** Distinguishes a system namespace (e.g. %SYS, %ALL) from a normal one
- * (e.g. USER) using only the real `Name` field already in the response —
- * no separate "is system" flag exists anywhere in NamespaceEntry, so this
- * derives the distinction from IRIS's own, real naming convention (every
- * system-reserved namespace/database in this API's data is `%`-prefixed;
- * see e.g. the `%Admin_*` privilege names and `%SYS`/`%ALL` themselves)
- * rather than inventing a new field. */
+/**
+ * System namespaces (%SYS, %ALL, ...) are the ones starting with %. There's
+ * no separate flag for it.
+ */
 function isSystemNamespace(name) {
   return typeof name === "string" && name.startsWith("%");
 }
@@ -224,10 +172,10 @@ function isSystemNamespace(name) {
 const SYSTEM_NAMESPACE_TITLE =
   "System namespace — its name starts with %, IRIS's own convention for system-reserved namespaces.";
 
-/** Assigns each distinct real Globals/Routines/TempGlobals database name
- * (across all namespaces) the next color in CHIP_COLORS, in first-seen
- * order — never invents a database name, only colors the ones actually
- * present in the fetched data. */
+/**
+ * Give each Globals/Routines/TempGlobals database the next color in
+ * CHIP_COLORS, in the order they first appear.
+ */
 function buildDbColorMap(namespaces) {
   const map = new Map();
   for (const ns of namespaces) {
@@ -240,10 +188,10 @@ function buildDbColorMap(namespaces) {
   return map;
 }
 
-/** A small colored pill naming one real database value. `label` is the
- * full visible text (callers decide whether to prefix it with the
- * field's role, e.g. "Globals: IRISSYS" on a card vs. just "IRISSYS" in
- * the topology section, which has its own column header for that). */
+/**
+ * Colored pill for a database. `label` is the full text (e.g. "Globals:
+ * IRISSYS" on a card, just "IRISSYS" in the sharing view).
+ */
 function makeDbChip(label, dbName, colorMap) {
   const chip = document.createElement("span");
   chip.className = "db-chip";
@@ -270,11 +218,10 @@ function renderSummary(namespaces) {
   dom.summaryRoutines.textContent = String(routinesDbs.size);
 }
 
-/** A small "System" badge (reusing the app's existing status-badge
- * component, not a new one) for a namespace whose Name is `%`-prefixed —
- * see isSystemNamespace() for why that's the real, existing-data-only
- * signal used. Returns null for a normal namespace, so callers can skip
- * appending anything. */
+/**
+ * A "System" badge for %-prefixed namespaces (see isSystemNamespace()).
+ * Returns null otherwise.
+ */
 function makeSystemBadge(name) {
   if (!isSystemNamespace(name)) return null;
   const badge = document.createElement("span");
@@ -320,11 +267,10 @@ function renderNamespaceCards(namespaces, colorMap) {
   }
 }
 
-/** The shared four-column header row (Namespace / Globals DB / Routines
- * DB / Temp Globals DB) — used above both the page-level topology (one
- * row per namespace) and the drawer's single-namespace "Database
- * Relationships" mini-topology, so both use the exact same visual
- * language rather than two similar-but-different layouts. */
+/**
+ * Header row (Namespace / Globals DB / Routines DB / Temp Globals DB),
+ * shared by the page's sharing view and the drawer's mini version.
+ */
 function buildTopologyHeader() {
   const header = document.createElement("div");
   header.className = "topology-header";
@@ -337,9 +283,10 @@ function buildTopologyHeader() {
   return header;
 }
 
-/** One chip-chained row: Namespace -> Globals -> Routines -> Temp
- * Globals. Shared by the page-level topology and the drawer's
- * relationships section — see buildTopologyHeader()'s docstring. */
+/**
+ * One row: Namespace -> Globals -> Routines -> Temp Globals. Shared by the
+ * sharing view and the drawer.
+ */
 function buildTopologyRow(ns, colorMap) {
   const row = document.createElement("div");
   row.className = "topology-row";
@@ -368,8 +315,8 @@ function renderTopology(namespaces, colorMap) {
   }
 }
 
-// --- "New Namespace" wizard: Configure -> Review (dry-run preview) ->
-// explicit confirmation -> create -> result ---
+// --- New Namespace wizard: Configure -> Review (dry run) -> confirm ->
+// create -> result ---
 
 function setWizardStep(label) {
   createDom.stepLabel.textContent = label;
@@ -397,11 +344,10 @@ function resetCreateWizard() {
   setWizardStep("Step 1 of 2 · Configure");
 }
 
-/** Builds one <select>'s options from a real list of database names
- * fetched live from IrisApi.getDatabases() — never a hardcoded list (see
- * populateDatabaseSelects()). `includeEmpty` gives the optional Temp
- * Globals selector a real "use the IRIS default" choice instead of a
- * disabled placeholder. */
+/**
+ * Build a <select>'s options from the database list. `includeEmpty` adds a
+ * "use the IRIS default" option (for Temp Globals).
+ */
 function fillDatabaseSelect(selectEl, names, placeholder, includeEmpty) {
   selectEl.replaceChildren();
 
@@ -422,11 +368,11 @@ function fillDatabaseSelect(selectEl, names, placeholder, includeEmpty) {
   }
 }
 
-/** Populates the Globals/Routines/Temp Globals Database selectors from
- * the existing, already-used-elsewhere GET /api/iris/databases (via
- * IrisApi.getDatabases()) — the only source of database names this
- * wizard ever uses. Called each time the wizard opens, so the list is
- * always current, never stale/cached from a previous session. */
+/**
+ * Fill the Globals/Routines/Temp Globals dropdowns from GET
+ * /api/iris/databases. Done every time the wizard opens so the list is
+ * current.
+ */
 async function populateDatabaseSelects() {
   const loadingLabel = "Loading databases…";
   fillDatabaseSelect(createDom.globalsSelect, [], loadingLabel, false);
@@ -485,13 +431,11 @@ function collectCreateFields() {
   };
 }
 
-/** Obvious-error, client-side-only checks — required fields (including a
- * real database selection, not just non-empty text, now that Globals/
- * Routines are <select>s), the %-prefixed system-namespace rule, and this
- * project's own defensive name-format mirror (see NAMESPACE_NAME_PATTERN
- * above). Returns a message string, or null when nothing obvious is
- * wrong. This is a fast-fail convenience only — the Review step's dry-run
- * call and the backend's own validation remain the real authority. */
+/**
+ * Quick checks before the dry run: required fields, no % prefix, and the
+ * name format (NAMESPACE_NAME_PATTERN). Returns a message, or null if
+ * nothing's obviously wrong. The backend still has the final say.
+ */
 function validateCreateFields(fields) {
   if (!fields.Name || !fields.Globals || !fields.Routines) {
     return "Name, Globals Database, and Routines Database are all required.";
@@ -509,13 +453,11 @@ function updateConfirmButtonEnabled() {
   createDom.confirmButton.disabled = !(reviewIsValid && createDom.ackCheckbox.checked);
 }
 
-/** Renders the Review step: a "Create Namespace" summary containing
- * exactly the fields that will be sent (requirement: "exactly what will
- * change"), plus whatever the dry-run preview call found. When the
- * backend's own dry-run validation rejects the request (e.g. the
- * namespace already exists), its exact detail text is shown and the
- * Confirm & Create button is kept disabled — the operator cannot confirm
- * past a request the backend has already told us would fail. */
+/**
+ * Render the Review step: what will be sent, plus what the dry run found.
+ * If the dry run rejects it (e.g. the namespace exists), show the reason
+ * and keep Confirm & Create disabled.
+ */
 function renderReviewPreview(previewResult) {
   createDom.reviewContent.hidden = false;
   createDom.summaryList.replaceChildren();
@@ -556,14 +498,11 @@ function renderReviewPreview(previewResult) {
   updateConfirmButtonEnabled();
 }
 
-/** The "choose values" step — deliberately NOT the confirmation itself.
- * Submitting the form only reads/validates the fields and moves to the
- * Review step, where it issues a real, non-mutating dry-run call
- * (IrisApi.createNamespace(fields, true, true) — `confirmed: true` is
- * required to reach the executor's dry-run branch at all, see the module
- * docstring above) for a server-validated preview. Nothing here, or in
- * that dry-run call, can mutate IRIS — see NamespaceCreateHandler.dry_run(),
- * which never calls put()/post_async_task(). */
+/**
+ * Submitting the form only validates and moves to Review, which runs a
+ * dry run (createNamespace(fields, true, true)) for the preview. Nothing is
+ * created here.
+ */
 async function handleCreateNext(event) {
   event.preventDefault();
   createDom.error.hidden = true;
@@ -602,13 +541,11 @@ function backToConfigureStep() {
   setWizardStep("Step 1 of 2 · Configure");
 }
 
-/** An audit-friendly record of exactly what the backend returned — status,
- * created namespace name, detail, execution detail, and (when present)
- * verification status/detail — never re-worded or summarized away, the
- * same discipline operations.js's renderExecutionResult() already
- * follows. On failure, the "Edit and Retry" button is shown (never an
- * automatic retry) and the Step 1 field values are left exactly as
- * entered, since resetCreateWizard() only runs on drawer open. */
+/**
+ * Show what the backend returned: status, namespace, detail, execution
+ * detail and verification. On failure there's an "Edit and Retry" button
+ * (no automatic retry) and the fields keep what was entered.
+ */
 function renderCreateResult(result) {
   createDom.resultList.replaceChildren();
 
@@ -647,14 +584,9 @@ function renderCreateResult(result) {
 }
 
 /**
- * The ONLY place in this file that calls IrisApi.createNamespace with a
- * real (non-dry-run) request — reachable ONLY via the Confirm & Create
- * button's click handler below, never on drawer open, never on a field
- * change, never from the Review step's own preview call. `confirmed` is
- * always `true` and `dryRun` is always `false` here because this
- * function only runs after the operator reached Review via
- * handleCreateNext(), saw a validated preview, checked the
- * acknowledgment box, and clicked Confirm.
+ * The only real createNamespace call, from the Confirm & Create button.
+ * `confirmed` is true and `dryRun` false because you only get here after a
+ * validated preview, the checkbox and clicking Confirm.
  */
 async function submitCreate() {
   if (!pendingCreateFields) return;
@@ -668,10 +600,7 @@ async function submitCreate() {
     const result = await IrisApi.createNamespace(pendingCreateFields, true, false);
     renderCreateResult(result);
     if (result.status === "success") {
-      // Refresh the whole view so the new namespace appears in the
-      // summary cards, card grid, and topology — the same real GET
-      // /api/iris/namespaces every other refresh already uses, not a
-      // locally-patched-in guess at what IRIS now has.
+      // Reload the page so the new namespace shows up everywhere.
       await loadNamespaces();
     }
   } catch (err) {
@@ -716,10 +645,8 @@ function openDrawer(namespaceName) {
     dom.drawerFields.append(row);
   }
 
-  // Same visual language as the page-level topology (buildTopologyHeader/
-  // buildTopologyRow), scoped to this one namespace, using the SAME color
-  // map that section and the card grid already use — a database shown
-  // here matches its color everywhere else on the page.
+  // Same layout as the sharing view, for just this namespace, with the same
+  // colors.
   dom.drawerTopology.replaceChildren();
   dom.drawerTopology.append(buildTopologyHeader(), buildTopologyRow(ns, currentColorMap));
 
@@ -755,10 +682,7 @@ function renderNamespaces(namespaces) {
   renderTopology(namespaces, colorMap);
 }
 
-/**
- * Fetches GET /api/iris/namespaces and renders it. This is the ONLY network
- * call this module makes — no mutating request exists anywhere in this file.
- */
+/** Load GET /api/iris/namespaces and render it. */
 export async function loadNamespaces() {
   setLoading(true);
   setErrorBanner(null);
@@ -768,8 +692,7 @@ export async function loadNamespaces() {
   try {
     response = await IrisApi.getNamespaces();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load namespace information. The Command Center backend may be unreachable."
@@ -796,9 +719,7 @@ export async function loadNamespaces() {
   }
 
   if (envelopeErrors.length > 0) {
-    // The backend's own response envelope flagged something — a real,
-    // observed field (status.errors), not an invented threshold. Same
-    // pattern already used and reviewed in system.js/databases.js.
+    // IRIS returned warnings in status.errors.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {
@@ -814,19 +735,14 @@ export function initNamespacesControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadNamespaces();
   });
-  // Same navigateTo() every other cross-view link in this app already
-  // uses (see dashboard.js's quicklinks/KPI cards) — not a new/duplicate
-  // navigation mechanism.
+  // Uses navigateTo(), like the other links between pages.
   dom.backButton.addEventListener("click", () => {
     navigateTo("dashboard");
   });
 
-  // Event delegation: one listener for every current and future namespace
-  // card, rather than attaching/detaching a listener per card on every
-  // refresh. Cards are <article role="button" tabindex="0">, not real
-  // <button>s, so Enter/Space are wired manually to match native button
-  // activation — the same pattern already used for the Dashboard's KPI
-  // cards.
+  // One delegated listener for all namespace cards. Cards are
+  // <article role="button" tabindex="0">, so Enter/Space are handled by
+  // hand.
   dom.cardGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".namespace-card");
     if (card) openDrawer(card.dataset.namespace);

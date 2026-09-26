@@ -1,13 +1,6 @@
-/* IRIS Command Center — dashboard shell styles.
-   Vanilla CSS only, no framework. Dark, functional console aesthetic.
-
-   Phase 4 note: every class/id name below is unchanged from Phase 3 — the
-   frontend JS (see frontend/js/*.js) selects elements by these exact
-   selectors (getElementById, classList.toggle/add/remove, querySelector),
-   so this pass only changes VALUES (color, spacing, radius, shadow,
-   typography) and adds new, purely additive rules (focus-visible states,
-   scrollbar styling, subtle transitions) — it never renames or removes a
-   selector another file relies on. */
+/* IRIS Command Center styles.
+   Plain CSS, no framework. The JS selects elements by these class/id
+   names, so rename carefully. */
 
 :root {
   --color-bg: #0b0e14;
@@ -31,18 +24,12 @@
   --color-warning-soft: rgba(224, 163, 62, 0.12);
   --color-error: #e0663e;
   --color-error-soft: rgba(224, 102, 62, 0.1);
-  /* Text on an error banner (a lighter tint than --color-error on the
-     dark themes, a darker one on Light). */
+  /* Text on an error banner (lighter than --color-error on dark themes,
+     darker on Light). */
   --color-error-text: #f0a583;
 
-  /* Qualitative palette for distribution charts (viz.js) — reuses the
-     existing accent/success/warning/error hues plus two additions already
-     drawn from elsewhere in this file's own palette (the violet already
-     used in the header's brand-mark gradient, and a teal that sits
-     between accent and success on the wheel) so a 5th/6th category never
-     needs an invented color. --color-chart-neutral is reserved for a
-     real aggregate "Other" bucket (see viz.js's topCategories()), never
-     for missing/placeholder data. */
+  /* Chart palette (viz.js): the accent/success/warning/error colors plus the
+     brand violet and a teal. --color-chart-neutral is for the "Other" bucket. */
   --color-chart-1: var(--color-accent);
   --color-chart-2: #7c5cff;
   --color-chart-3: var(--color-success);
@@ -71,10 +58,8 @@
 }
 
 /* --- Themes. Midnight is the default :root palette above. Slate and Light
-   override only the color tokens (layout, type and spacing are shared), on
-   <html data-theme="...">, set by js/theme.js and applied before first
-   paint by the inline script in index.html's <head>. Every component reads
-   these tokens, so each theme restyles the whole app without per-page CSS. --- */
+   only override color tokens, via <html data-theme="..."> (set by
+   js/theme.js, and by the inline script in index.html before first paint). --- */
 
 :root[data-theme="slate"] {
   --color-bg: #1a1f28;
@@ -141,11 +126,8 @@
   box-sizing: border-box;
 }
 
-/* The `hidden` attribute must always win over a component's own `display`
-   rule (e.g. `.loading-state`/`.banner` below both set `display: flex`,
-   which — at equal specificity — would otherwise override the browser's
-   default `[hidden] { display: none }` simply by being declared later in
-   this file). Toggling `.hidden = true/false` in JS relies on this. */
+/* Make `hidden` beat a component's own display rule (e.g. .loading-state
+   and .banner use display: flex, which would otherwise win). */
 [hidden] {
   display: none !important;
 }
@@ -170,10 +152,8 @@ input {
   font-family: inherit;
 }
 
-/* A single, consistent keyboard-focus treatment for every interactive
-   element in the app, instead of each browser's inconsistent default
-   outline. `:focus-visible` means a mouse click never shows this ring —
-   only real keyboard/assistive-tech navigation does. */
+/* One keyboard focus style for everything. :focus-visible means mouse
+   clicks don't show the ring. */
 a:focus-visible,
 button:focus-visible,
 textarea:focus-visible,
@@ -182,11 +162,8 @@ input:focus-visible {
   box-shadow: var(--shadow-focus);
 }
 
-/* Slim, low-contrast scrollbars (WebKit/Blink) so long tables, the sidebar,
-   and the chat log feel native to the dark console rather than showing the
-   platform's default light scrollbar chrome. Progressive enhancement only
-   — unsupported browsers keep their default scrollbar with no loss of
-   function. */
+/* Slim, low-contrast scrollbars (WebKit/Blink). Other browsers keep
+   their defaults. */
 .content,
 .sidebar,
 .table-wrapper,
@@ -233,8 +210,7 @@ input:focus-visible {
   z-index: 2;
 }
 
-/* A thin accent line under the header gives the shell a defined top edge
-   without adding another heavy border — echoes the brand mark's gradient. */
+/* Thin accent line under the header, matching the brand mark gradient. */
 .app-header::after {
   content: "";
   position: absolute;
@@ -281,23 +257,21 @@ input:focus-visible {
   margin: 2px 0 0;
   font-size: 13.5px;
   font-weight: 700;
-  /* line-height keeps the line box no taller than before (12.5px × 1.5). */
+  /* line-height keeps the line box the same height (12.5px x 1.5). */
   line-height: 1.35;
   color: color-mix(in srgb, var(--color-text) 65%, var(--color-text-muted));
   letter-spacing: 0.02em;
 }
 
-/* Wraps the connection pill together with the compact IRIS version/build
-   line moved here from the Dashboard's old "IRIS Version" KPI card — kept
-   in the global header (not Dashboard-only markup) since it's connection
-   context relevant on every screen, not a Dashboard-specific metric. */
+/* Connection pill plus the IRIS version/build line. Lives in the header
+   since it's useful on every page. */
 .header-status {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
-/* Theme switch (js/theme.js): a compact Midnight / Slate / Light toggle. */
+/* Theme switch (js/theme.js): Midnight / Slate / Light. */
 .theme-switch {
   display: inline-flex;
   gap: 2px;
@@ -525,11 +499,8 @@ input:focus-visible {
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
-/* Compact contextual return-to-Dashboard link, used by the five resource
-   views the Dashboard's KPI cards now link out to (Namespaces/Databases/
-   Processes/Web Apps/Tasks). A real <button>, not an <a href>, since this
-   app has no URL routing — it calls the exact same nav.js navigateTo()
-   every other cross-view link already uses, not a new mechanism. */
+/* Small "back to Dashboard" link on the pages the Dashboard KPI cards link
+   to. It's a <button> calling navigateTo(), since there's no URL routing. */
 .back-link {
   display: inline-block;
   margin: 0 0 6px;
@@ -563,14 +534,8 @@ input:focus-visible {
   max-width: 62ch;
 }
 
-/* Dashboard-only: its subtitle sentence is short enough to fit one line
-   at normal desktop widths, but the shared 62ch cap above (sized for
-   other views' longer copy) was forcing it to wrap regardless. Dropping
-   the cap here only — every other view keeps the base .view__subtitle
-   rule unchanged. No fixed width is substituted, so on a narrow/mobile
-   viewport (where .view__header itself stacks to full-width, see the
-   @media rules below) the text still wraps naturally against whatever
-   width is actually available. */
+/* The Dashboard subtitle fits on one line, so drop the 62ch cap here. It
+   still wraps normally on narrow screens. */
 .view__subtitle--wide {
   max-width: none;
 }
@@ -630,10 +595,8 @@ input:focus-visible {
   box-shadow: none;
 }
 
-/* Visually distinct from every other button in the app — reserved for the
-   one control that actually triggers a real mutation (Operations view's
-   "Confirm & Execute"), so a deliberate action never looks like a routine
-   Refresh click. */
+/* Only for the button that actually makes a change (e.g. "Confirm &
+   Execute"), so it never looks like a routine Refresh. */
 .btn--warning {
   background: var(--color-warning);
   border-color: var(--color-warning);
@@ -721,11 +684,9 @@ input:focus-visible {
   flex-shrink: 0;
 }
 
-/* --- Shared "surface panel" treatment ---
-   Every raised container in the app (stat cards, info cards, table
-   wrappers, the chat log) shares the same background/border/radius/shadow
-   — consolidated here once instead of repeated per component. Each
-   component below only adds its own padding/layout on top. */
+/* --- Shared panel look ---
+   Stat cards, info cards, table wrappers and the chat log all share this
+   background/border/radius/shadow; components add their own padding. */
 
 .stat-card,
 .info-card,
@@ -793,12 +754,9 @@ input:focus-visible {
   border-color: rgba(224, 102, 62, 0.4);
 }
 
-/* KPI card enhancements: a small top accent bar (purely decorative, cycles
-   through the same qualitative palette viz.js uses for real distribution
-   charts elsewhere) and an optional compact micro-bar slot beneath the
-   value for a card that has a real, already-fetched category breakdown to
-   show (e.g. Web Apps enabled/disabled) — absent entirely on a card with
-   no such breakdown (e.g. Namespaces), never filled with placeholder data. */
+/* KPI cards: a thin decorative accent bar on top (chart palette), and an
+   optional micro-bar under the value when the card has a breakdown to show
+   (e.g. Web Apps enabled/disabled). */
 .stat-card {
   position: relative;
   overflow: hidden;
@@ -816,13 +774,8 @@ input:focus-visible {
   margin-top: 8px;
 }
 
-/* Dashboard KPI cards as navigation shortcuts (Namespaces/Databases/
-   Processes/Web Applications/Tasks -> their existing views). Purely a
-   new interaction layer over the existing .stat-card visuals — no change
-   to the card's background/border/padding/typography, live count, or
-   micro-bar. The affordance text is faintly visible at rest (so the card
-   reads as clickable without hovering) and brightens on hover/focus,
-   matching this app's existing subtle-transition convention. */
+/* Dashboard KPI cards that link to their pages. The link text is faint at
+   rest and brightens on hover/focus. */
 .stat-card--interactive {
   cursor: pointer;
   transition: border-color var(--transition-base), background-color var(--transition-base);
@@ -898,13 +851,8 @@ input:focus-visible {
   color: var(--color-text-muted);
 }
 
-/* --- Dashboard: Observe -> Insights -> Recent Activity -> Quick Access
-   hierarchy — deliberately tight (the whole page is designed to fit
-   within ~2 desktop viewport screens without scrolling) rather than the
-   generous rhythm section headings get elsewhere; each heading's
-   weight/contrast still steps down from primary (Observe) to tertiary
-   (Quick Access, pure navigation) so the eye lands on live system state
-   first. */
+/* --- Dashboard section headings. Kept tight so the page fits in about two
+   screens; headings get quieter from Observe down to Quick Access. --- */
 
 .dashboard-section + .dashboard-section {
   margin-top: 18px;
@@ -1033,23 +981,16 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
-/* Dashboard-only: a genuinely empty "no activity yet" glance shouldn't
-   compete visually with real data once it appears, so it renders quieter
-   than other views' empty states (which are often the whole point of that
-   view, e.g. Investigation's "no matching records"). */
+/* Dashboard only: an empty "no activity yet" box is quieter than other
+   pages' empty states. */
 .info-card__empty--quiet {
   font-size: 12.5px;
   font-style: italic;
   opacity: 0.85;
 }
 
-/* Reusable compact density modifier — introduced for the Dashboard's
-   tightened layout, deliberately generic (not Dashboard-scoped) so the
-   same modifier can be added to .info-card usages on other views (e.g.
-   Operations, Security, Databases, Processes) in a later pass without
-   needing new CSS at that point. Halves the card's padding and heading
-   margins and shrinks its hint text; nothing about .info-card's default
-   (non-compact) sizing changes. */
+/* Compact .info-card variant: half the padding, smaller headings and hint
+   text. Made for the Dashboard but usable anywhere. */
 .info-card--compact {
   padding: 14px 16px;
 }
@@ -1087,10 +1028,8 @@ input:focus-visible {
   font-size: 8px;
 }
 
-/* Reusable compact density modifier for .data-table — same intent as
-   .info-card--compact above: introduced for the Dashboard's Recent
-   Executions table, generic enough to add to other views' tables later.
-   Default (non-compact) table row padding is unchanged. */
+/* Compact .data-table variant (tighter rows). Made for the Dashboard's
+   Recent Operations table but usable anywhere. */
 .data-table--compact thead th,
 .data-table--compact .data-table__cell {
   padding: 6px 14px;
@@ -1133,12 +1072,9 @@ input:focus-visible {
   font-size: 12.5px;
 }
 
-/* Database Explorer's Integrity Check drawer section: the complete, raw
-   Console output IRIS returned — shown verbatim, never summarized. A
-   compact, bounded panel (not the section's full height) with its own
-   scrollbar once content exceeds it; pre-wrap keeps real newlines between
-   console lines while still wrapping long lines, so only vertical
-   scrolling is ever needed. */
+/* Integrity Check console output: a bounded box with its own scrollbar.
+   pre-wrap keeps line breaks and wraps long lines, so only vertical
+   scrolling is needed. */
 .integrity-console {
   margin: 0;
   max-height: 200px;
@@ -1174,8 +1110,8 @@ input:focus-visible {
   color: var(--color-text);
 }
 
-/* A tag that opens another entity (e.g. a user's roles in the Security
-   drawer) — same pill, plus button reset and the accent on hover/focus. */
+/* A tag that opens another item (e.g. a user's roles in the Security
+   drawer): same pill, with a button reset and accent on hover/focus. */
 .tag-list__item--link {
   cursor: pointer;
   transition: border-color var(--transition-base), color var(--transition-base);
@@ -1225,11 +1161,9 @@ input:focus-visible {
   font-weight: 400;
 }
 
-/* --- Compact per-view "Overview" distribution panel (Processes/
-   Databases/Web Apps/Tasks/Operations/Investigation) — sits between the
-   connection info-panel and the table, deliberately lighter than an
-   .info-card (no border/background) so it reads as a summary strip over
-   the table below it, not a competing panel. --- */
+/* --- Per-page "Overview" strip (Processes, Databases, Web Apps, Tasks,
+   Operations, Investigation), between the info panel and the table.
+   Lighter than an .info-card (no border or background). --- */
 
 .view-overview {
   margin-bottom: 20px;
@@ -1353,10 +1287,7 @@ input:focus-visible {
 
 .chat__message-text {
   margin: 0;
-  /* Assistant replies may contain real newlines (e.g. a short list of
-     databases/processes/tasks) — preserve them instead of the browser's
-     default collapse-to-one-line behavior, while still wrapping long
-     lines normally. */
+  /* Assistant replies can contain line breaks (e.g. short lists); keep them. */
   white-space: pre-line;
 }
 
@@ -1417,11 +1348,8 @@ input:focus-visible {
   border-color: var(--color-accent);
 }
 
-/* --- Visualization primitives (frontend/js/viz.js): shared design-system
-   components for real-data distributions — a CSS-only donut ring
-   (conic-gradient, no SVG/canvas/library) and a compact horizontal
-   stacked bar. Used across Dashboard/Processes/Databases/Web Apps/Tasks/
-   Operations/Observability/Investigation/API Explorer. --- */
+/* --- Chart helpers (js/viz.js): a CSS-only donut (conic-gradient) and a
+   compact stacked bar, used on most pages. --- */
 
 .viz-row {
   display: flex;
@@ -1598,13 +1526,9 @@ input:focus-visible {
   align-items: flex-end;
 }
 
-/* --- Namespace Explorer (Namespaces view): card grid, database-sharing
-   topology, and a detail drawer — replaces the former wide table. Reuses
-   this file's existing tokens/patterns throughout (.stat-grid/.stat-card
-   for the summary row, .quicklink-card's padding/shadow rhythm for the
-   namespace cards, .stat-card__link for the "View details" affordance,
-   .info-list for the drawer's field list) rather than inventing a
-   parallel design language. --- */
+/* --- Namespaces page: card grid, database-sharing view and detail
+   drawer. Built from the existing pieces (.stat-grid/.stat-card, the
+   quicklink card spacing, .stat-card__link, .info-list). --- */
 
 .ns-section {
   margin-top: 20px;
@@ -1686,10 +1610,8 @@ input:focus-visible {
   gap: 6px;
 }
 
-/* Database Explorer cards only: the real filesystem Directory path, in
-   the same compact single-line-with-tooltip style as a .db-chip's label,
-   just full-width instead of a pill (a path is often longer than a
-   database/namespace name). */
+/* Database cards: the Directory path, single line with a tooltip, full
+   width (paths are usually longer than names). */
 .db-card__directory {
   margin: 0;
   font-family: var(--font-mono);
@@ -1700,11 +1622,9 @@ input:focus-visible {
   white-space: nowrap;
 }
 
-/* A small colored pill naming one real database, used identically on
-   namespace cards and in the topology section below — the SAME database
-   name always gets the SAME color (see namespaces.js's buildDbColorMap()),
-   so a shared database is visually obvious just from matching chip colors
-   without needing an explicit connecting line between every occurrence. */
+/* Colored pill for a database, used on the namespace cards and the sharing
+   view. The same database always gets the same color (buildDbColorMap()),
+   so shared databases are easy to spot. */
 .db-chip {
   display: inline-flex;
   align-items: center;
@@ -1734,12 +1654,9 @@ input:focus-visible {
   flex: none;
 }
 
-/* --- Database Topology: one compact row per namespace, chip-chained in
-   the fixed order Namespace -> Globals -> Routines -> Temp Globals. This
-   is a reading-order layout, not a claim that one database "flows into"
-   the next — the three database fields are independent per-namespace
-   configuration values; the arrows exist to keep four related facts
-   scannable in one row, not to assert a pipeline between them. --- */
+/* --- Database sharing: one row per namespace, in the order Namespace ->
+   Globals -> Routines -> Temp Globals. The arrows are just for reading
+   order; the databases don't feed into each other. --- */
 
 .ns-topology {
   display: flex;
@@ -1833,9 +1750,8 @@ input:focus-visible {
   font-size: 19px;
 }
 
-/* The "New Namespace" wizard's Step 1/2 indicator — same small-caps
-   muted-text language as .ns-drawer__section-title, just inline next to
-   the drawer title instead of above a section. */
+/* Wizard step indicator (Step 1/2), styled like the section titles but
+   inline next to the drawer title. */
 .ns-wizard-step {
   font-size: 11px;
   font-weight: 700;
@@ -1844,9 +1760,8 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
-/* Step 2 (Review) and the final result panel share the same stacked,
-   gapped layout as .ns-drawer form above, just for a plain <div> instead
-   of a <form>. */
+/* Review step and result panel: same stacked layout as the drawer form,
+   for a <div>. */
 .ns-wizard-panel {
   display: flex;
   flex-direction: column;
@@ -1880,10 +1795,8 @@ input:focus-visible {
   box-shadow: var(--shadow-focus);
 }
 
-/* The drawer's "Database Relationships" mini-topology — reuses
-   .topology-header/.topology-row/.db-chip verbatim (see the Namespace
-   Explorer section above), just scoped to the one namespace the drawer
-   is open for, with a small section heading above it. */
+/* The drawer's "Database Relationships": the same topology row and chips
+   as the page, for just this namespace. */
 .ns-drawer__section {
   margin-top: 20px;
   padding-top: 16px;
@@ -1899,10 +1812,8 @@ input:focus-visible {
   color: var(--color-text-muted);
 }
 
-/* The "New Namespace" form inside .ns-drawer — reuses .filter-field
-   verbatim for each labeled text input (same look as the Investigation/
-   API Explorer filter fields) rather than a new input style; only the
-   stacked (not grid) layout and the checkbox row below are new. */
+/* New Namespace form in the drawer: uses .filter-field for the inputs;
+   only the stacked layout and the checkbox row are new. */
 .ns-drawer form {
   display: flex;
   flex-direction: column;
@@ -1932,11 +1843,9 @@ input:focus-visible {
   cursor: pointer;
 }
 
-/* --- Explorer toolkit (Processes/Web Apps): compact KPI cards (which
-   double as filter toggles), an inline search/filter toolbar, clickable
-   compact table rows, and a wider .ns-drawer for detail. Reuses
-   .stat-card/.filter-form/.data-table--compact/.ns-drawer verbatim; only
-   the density, active-filter, and width modifiers are new. --- */
+/* --- Explorer pages (Processes, Web Apps, ...): compact KPI cards that
+   double as filters, a search/filter toolbar, clickable table rows and a
+   wider drawer. Only the density, active-filter and width tweaks are new. --- */
 
 .stat-grid--compact {
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -1961,8 +1870,8 @@ input:focus-visible {
   background: var(--color-surface-hover);
 }
 
-/* Flex-wrap rather than a fixed grid so the same toolbar works for any
-   number of filters and wraps naturally at narrow widths. */
+/* Flex-wrap so the toolbar works with any number of filters and wraps on
+   narrow screens. */
 .filter-form--toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2009,9 +1918,8 @@ input:focus-visible {
   font-size: 10.5px;
 }
 
-/* Process/Web App detail drawers list many fields — a touch wider than
-   the Namespace/Database drawers so long values (EXE names, routines,
-   class names, paths) fit. */
+/* Process/Web App drawers have lots of fields, so they're a bit wider
+   for long values (EXE names, routines, class names, paths). */
 .ns-drawer--wide {
   width: min(460px, 92vw);
 }
@@ -2020,14 +1928,14 @@ input:focus-visible {
   word-break: break-all;
 }
 
-/* A non-status classification badge (e.g. Web App kind REST/CSP) — the
-   accent color, so it never reads as ok/warning/error. */
+/* Non-status badge (e.g. REST/CSP) in the accent color, so it doesn't
+   look like ok/warning/error. */
 .status-badge--accent {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
 
-/* The raw field name under a friendly drawer label, e.g. "AutheEnabled". */
+/* The IRIS field name under a drawer label, e.g. "AutheEnabled". */
 .info-list__field {
   display: block;
   font-family: var(--font-mono);
@@ -2035,12 +1943,9 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
-/* --- Web Apps drawer: Configuration / REST Endpoints tabs and the REST
-   route-map explorer. The tab bar is a minimal underline tab strip in the
-   same muted small-caps language as .ns-drawer__section-title; method
-   badges follow the common API-explorer convention (GET blue, POST green,
-   PUT/PATCH amber, DELETE red), keyed by a lowercase data-method attribute
-   set from IRIS's own verb. --- */
+/* --- Web Apps drawer: Configuration / REST Endpoints tabs and the route
+   list. Underline tabs; method badges use the usual colors (GET blue, POST
+   green, PUT/PATCH amber, DELETE red), keyed by a lowercase data-method. --- */
 
 .drawer-tabs {
   display: flex;
@@ -2074,7 +1979,7 @@ input:focus-visible {
   border-bottom-color: var(--color-accent);
 }
 
-/* The REST tab lists long paths — the drawer widens while it is active. */
+/* The REST tab has long paths, so the drawer gets wider while it's open. */
 .ns-drawer--xwide {
   width: min(720px, 96vw);
 }
@@ -2122,9 +2027,8 @@ input:focus-visible {
   margin-bottom: 16px;
 }
 
-/* `.ns-drawer form` (the New Namespace/Database wizards) stacks forms in a
-   column; a filter toolbar inside a drawer must stay a wrapping row, or
-   its fields' flex-basis turns into height. */
+/* The wizard forms stack in a column (`.ns-drawer form`); a filter toolbar
+   inside a drawer must stay a wrapping row, or flex-basis turns into height. */
 .ns-drawer .filter-form--toolbar {
   flex-direction: row;
   margin-bottom: 0;
@@ -2245,8 +2149,8 @@ input:focus-visible {
   padding-bottom: 10px;
 }
 
-/* KPI row: six compact cards, each an icon tile + label + value. The icon
-   tile takes the card's existing --stat-card-accent colour. */
+/* KPI row: six compact cards with an icon, label and value. The icon uses
+   the card's --stat-card-accent. */
 #view-dashboard .stat-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
@@ -2376,8 +2280,7 @@ input:focus-visible {
 }
 
 /* Panel rows: 50 / 30 / 20 (resources, storage, health), then three equal
-   activity panels. Panels in a row share its height; content is compact so
-   no row carries large empty space. */
+   activity panels. Panels in a row share its height. */
 .dash-grid {
   display: grid;
   gap: 12px;
@@ -2410,7 +2313,7 @@ input:focus-visible {
   min-height: 0;
 }
 
-/* Overflow stays inside the fixed panel (e.g. extra non-Normal findings). */
+/* Overflow scrolls inside the panel (e.g. extra findings). */
 .dash-panel--health {
   overflow-y: auto;
 }
@@ -3068,11 +2971,10 @@ input:focus-visible {
 
 /* --- Operations: Supported Actions catalog --- */
 
-/* The catalog fills the content width with ONE shared column grid: every
-   card is one column wide, so all cards share the same width. Each category
-   group spans as many columns as it has cards (--ops-span) and lays its
-   cards on those shared columns (subgrid); dense packing fills row gaps.
-   On narrow containers a group's span is capped so it never overflows. */
+/* The catalog is one shared column grid, so all cards are the same width.
+   Each group spans as many columns as it has cards (--ops-span) and puts
+   its cards on those columns (subgrid); dense packing fills gaps. On
+   narrow screens the span is capped so nothing overflows. */
 .ops-catalog {
   container-type: inline-size;
   display: grid;
@@ -3109,7 +3011,7 @@ input:focus-visible {
   display: contents;
 }
 
-/* Fewer than three columns fit (1 column below 612px, 2 below 924px). */
+/* Fewer than three columns (1 below 612px, 2 below 924px). */
 @container (max-width: 923px) {
   .ops-catalog > .ops-group:has(> .ops-grid > :nth-child(3)) {
     --ops-span: 2;
@@ -3352,7 +3254,7 @@ input:focus-visible {
   color: var(--color-text-faint);
 }
 
-/* --- Observability: OpenTelemetry-inspired trace explorer --- */
+/* --- Observability: trace explorer --- */
 
 .visually-hidden {
   position: absolute;
@@ -4030,12 +3932,10 @@ input:focus-visible {
   }
 }
 
-/* --- Detail workspace: every .ns-drawer is a centered, responsive modal ---
-   One shared pattern for all detail and dialog panels (Namespaces,
-   Databases, Processes, Web Applications, Web Sessions, Tasks, Security,
-   Demo Activity). Only placement and size change here; the panels' content
-   styles above are reused as-is. Behaviour (dialog semantics, scroll lock,
-   focus trap and focus return) lives in js/detail-workspace.js. */
+/* --- Detail workspace: every .ns-drawer is a centered modal ---
+   Used by Namespaces, Databases, Processes, Web Apps, Web Sessions, Tasks,
+   Security and Demo Activity. Only position and size are set here; the
+   behaviour (dialog, scroll lock, focus) is in js/detail-workspace.js. */
 
 html.detail-workspace-open {
   overflow: hidden;
@@ -4067,8 +3967,8 @@ html.detail-workspace-open {
   outline: none;
 }
 
-/* Wide detail views (Processes, Web Apps, Web Sessions, Tasks, Security):
-   most of a desktop viewport, capped for comfortable reading. */
+/* Wide panels (Processes, Web Apps, Web Sessions, Tasks, Security): most
+   of the screen, with a max width. */
 .ns-drawer--wide {
   width: min(1040px, calc(100vw - 48px));
 }
@@ -4877,9 +4777,9 @@ html.detail-workspace-open {
   }
 }
 
-/* --- Investigation view: audit evidence layout ---
-   Scoped to #view-investigation; KPI treatment mirrors the System/Journal
-   views. Timeline dots are positioned from real UTC timestamps in JS. */
+/* --- Investigation page ---
+   Scoped to #view-investigation; KPIs look like System/Journal. Timeline
+   dot positions are set in JS from the timestamps. */
 
 #view-investigation .view__header {
   margin-bottom: 14px;
@@ -5117,8 +5017,7 @@ html.detail-workspace-open {
   }
 }
 
-/* Investigation title: a little room below the text so the Syne "g"
-   descender in "Investigation" is never cut; typography unchanged. */
+/* A little room under the title so the "g" in "Investigation" isn't cut off. */
 #view-investigation .view__title {
   padding-bottom: 0.1em;
 }
@@ -5144,7 +5043,7 @@ html.detail-workspace-open {
   gap: 8px;
 }
 
-/* --- Databases: Fix Issues panel (MVP) --- */
+/* --- Databases: Fix Issues panel --- */
 .db-issues {
   margin-bottom: 16px;
 }

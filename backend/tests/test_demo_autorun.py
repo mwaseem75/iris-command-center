@@ -1,8 +1,7 @@
-"""Tests for the one-time automatic Demo Activity (app/execution/demo_autorun.py)
-and its startup wiring. The rehearsal itself is the real, unchanged
-app/execution/demo_rehearsal.run_rehearsal running against the same FakeIris
-the manual Demo Activity tests use; the completion marker is a fake. No test
-contacts IRIS."""
+"""Tests for the automatic Demo Activity (app/execution/demo_autorun.py) and
+its startup wiring. The real run_rehearsal runs against the same FakeIris
+as the manual tests; the marker is faked.
+"""
 
 import asyncio
 from datetime import datetime
@@ -49,7 +48,7 @@ class FakeMarker:
 
 
 class UnreachableUntil(FakeIris):
-    """/info fails (as an unreachable IRIS) for the first `failures` calls."""
+    """/info fails for the first `failures` calls, as if IRIS were down."""
 
     def __init__(self, failures: int):
         super().__init__()
@@ -86,7 +85,7 @@ async def test_first_run_executes_the_existing_rehearsal_and_marks_it_complete()
 
     assert await _autorun(fake, marker).run() == "completed"
 
-    # The real rehearsal ran: journal toggled + restored, web app description changed + restored.
+    # The rehearsal ran: journal flipped and restored, web app description changed and restored.
     assert [p[1] for p in fake.puts] == [
         {"PurgeArchived": False},
         {"PurgeArchived": True},
@@ -94,12 +93,12 @@ async def test_first_run_executes_the_existing_rehearsal_and_marks_it_complete()
         {"Description": "User app"},
     ]
     assert fake.purge_archived is True and fake.web_apps["/csp/user"]["Description"] == "User app"
-    assert fake.posts == []  # nothing beyond the rehearsal's own operations
-    # ...through the executor, which recorded a trace for every step.
+    assert fake.posts == []  # nothing besides the rehearsal's own operations
+    # ...and each step has a trace.
     assert {t.operation_name for t in store.list_traces()} == {
         "journal.update_purge_archived", "web_app.update_description", "database.mount", "task.run_now",
     }
-    # Marker set once, only after completion, with a UTC timestamp.
+    # Marker set once, after completion, with a UTC timestamp.
     assert len(marker.writes) == 1
     assert datetime.fromisoformat(marker.writes[0]).utcoffset().total_seconds() == 0
 
@@ -164,7 +163,7 @@ async def test_unreachable_iris_runs_nothing_and_leaves_the_marker_untouched() -
 
     assert await _autorun(fake, marker).run() == "iris_unavailable"
 
-    assert fake.info_calls == 3  # the bounded readiness attempts
+    assert fake.info_calls == 3  # the readiness attempts
     assert marker.reads == 0 and marker.writes == [] and fake.puts == []
 
 

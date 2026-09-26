@@ -1,8 +1,5 @@
-"""Route-level tests for POST /api/iris/databases (database.create) —
-proves the HTTP wiring (including privilege sourcing via
-get_caller_privileges, which calls GET /info) works end-to-end, using a
-mocked IRISClient. No real network call is made anywhere in this file, and
-no test performs a real database creation.
+"""Route tests for POST /api/iris/databases (database.create), including
+privileges from GET /info. Uses a mocked IRISClient.
 """
 
 from typing import Any
@@ -60,9 +57,7 @@ def _databases_body(names: list[str]) -> dict[str, Any]:
 
 
 def _database_dir_found(resource_name: str = "%DB_MYDB") -> dict[str, Any]:
-    """A real-shaped GET /v2/database-dir?dir=<Directory> envelope — see
-    test_database_create.py's identical helper for the live-confirmed
-    LocalDatabase shape this represents."""
+    """GET /v2/database-dir?dir= response (same as in test_database_create.py)."""
     return {
         "status": {"errors": [], "summary": ""},
         "console": [],
@@ -131,11 +126,9 @@ def test_route_dry_run_with_confirmation_never_calls_post(
 def test_route_rejects_extra_field_with_422(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A caller attempting to also set an unlisted field via this endpoint
-    gets an explicit 422, not a silently-ignored extra field. POST is
-    never reached (see test_namespace_route.py's identical test for the
-    note on why /info may still be called before the body is ultimately
-    rejected)."""
+    """An extra field gives a 422 and the POST is never sent (/info may still be
+    called first; see test_namespace_route.py).
+    """
     mock_iris_client.get.return_value = INFO_BODY_MANAGE
 
     response = client.post(
@@ -150,10 +143,9 @@ def test_route_rejects_extra_field_with_422(
 def test_route_rejects_existing_directory_as_a_structured_failure(
     client: TestClient, mock_iris_client: AsyncMock
 ) -> None:
-    """A directory collision is a domain validation failure
-    (HandlerOutcome.FAILURE), not an HTTP-level rejection — the route
-    still returns 200 with a structured, non-success OperationResult, the
-    same convention every other validation failure in this project uses."""
+    """A directory collision is a validation failure, so the route still returns
+    200 with a failed OperationResult, like every other validation failure.
+    """
     mock_iris_client.get.side_effect = [
         INFO_BODY_MANAGE,
         _databases_body(["USER", "IRISTEMP"]),

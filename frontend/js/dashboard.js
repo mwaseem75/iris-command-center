@@ -1,32 +1,26 @@
-// Dashboard view: the main landing screen — a live view of the connected
-// IRIS instance built only from real, read-only data:
-//   - KPI row: counts from the existing list routes, plus IRIS's own alert
-//     counters from its System Dashboard (License Use is in System Health).
-//   - System Health, Recent Alerts and the Resources trends: GET
-//     /api/iris/monitor/dashboard (IRIS's GET /v2/monitor/dashboard/main).
-//   - Database Storage: GET /api/iris/databases/storage (/v2/database-dirs),
-//     named via the existing database list.
-//   - Process Distribution: the existing GET /api/iris/processes.
-//   - Recent Operations: the backend's own execution traces plus the
-//     operations registry (both existing routes).
+// Dashboard: the landing page, a live overview of the connected instance.
+// - KPI row: counts from the list routes, plus IRIS's own alert counters.
+// - System Health, Recent Alerts and Resources: GET /api/iris/monitor/dashboard.
+// - Database Storage: GET /api/iris/databases/storage, with names from the
+//   database list.
+// - Process Distribution: GET /api/iris/processes.
+// - Recent Operations: our execution traces plus the operations registry.
 //
-// Live refresh: every REFRESH_INTERVAL_MS while the Dashboard view is shown
-// AND the browser tab is visible (paused otherwise, resumed on return). The
-// fast panels refresh every tick; the heavier sources (counts, storage,
-// tasks, registry) every SLOW_EVERY_TICKS ticks. Refreshes are
-// chained with setTimeout, so two never overlap.
+// Refreshes every REFRESH_INTERVAL_MS while the Dashboard is shown and the
+// tab is visible. Fast panels update every tick; the heavier ones (counts,
+// storage, tasks, registry) every SLOW_EVERY_TICKS. Refreshes are chained
+// with setTimeout so they never overlap.
 //
-// Resource trends come from up to MAX_SAMPLES real samples taken by this page
-// — nothing is interpolated. Disk read/write rates are deltas of IRIS's
-// cumulative counters between two real samples; a negative delta (counters
-// reset, e.g. IRIS restarted) is skipped, not charted. Nothing here is
-// invented: missing or failed data is shown as unavailable.
+// Resource charts use up to MAX_SAMPLES samples taken by this page. Disk
+// read/write rates are the difference between two samples of IRIS's
+// cumulative counters; a negative difference (IRIS restarted) is skipped.
+// Missing or failed data shows as unavailable.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderDonut, renderStackedBar, topCategories } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 const REFRESH_INTERVAL_MS = 15000;
 const SLOW_EVERY_TICKS = 4;
 const MAX_SAMPLES = 60;
@@ -91,8 +85,8 @@ const STAT_CARDS = {
   tasks: { valueEl: "stat-tasks", cardSelector: '[data-card="tasks"]' },
 };
 
-// IRIS System Dashboard indicators: [label, section, field]. Each is a
-// status string IRIS reports ("Normal" when healthy).
+// System Dashboard indicators: [label, section, field]. Each is a status
+// string ("Normal" when healthy).
 const HEALTH_INDICATORS = [
   ["Database Space", "SystemUsage", "DatabaseSpace"],
   ["Database Journal", "SystemUsage", "DatabaseJournal"],
@@ -115,11 +109,11 @@ const RESOURCE_SERIES = [
   ["Web sessions", "", (s) => s.cspSessions],
 ];
 
-let samples = []; // real samples, oldest first, at most MAX_SAMPLES
+let samples = [];  // samples, oldest first, at most MAX_SAMPLES
 let tickCount = 0;
 let timer = null;
 let refreshing = false;
-let lastSuccess = null; // Date of the last refresh with no failures
+let lastSuccess = null;  // time of the last refresh with no failures
 let lastRefreshFailed = false;
 let databaseNames = new Map(); // Directory → Name, from the last database list
 let loadedOnce = false;
@@ -270,7 +264,7 @@ function renderMonitorKpis(monitor, sysMon) {
     delete dom.alertsCard.dataset.level;
     return;
   }
-  // IRIS Alerts KPI: IRIS's own serious-alert counter, as reported.
+  // IRIS Alerts KPI: IRIS's serious-alert counter.
   const serious = monitor.Alerts.SeriousAlerts;
   dom.alerts.classList.remove("stat-card__value--unavailable");
   dom.alertsCard.classList.remove("stat-card--error");
@@ -281,7 +275,7 @@ function renderMonitorKpis(monitor, sysMon) {
 
   const lic = monitor.Licensing;
   dom.license.classList.remove("stat-card__value--unavailable");
-  // Spec: LicenseUse is a percentage, or "" when there is no license limit.
+  // LicenseUse is a percentage, or "" when there's no license limit.
   dom.license.textContent = typeof lic.LicenseUse === "number" ? `${lic.LicenseUse}%` : "No limit";
   dom.licenseMeta.textContent =
     `limit ${formatNumber(lic.LicenseLimit)} units` +
@@ -309,13 +303,12 @@ function statusVariant(value) {
   return value.trim().toLowerCase() === "normal" ? "status-badge--ok" : "status-badge--warning";
 }
 
-// System Monitor running state, from the real process list: the monitor's
-// controller runs as %SYS.Monitor.Control in %SYS for as long as it is up.
-// IRIS's own Status.SystemMonitor flag is NOT used: SYS.Metrics reports a
-// status string (e.g. "Normal") that the REST endpoint casts to boolean, so it
-// is always false on this IRIS version.
-// Returns the process (running), null (not running) or undefined (unknown —
-// the process list could not be loaded).
+// Whether the System Monitor is running, from the process list: its
+// controller runs as %SYS.Monitor.Control in %SYS.
+// We don't use the Status.SystemMonitor flag, because the REST endpoint
+// casts a status string like "Normal" to boolean, so it's always false here.
+// Returns the process (running), null (not running) or undefined (the
+// process list didn't load).
 function findSystemMonitorProcess(processesResult) {
   const value = fulfilled(processesResult);
   if (!value || !Array.isArray(value.result)) return undefined;
@@ -332,8 +325,8 @@ function describeSystemMonitor(sysMon) {
   return `Running (PID ${sysMon.Pid})`;
 }
 
-// Compact visual summary: a ring filled by the share of IRIS indicators that
-// report "Normal", with the plain count in the centre. No score is computed.
+// Ring showing the share of indicators that say "Normal", with the count
+// in the middle.
 function renderHealthSummary(monitor) {
   dom.healthSummary.replaceChildren();
   if (!monitor) return;
@@ -379,7 +372,7 @@ function renderHealth(monitor, sysMon) {
   renderHealthSummary(monitor);
   if (!monitor) return;
 
-  // Each check restates a value IRIS (or the process list) reported.
+  // Each check just restates a value from IRIS or the process list.
   const checks = [];
   if (sysMon === undefined) checks.push(["unknown", "System Monitor: unknown (process list unavailable)"]);
   else if (sysMon === null) checks.push(["warning", "System Monitor not running"]);
@@ -429,7 +422,7 @@ function renderAlerts(monitor, sysMon) {
     dom.alertCounts.append(card);
   }
 
-  // Real, derived-only-by-comparison findings: each is a value IRIS reported.
+  // Findings, each based on a value IRIS reported.
   const findings = [];
   if (stale) findings.push(["warning", "IRIS System Monitor is not running — status indicators and alert counts are not being updated."]);
   for (const [label, section, field] of HEALTH_INDICATORS) {
@@ -456,12 +449,11 @@ function renderAlerts(monitor, sysMon) {
   }
 }
 
-// Command Center Issues: detected by the Command Center's own issue resolver
-// (GET /api/iris/issues), kept apart from IRIS's alert counters above.
-// "Review & Fix" goes to the existing Fix Issues panel on the Databases page,
-// where the fix runs through the database.mount confirmation flow.
+// Command Center Issues come from our own issue check (GET /api/iris/issues)
+// and are shown separately from IRIS's alerts. "Review & Fix" goes to the
+// Fix Issues panel on the Databases page, which uses database.mount.
 function renderCcIssues(settled) {
-  if (!settled) return; // not refreshed this cycle — keep what is shown
+  if (!settled) return;  // not refreshed this time, keep what's shown
   const issues = settled.status === "fulfilled" && Array.isArray(settled.value?.issues) ? settled.value.issues : null;
   dom.ccIssueList.replaceChildren();
   dom.ccIssues.hidden = false;
@@ -510,7 +502,7 @@ function takeSample(monitor) {
     if (!previous || typeof current !== "number" || typeof before !== "number") return null;
     const seconds = (now - previous.time) / 1000;
     const delta = current - before;
-    // A negative delta means the cumulative counters reset (IRIS restarted).
+    // A negative difference means the counters reset (IRIS restarted).
     return seconds > 0 && delta >= 0 ? delta / seconds : null;
   };
   const sample = {
@@ -542,7 +534,7 @@ function makeSparkline(values) {
   const span = max - min || 1;
   const step = values.length > 1 ? width / (values.length - 1) : width;
   const coords = points.map(([i, v]) => `${(i * step).toFixed(1)},${(height - 3 - ((v - min) / span) * (height - 6)).toFixed(1)}`);
-  // Area under the line, spanning only the real samples (never extrapolated).
+  // Area under the line, only across the actual samples.
   const firstX = (points[0][0] * step).toFixed(1);
   const lastX = (points[points.length - 1][0] * step).toFixed(1);
   const area = document.createElementNS(SVG_NS, "polygon");
@@ -555,7 +547,7 @@ function makeSparkline(values) {
   return svg;
 }
 
-// A rounded axis ceiling so gridline labels read cleanly (1, 2, 2.5, 5 × 10^n).
+// Round the axis max so gridline labels look clean (1, 2, 2.5, 5 x 10^n).
 function niceCeiling(value) {
   if (!(value > 0)) return 1;
   const power = 10 ** Math.floor(Math.log10(value));
@@ -567,8 +559,7 @@ function formatClock(time) {
   return new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-// Large trend chart of one real sampled series, with a zero-based y axis,
-// gridlines and sample-time labels. Only real samples are plotted.
+// Trend chart for one series: y axis from zero, gridlines, sample times.
 function renderTrendChart(label, pick) {
   dom.resourcesChart.replaceChildren();
   const values = samples.map(pick);
@@ -628,8 +619,8 @@ function renderTrendChart(label, pick) {
   line.setAttribute("points", coords.join(" "));
   line.setAttribute("class", "dash-trend__line");
   svg.append(area, line);
-  // The plot box has a fixed, CSS-reserved size; the SVG fills it absolutely,
-  // so drawing the first line never changes the panel's dimensions.
+  // The plot box has a fixed size in CSS and the SVG fills it, so the first
+  // line doesn't resize the panel.
   const plot = document.createElement("div");
   plot.className = "dash-trend__plot";
   plot.append(svg);
@@ -699,7 +690,7 @@ function renderStorage(result) {
   dom.storageHint.textContent = `Total: ${formatMB(total)}`;
   dom.storageHint.title = `Allocated size of ${entries.length} local databases (GET /v2/database-dirs).`;
 
-  // Share of the total allocated size per database: the largest five, then Other.
+  // Share of total allocated size: the five largest, then Other.
   const nameOf = (entry) => databaseNames.get(entry.Directory) || entry.Directory;
   const shares = entries.slice(0, 5).map((e) => ({ key: nameOf(e), count: e.Size }));
   const rest = entries.slice(5).reduce((sum, e) => sum + e.Size, 0);
@@ -729,8 +720,8 @@ function renderStorage(result) {
     const fill = document.createElement("span");
     fill.className = "dash-storage__fill";
     const limited = typeof entry.MaxSize === "number" && entry.MaxSize > 0;
-    // With a numeric MaxSize the bar shows real utilization; otherwise it is
-    // relative to the largest database.
+    // With a numeric MaxSize the bar shows real usage; otherwise it's relative
+    // to the largest database.
     fill.style.width = `${Math.max(2, (limited ? entry.Size / entry.MaxSize : entry.Size / largest) * 100)}%`;
     track.append(fill);
     const share = document.createElement("span");
@@ -810,7 +801,7 @@ function renderRecentActivity(result) {
     const status = typeof trace.status === "string" ? trace.status : null;
     const row = document.createElement("tr");
     if (onOpenTrace && typeof trace.trace_id === "string") {
-      // Each row opens its real trace in the existing Observability detail.
+      // Each row opens its trace in Observability.
       row.className = "data-table__row--link";
       row.tabIndex = 0;
       row.title = `Open trace ${trace.trace_id} in Observability`;
@@ -904,8 +895,8 @@ async function refresh({ includeSlow }) {
     renderCountCard("tasks", r.tasks, (body) => body.result.length);
     renderMicroBar(dom.databasesViz, r.databases, (db) => db.Status || "Unknown");
     renderMicroBar(dom.webAppsViz, r.webApps, (app) => (app.Enabled ? "Enabled" : "Disabled"), 2);
-    // Run State from the tasks overview's backend-derived `State` — the same
-    // grouping the Tasks view uses; never the task list's own Suspended flag.
+    // Run state from the overview's `State` (same grouping as the Tasks page),
+    // not the list's Suspended flag.
     renderMicroBar(dom.tasksViz, r.tasks, (task) => task.State || "Unknown");
     renderStorage(r.storage);
     renderOperationsSummary(r.operations, r.traces);
@@ -955,8 +946,10 @@ function scheduleNext() {
   }, REFRESH_INTERVAL_MS);
 }
 
-/** Loads everything now and (re)starts the live cycle. Called at startup,
- * on Refresh, and when the Dashboard is shown again. */
+/**
+ * Load everything now and (re)start the refresh cycle. Called at startup,
+ * on Refresh and when the Dashboard is shown again.
+ */
 export async function loadDashboard() {
   stopPolling();
   tickCount = 0;
@@ -964,22 +957,23 @@ export async function loadDashboard() {
   scheduleNext();
 }
 
-/** Called when the Dashboard view is shown (app.js's navigation callback):
- * refreshes immediately and resumes polling. */
+/** Called when the Dashboard is shown: refresh now and resume polling. */
 export function onDashboardShown() {
   if (!refreshing) loadDashboard();
 }
 
-/** `onOpenTrace(traceId)`, when provided, makes each Recent Operations row
- * open that trace in the existing Observability detail view. */
+/**
+ * With `onOpenTrace(traceId)`, clicking a Recent Operations row opens that
+ * trace in Observability.
+ */
 export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
   onOpenTrace = typeof openTrace === "function" ? openTrace : null;
   dom.refreshButton.addEventListener("click", () => {
     loadDashboard();
   });
 
-  // Pause while the tab is hidden; resume (with an immediate refresh) when
-  // it is visible again and the Dashboard is the current view.
+  // Pause while the tab is hidden; resume (and refresh) when it's visible
+  // and the Dashboard is showing.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopPolling();
@@ -993,7 +987,7 @@ export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
     navigateTo("observability");
   });
 
-  // The count cards double as navigation shortcuts to their views.
+  // The count cards also link to their pages.
   dom.statGrid.querySelectorAll(".stat-card--interactive[data-card]").forEach((card) => {
     card.addEventListener("click", () => {
       navigateTo(card.dataset.card);
@@ -1006,6 +1000,5 @@ export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
   });
 }
 
-// Re-exported only so a future test/module can construct a matching error
-// type without importing api.js directly.
+// Re-exported so other code can use the error type without importing api.js.
 export { ApiError };

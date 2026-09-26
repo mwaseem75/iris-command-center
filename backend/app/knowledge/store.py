@@ -1,44 +1,18 @@
-"""IRIS-backed persistence and vector search for the knowledge corpus
-(app/knowledge/corpus.py), embedded by app/knowledge/embedding.py.
+"""Stores the knowledge corpus in IRIS and searches it with vector search.
 
-Off by default (Settings.enable_knowledge_search). When on:
+On startup (when ENABLE_KNOWLEDGE_SEARCH is on) we create the
+CommandCenter.Knowledge table if needed and reload the whole corpus into it.
+Searches embed the query here and let IRIS rank rows with VECTOR_COSINE.
 
-- Startup (app/main.py's lifespan) calls ensure_indexed_sync(), which
-  creates the table below in Settings.iris_namespace (default USER, whose
-  data lives in the persistent USER database) if it does not exist yet,
-  then deterministically reindexes it: every row is deleted and the full
-  corpus re-inserted, in corpus order, in one explicit transaction
-  (autocommit is off only for its duration; any failure rolls back to the
-  previous rows). The corpus and
-  embedder are both deterministic, so every reindex writes identical rows —
-  a recreated backend or IRIS container needs no manual setup.
-- GET /api/iris/knowledge/search runs search_sync(): the query is embedded
-  here and compared inside IRIS with VECTOR_COSINE, TOP 5.
+Table:
+    Source    VARCHAR(200)   document id, e.g. "operation:database.mount"
+    Title     VARCHAR(500)
+    Body      VARCHAR(4000)
+    Embedding VECTOR(DOUBLE, 256)
 
-    CREATE TABLE CommandCenter.Knowledge (
-        Source    VARCHAR(200)  -- KnowledgeDocument.doc_id, e.g. "operation:database.mount"
-        Title     VARCHAR(500)
-        Body      VARCHAR(4000)
-        Embedding VECTOR(DOUBLE, 256)
-    )
-
-Vectors are stored only in IRIS — never on the backend filesystem.
-
-Safety:
-- Every value reaches IRIS as a bound SQL parameter (?) — including the
-  query's vector literal; no caller text is ever interpolated into SQL.
-- The only writes are to CommandCenter.Knowledge, the table this module
-  owns (DDL once, then DELETE/INSERT of public corpus data). Nothing else
-  in IRIS is touched, and the table holds no credentials or secrets.
-- BLOCKING (DB-API over the Native API driver) — call only off the event
-  loop. A lock serializes use of the single connection.
-- GRACEFUL: an unreachable IRIS (or any SQL failure) raises
-  KnowledgeStoreUnavailableError, which the route turns into a fixed 502
-  and startup logs and ignores. A failure also drops the connection and
-  marks the store unindexed, so the next search reconnects and re-ensures
-  the table (e.g. after an IRIS container was recreated).
-- The `iris` package is imported lazily, so this module can be imported
-  and tested without it.
+All values go in as bound parameters. If IRIS is unreachable we raise
+KnowledgeStoreUnavailableError, drop the connection and reindex on the next
+search. The iris driver is blocking, so call this off the event loop.
 """
 
 from __future__ import annotations
@@ -85,8 +59,7 @@ _SEARCH_SQL = (
 
 
 class KnowledgeStoreUnavailableError(Exception):
-    """IRIS could not be reached or the SQL failed. Never carries
-    connection details or credentials."""
+    """IRIS was unreachable or the SQL failed."""
 
 
 class KnowledgeHit(BaseModel):
@@ -102,8 +75,7 @@ class KnowledgeSearchResponse(BaseModel):
 
 
 def vector_literal(vector: list[float]) -> str:
-    """TO_VECTOR's comma-separated input. Fixed-point formatting, so no
-    value is ever written in exponent notation."""
+    """Format a vector for TO_VECTOR (fixed-point, no exponent notation)."""
     return ",".join(f"{value:.12f}" for value in vector)
 
 
@@ -117,10 +89,7 @@ def _check_fits(doc: KnowledgeDocument) -> None:
 
 
 class IRISKnowledgeStore:
-    """One instance is created at app startup, only when
-    Settings.enable_knowledge_search is True. Constructing it makes no
-    network call; the connection opens on first use (mirrors
-    IRISTraceWriter / EmbeddedPythonDiagnostics)."""
+    """Created at startup when knowledge search is enabled; connects lazily."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -132,7 +101,7 @@ class IRISKnowledgeStore:
         if self._connection is not None:
             return
 
-        import iris  # noqa: PLC0415 - deliberately lazy; see module docstring
+        import iris  # noqa: PLC0415 - optional dependency, imported on first use
 
         hostname = urlsplit(self._settings.iris_base_url).hostname
         self._connection = iris.connect(
@@ -144,8 +113,7 @@ class IRISKnowledgeStore:
         )
 
     def _reset(self) -> None:
-        """Drops a possibly broken connection; the next call reconnects
-        and re-ensures the table."""
+        """Drop the connection; the next call reconnects and reindexes."""
         connection, self._connection, self._indexed = self._connection, None, False
         if connection is not None:
             try:
@@ -165,10 +133,8 @@ class IRISKnowledgeStore:
         if not int(cursor.fetchone()[0]):
             cursor.execute(_CREATE_SQL)
             logger.info("Created %s for knowledge search.", _QUALIFIED)
-        # The driver autocommits every statement by default (verified live:
-        # a failed INSERT mid-reindex otherwise leaves a partial table), so
-        # the DELETE + INSERTs run as one explicit transaction. Autocommit is
-        # restored afterwards, leaving search behavior unchanged.
+        # The iris driver autocommits by default, which would leave a half-filled
+        # table if an insert failed. Run the reload as one transaction instead.
         self._connection.setAutoCommit(False)
         try:
             cursor.execute(_DELETE_SQL)
@@ -184,12 +150,11 @@ class IRISKnowledgeStore:
         return len(rows)
 
     def ensure_indexed_sync(self) -> int:
-        """Blocking. Creates the table if missing and reindexes the whole
-        corpus. Returns the number of documents indexed."""
+        """Create the table if needed and reload the corpus. Returns the row count."""
         with self._lock:
             try:
                 count = self._index_locked()
-            except Exception as exc:  # noqa: BLE001 - never leak connection details
+            except Exception as exc:  # noqa: BLE001 - don't leak connection details
                 logger.warning("Could not index the knowledge corpus into IRIS (%s).", _QUALIFIED, exc_info=True)
                 self._reset()
                 raise KnowledgeStoreUnavailableError() from exc
@@ -197,9 +162,7 @@ class IRISKnowledgeStore:
             return count
 
     def search_sync(self, query: str) -> list[KnowledgeHit]:
-        """Blocking. TOP 5 corpus documents by cosine similarity to
-        `query`. A query with no searchable words returns [] without
-        touching IRIS (its vector would be all zeros)."""
+        """Return the top 5 matches. A query with no real words returns []."""
         vector = embed(query)
         if not any(vector):
             return []
@@ -210,7 +173,7 @@ class IRISKnowledgeStore:
                 cursor = self._connection.cursor()
                 cursor.execute(_SEARCH_SQL, [vector_literal(vector)])
                 rows = cursor.fetchall()
-            except Exception as exc:  # noqa: BLE001 - never leak connection details
+            except Exception as exc:  # noqa: BLE001 - don't leak connection details
                 logger.warning("Knowledge search against IRIS (%s) failed.", _QUALIFIED, exc_info=True)
                 self._reset()
                 raise KnowledgeStoreUnavailableError() from exc
@@ -220,6 +183,6 @@ class IRISKnowledgeStore:
         ]
 
     def close(self) -> None:
-        """Best-effort connection close at shutdown. Never raises."""
+        """Close the connection at shutdown."""
         with self._lock:
             self._reset()

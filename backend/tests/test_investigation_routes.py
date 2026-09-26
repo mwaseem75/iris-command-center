@@ -1,11 +1,7 @@
-"""Tests for the Logs/Investigation view's two backend routes:
+"""Tests for the Investigation page routes:
 GET /api/iris/security/audit/enabled and GET /api/iris/security/audit/records.
 
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. Canned bodies are trimmed versions of ACTUAL response bodies
-captured while verifying these endpoints against icc-iris-dev (see
-docs/api-capability-matrix.md's "GET /v2/security/audit/enabled" and "POST
-/v2/security/audit/records" entries), not invented data.
+Canned bodies are trimmed real responses.
 """
 
 from typing import Any
@@ -21,8 +17,7 @@ AUDIT_ENABLED_BODY: dict[str, Any] = {
     "result": {"Enabled": True},
 }
 
-# The Result array inside a Finished AsyncTask, as returned by
-# wait_for_async_task — real, captured audit records (trimmed to two).
+# Result of a finished task: real audit records, trimmed to two.
 FINISHED_AUDIT_TASK: dict[str, Any] = {
     "State": "Finished",
     "TaskName": "POST /v2/security/audit/records",
@@ -118,8 +113,7 @@ def test_get_audit_records_success_with_no_filters(
     assert len(body["result"]) == 2
     assert body["result"][0]["Event"] == "AuditReport"
     assert body["result"][1]["Event"] == "AuditChange"
-    # No filters supplied -> an empty params dict, matching IRIS's own
-    # documented "list everything" behavior when every filter is omitted.
+    # No filters means empty params, which IRIS treats as "everything".
     mock_iris_client.post_async_task.assert_awaited_once_with(
         "/v2/security/audit/records", params={}
     )

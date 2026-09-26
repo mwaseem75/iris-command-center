@@ -1,96 +1,22 @@
-"""Minimal frontend smoke test — no test framework introduced for this.
+"""Frontend smoke tests (no JS test framework).
 
-Run directly:  python tests/test_frontend_smoke.py
-(uses the backend's existing venv, since it needs to import the real
-FastAPI app to compare routes — see backend/.venv)
+Run with the backend venv, since it imports the FastAPI app:
+    backend/.venv/Scripts/python tests/test_frontend_smoke.py
 
-Checks, per Phase 3 Step 1's minimum bar ("verify the frontend can be
-served and that its API paths match the existing backend routes"),
-extended in Phase 3 Step 2 for the System view, Phase 3 Step 3 for the
-Processes view, Phase 3 Step 4 for the Databases view, Phase 3 Step 5 for
-the Web Apps view, Phase 3 Step 6 for the Tasks view, and Phase 3 Step 7
-for the Security view:
+What it checks:
+- the frontend files exist and index.html can be served;
+- every /api/iris/* path in api.js is a real backend route (compared with
+  the app's OpenAPI schema);
+- each page has its nav item and view, the nav item is enabled, and the
+  page's JS only calls the IrisApi methods it's supposed to;
+- the only mutating calls are the POST wrappers in api.js, each tied to
+  its own route; no PUT/PATCH/DELETE anywhere;
+- pages that mutate go through the api.js wrappers and only run an
+  operation from the confirm button, never on load;
+- Observability and Investigation link to each other by time window;
+- the Dashboard's quicklinks point at real nav views.
 
-1. The expected frontend files exist and are non-empty.
-2. A plain static file server can actually serve frontend/index.html.
-3. Every /api/iris/* path referenced in frontend/js/api.js is a REAL,
-   currently-registered route on the backend FastAPI app (compared via the
-   app's own OpenAPI schema, not by guessing/duplicating the route list).
-4. (Step 2) The System nav item and view exist in the markup and the nav
-   item is enabled (not `disabled`).
-5. (Step 2) system.js calls GET /api/iris/info and no other endpoint.
-5b. The Namespaces nav item and view exist in the markup and the nav item
-    is enabled (not `disabled`); namespaces.js calls GET /api/iris/namespaces
-    and no other endpoint.
-6. (Step 3) The Processes nav item and view exist in the markup and the
-   nav item is enabled (not `disabled`).
-7. (Step 3) processes.js calls GET /api/iris/processes and no other
-   endpoint, and renders into the processes table body.
-8. (Step 4) The Databases nav item and view exist in the markup and the
-   nav item is enabled (not `disabled`).
-9. (Step 4) databases.js calls GET /api/iris/databases and no other
-   endpoint, and renders into the databases table body.
-10. (Step 5) The Web Apps nav item and view exist in the markup and the
-    nav item is enabled (not `disabled`).
-11. (Step 5) web-apps.js calls only GET /api/iris/web-apps and the
-    read-only GET /api/iris/web-apps/detail (detail drawer) and
-    GET /api/iris/web-apps/rest-endpoints (REST Endpoints tab) and
-    GET /api/iris/web-sessions (Web Sessions section, never a session ID),
-    and renders into the web apps table body.
-12. (Step 6) The Tasks nav item and view exist in the markup and the nav
-    item is enabled (not `disabled`).
-13. (Step 6) tasks.js calls only the read-only GET /api/iris/tasks/overview,
-    /tasks/manager and /tasks/detail endpoints, and renders into the tasks
-    table body.
-14. (Step 7) The Security nav item and view exist in the markup and the
-    nav item is enabled (not `disabled`).
-15. (Step 7) security.js calls only the three OAuth2 endpoints (server,
-    client/server-definitions, server/clients) and no other endpoint, and
-    renders into the security view's own elements.
-16. (Step 8) The Journal nav item and view exist in the markup and the nav
-    item is enabled (not `disabled`), and journal.js calls only
-    GET /api/iris/journal/settings.
-17. (general regression guard) No mutating HTTP method string
-    ("PUT"/"POST"/"DELETE"/"PATCH") appears anywhere in frontend/js/*.js —
-    this is intentionally broad so it keeps guarding every future view,
-    not just System/Processes/Databases/Web Apps/Tasks/Security/Journal.
-18. (Phase 4) The AI Assistant nav item/view exist and are enabled, and
-    ai-assistant.js calls only GET /api/iris/assistant/query (the backend's
-    read-only, natural-language query endpoint) and no other IrisApi
-    method — see backend/app/routes/assistant.py.
-19. The Extensions nav item and view exist in the markup and the nav item
-    is enabled (not `disabled`); extensions.js calls only the three
-    remaining previously-unexposed read-only endpoints (ext-lang-servers,
-    fs-access-purposes, wallet/collections) and no other IrisApi method.
-20. The Investigation nav item and view exist in the markup and the nav
-    item is enabled (not `disabled`); investigation.js calls only
-    IrisApi.getAuditEnabled()/getAuditRecords() (plus getExecutionTraces()
-    for the ±30 s related-trace correlation) and no other IrisApi
-    method, and never references a mutating HTTP method (IRIS's own
-    async-task POST for audit records happens entirely on the backend;
-    this view only ever sends a GET).
-21. The API Capability Explorer ("capabilities") nav item and view exist in
-    the markup and the nav item is enabled (not `disabled`);
-    capabilities.js calls only IrisApi.getCapabilities() and no other
-    IrisApi method, filters entirely client-side (no other network call on
-    input), and never references a mutating HTTP method.
-22. Observability and Investigation cross-link to each other by time
-    window only (never a shared IRIS/trace ID, since none exists):
-    nav.js exports navigateTo(); observability.js gained its own
-    client-side Begin/End (UTC) time filter and exports setTimeWindow();
-    investigation.js exports setTimeWindow() for the reverse direction;
-    app.js wires both cross-link callbacks. Neither view gained a
-    mutating HTTP method reference; investigation.js's only addition is
-    the read-only getExecutionTraces() used for the same time window.
-23. The Dashboard (the contest/demo landing screen) surfaces Recent
-    Activity (dashboard.js additionally calls IrisApi.getExecutionTraces())
-    and Explore quicklinks that navigate (via nav.js's navigateTo()) to
-    other real, enabled nav views — never a typo'd data-view target.
-    Still calls no other IrisApi method, no raw fetch(), and no mutating
-    HTTP method.
-
-Does not start icc-iris-dev, does not call any IRIS endpoint, does not
-import or exercise anything mutating.
+It doesn't start IRIS or call any IRIS endpoint.
 """
 
 import http.client
@@ -183,7 +109,7 @@ def test_api_paths_match_real_backend_routes() -> None:
     os.environ.setdefault("IRIS_USERNAME", "smoke-test")
     os.environ.setdefault("IRIS_PASSWORD", "smoke-test")
 
-    from app.main import app  # imports the REAL app; no IRIS call happens on import
+    from app.main import app  # imports the real app; importing doesn't call IRIS
 
     registered_paths = set(app.openapi()["paths"].keys())
 
@@ -236,8 +162,7 @@ def test_namespaces_nav_and_view_exist_and_are_enabled() -> None:
     )
     check(view_match is not None, 'a <section id="view-namespaces" data-view="namespaces"> exists')
 
-    # Namespace Explorer redesign: the wide table was replaced by a card
-    # grid, a database-sharing topology section, and a detail drawer.
+    # Namespaces page: card grid, database-sharing section and a detail drawer.
     check('id="namespaces-card-grid"' in html, "the namespaces card grid element exists")
     check('id="namespaces-topology"' in html, "the namespaces topology element exists")
     check('id="namespaces-drawer"' in html, "the namespaces detail drawer element exists")
@@ -248,17 +173,14 @@ def test_namespaces_view_uses_only_get_and_create_namespace() -> None:
     namespaces_js = (FRONTEND_DIR / "js" / "namespaces.js").read_text(encoding="utf-8")
 
     check("IrisApi.getNamespaces" in namespaces_js, "namespaces.js calls IrisApi.getNamespaces()")
-    # The "New Namespace" wizard's Configure step populates its database
-    # selectors from the existing, already-tested read-only databases API
-    # — never a hardcoded list of names.
+    # The New Namespace wizard gets its database list from the databases
+    # API, not a hardcoded list.
     check(
         "IrisApi.getDatabases" in namespaces_js,
         "namespaces.js calls IrisApi.getDatabases() to populate the wizard's database selectors",
     )
-    # namespace.create (the "New Namespace" wizard) is this view's one
-    # sanctioned mutating capability — it must go through the IrisApi
-    # wrapper, never a raw fetch() (checked in
-    # test_no_mutating_http_method_anywhere_in_frontend_js below).
+    # namespace.create (New Namespace wizard) is this page's only mutation
+    # and must go through the IrisApi wrapper.
     check(
         "IrisApi.createNamespace" in namespaces_js,
         "namespaces.js calls IrisApi.createNamespace() for its 'New Namespace' wizard",
@@ -342,14 +264,10 @@ def test_databases_nav_and_view_exist_and_are_enabled() -> None:
     )
     check(view_match is not None, 'a <section id="view-databases" data-view="databases"> exists')
 
-    # Database Explorer redesign: the wide table was replaced by a card
-    # grid and a read-only detail drawer, same interaction pattern as the
-    # Namespace Explorer.
+    # Databases page: card grid and detail drawer, like Namespaces.
     check('id="databases-card-grid"' in html, "the databases card grid element exists")
     check('id="databases-drawer"' in html, "the databases detail drawer element exists")
-    # The "+ New Database" wizard: the button is now a real, enabled
-    # trigger for the wizard drawer (database.create), not a disabled
-    # placeholder.
+    # The "+ New Database" button opens the wizard (database.create).
     nav_button_match = re.search(
         r'<button class="btn btn--primary" type="button" id="databases-create-button">', html
     )
@@ -358,7 +276,7 @@ def test_databases_nav_and_view_exist_and_are_enabled() -> None:
         'id="database-create-drawer"' in html,
         "the 'New Database' wizard drawer element exists",
     )
-    # database.info: the detail drawer's read-only "View Info" action.
+    # database.info: the drawer's "View Info" action.
     check(
         'id="databases-drawer-info-button"' in html,
         "the database detail drawer's 'View Info' button exists",
@@ -367,8 +285,7 @@ def test_databases_nav_and_view_exist_and_are_enabled() -> None:
         'id="databases-drawer-info-fields"' in html,
         "the database detail drawer's storage-info fields element exists",
     )
-    # database.integrity_check: the detail drawer's read-only "Run
-    # Integrity Check" action.
+    # database.integrity_check: the drawer's "Run Integrity Check" action.
     check(
         'id="databases-drawer-integrity-button"' in html,
         "the database detail drawer's 'Run Integrity Check' button exists",
@@ -387,36 +304,31 @@ def test_databases_view_uses_only_get_and_create_database_and_get_namespaces() -
     databases_js = (FRONTEND_DIR / "js" / "databases.js").read_text(encoding="utf-8")
 
     check("IrisApi.getDatabases" in databases_js, "databases.js calls IrisApi.getDatabases()")
-    # getNamespaces() is read-only and only used to compute the drawer's
-    # "Namespace Usage" section — the same existing endpoint
-    # namespaces.js itself already uses, not a new/expensive call.
+    # getNamespaces() is only used for the drawer's "Namespace Usage"
+    # section (same endpoint namespaces.js uses).
     check(
         "IrisApi.getNamespaces" in databases_js,
         "databases.js calls IrisApi.getNamespaces() for the drawer's Namespace Usage section",
     )
-    # database.info: read-only, drawer-only "View Info" action — never
-    # fetched automatically, only on the button's own click handler.
+    # database.info only runs when "View Info" is clicked.
     check(
         "IrisApi.getDatabaseInfo" in databases_js,
         "databases.js calls IrisApi.getDatabaseInfo() for the drawer's 'View Info' action",
     )
-    # database.integrity_check: read-only, drawer-only "Run Integrity
-    # Check" action — same discipline, never fetched automatically.
+    # database.integrity_check only runs when its button is clicked.
     check(
         "IrisApi.checkDatabaseIntegrity" in databases_js,
         "databases.js calls IrisApi.checkDatabaseIntegrity() for the drawer's "
         "'Run Integrity Check' action",
     )
-    # database.create (the "New Database" wizard) is this view's one
-    # sanctioned mutating capability — it must go through the IrisApi
-    # wrapper, never a raw fetch() (checked in
-    # test_no_mutating_http_method_anywhere_in_frontend_js below).
+    # database.create (New Database wizard) must go through the IrisApi
+    # wrapper.
     check(
         "IrisApi.createDatabase" in databases_js,
         "databases.js calls IrisApi.createDatabase() for its 'New Database' wizard",
     )
-    # database.mount: drawer-only, dry-run preview then explicit
-    # confirmation — also only through the IrisApi wrapper.
+    # database.mount: in the drawer, dry-run preview then confirm, via the
+    # IrisApi wrapper.
     check(
         "IrisApi.mountDatabase" in databases_js,
         "databases.js calls IrisApi.mountDatabase() for the drawer's mount action",
@@ -425,8 +337,8 @@ def test_databases_view_uses_only_get_and_create_database_and_get_namespaces() -
         "databases-drawer-mount" in databases_js,
         "databases.js renders into the drawer's mount elements",
     )
-    # database.dismount: beside Mount, the same dry-run-then-confirm flow,
-    # only through its IrisApi wrapper; the markup has its own controls.
+    # database.dismount: next to Mount, same dry-run-then-confirm flow, with
+    # its own controls.
     check(
         "IrisApi.dismountDatabase" in databases_js,
         "databases.js calls IrisApi.dismountDatabase() for the drawer's dismount action",
@@ -524,8 +436,7 @@ def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
         "IrisApi.getWebSessions" in web_apps_js,
         "web-apps.js calls IrisApi.getWebSessions() for the Web Sessions section",
     )
-    # Its one mutation goes through the sanctioned api.js wrapper, never a
-    # raw fetch or another operation's wrapper.
+    # Its mutation goes through its own api.js wrapper, never a raw fetch.
     check(
         "IrisApi.setWebAppEnabled" in web_apps_js,
         "web-apps.js's first mutation is IrisApi.setWebAppEnabled() (web_app.set_enabled)",
@@ -536,8 +447,8 @@ def test_web_apps_view_uses_only_web_app_read_endpoints() -> None:
     )
     for other_mutation in ("createNamespace", "createDatabase", "mountDatabase", "setUserEnabled", "runTaskNow", "fetch("):
         check(other_mutation not in web_apps_js, f"web-apps.js does not use {other_mutation}")
-    # IRIS's web-session ID (what DELETE /v2/web-session?id= takes) is
-    # stripped by the backend; the frontend must never try to read one.
+    # The backend strips the web-session ID; the frontend shouldn't look
+    # for one.
     api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
     for name, source in (("web-apps.js", web_apps_js), ("api.js", api_js)):
         check(
@@ -599,14 +510,14 @@ def test_tasks_view_uses_only_task_read_endpoints() -> None:
         check(method not in tasks_js, f"tasks.js does NOT call IrisApi.{method}()")
     for mutation in ("createNamespace", "createDatabase", "mountDatabase", "setWebAppEnabled", "setUserEnabled", "fetch("):
         check(mutation not in tasks_js, f"tasks.js does not use {mutation}")
-    # Its one mutation is task.run_now through the sanctioned api.js wrapper.
+    # Its only mutation is task.run_now through the api.js wrapper.
     used = set(re.findall(r"IrisApi[.](\w+)", tasks_js))
     check(
         used == {"getTaskOverview", "getTaskManager", "getTaskDetail", "runTaskNow"},
         f"tasks.js uses exactly the three task reads plus IrisApi.runTaskNow() (found: {sorted(used)})",
     )
-    # Run state comes from the backend-derived State (GET /v2/task/info),
-    # never from GET /v2/tasks' own Suspended flag, which was observed wrong.
+    # Run state comes from the backend's State (/v2/task/info), not the
+    # task list's Suspended flag, which can be wrong.
     check(
         re.search(r"task\.Suspended\b", tasks_js) is None,
         "tasks.js never reads the task list's own Suspended flag",
@@ -651,8 +562,7 @@ def test_security_nav_and_view_exist_and_are_enabled() -> None:
         "security-oauth-mappings-table-body",
     ):
         check(f'id="{element_id}"' in html, f"the {element_id!r} element exists")
-    # The old pass-through OAuth2 section (which rendered whatever fields
-    # IRIS sent) is gone.
+    # The old OAuth2 section that showed whatever IRIS sent is gone.
     check('id="security-oauth2-server-list"' not in html, "the old pass-through OAuth2 section is removed")
 
 
@@ -674,7 +584,7 @@ def test_security_view_oauth_tab_is_get_only_and_allowlisted() -> None:
         re.search(r'"(/api/iris/[a-z0-9\-/]*)"', security_js) is None,
         "security.js references no /api/iris/* path other than via IrisApi",
     )
-    # Allowlisted data only: the module never reads a secret-bearing field.
+    # Allowlisted data only; no secret fields are read.
     for field in (
         "ClientSecret", "ClientPassword", "InitialAccessToken", "registration_access_token", "client_secret",
         "jwks", "ServerPassword", "PrivateKeyPassword", "Authenticator", "access_token", "Password",
@@ -719,8 +629,8 @@ def test_security_identity_access_is_read_only_and_withholds_personal_data() -> 
         "getSecurityUsers", "getSecurityUserDetail", "getSecurityRoles", "getSecurityRoleDetail",
         "getSecurityRoleOwners", "getSecurityRoleAccessMap", "getSecurityResources", "getSecurityResourceDetail",
     }
-    # The eight reads, plus exactly one mutation: user.set_enabled through
-    # the sanctioned api.js wrapper (the user drawer's Login Access section).
+    # The eight reads plus one mutation: user.set_enabled via the api.js
+    # wrapper (Login Access in the user drawer).
     expected.add("setUserEnabled")
     check(
         used == expected,
@@ -734,8 +644,8 @@ def test_security_identity_access_is_read_only_and_withholds_personal_data() -> 
         re.search(r'"(/api/iris/[a-z0-9\-/]*)"', access_js) is None,
         "security-access.js references no /api/iris/* path other than via IrisApi",
     )
-    # Personal fields are withheld by the backend; the frontend never reads
-    # them, nor any password/hash field (IRIS returns none).
+    # The backend withholds personal fields; the frontend doesn't read them
+    # (and IRIS sends no password/hash).
     for field in ("EmailAddress", "PhoneNumber", "PhoneProvider", "Comment", "Password", "Hash"):
         check(
             re.search(rf"\.{field}\b|[\"']{field}[\"']", access_js) is None,
@@ -778,8 +688,8 @@ def test_security_authentication_tab_is_read_only_and_withholds_smtp_username() 
         re.search(r'"(/api/iris/[a-z0-9\-/]*)"', auth_js) is None,
         "security-auth.js references no /api/iris/* path other than via IrisApi",
     )
-    # SMTPUsername and TwoFactorFrom are withheld by the backend: the frontend only checks the
-    # WithheldFields list for its name, never reads a value for it.
+    # SMTPUsername and TwoFactorFrom are withheld; the frontend only checks
+    # WithheldFields for the name.
     check(
         re.search(r"[.]SMTPUsername|[.]SMTPPassword|SMTPPassword|[.]TwoFactorFrom", auth_js) is None,
         "security-auth.js never reads an SMTP username/password or two-factor sender value",
@@ -818,7 +728,7 @@ def test_security_wallet_tab_is_read_only_and_metadata_only() -> None:
         re.search(r'"(/api/iris/[a-z0-9\-/]*)"', wallet_js) is None,
         "security-wallet.js references no /api/iris/* path other than via IrisApi",
     )
-    # Metadata only: the module never reads a value-bearing field.
+    # Metadata only; no value fields are read.
     for field in ("Secret", "WalletSecretConfig", "Password", "PrivateKey", "Value"):
         check(
             re.search(rf"[.]{field}(?![A-Za-z])|[\"']{field}[\"']", wallet_js) is None,
@@ -863,7 +773,7 @@ def test_security_x509_tab_is_read_only_and_metadata_only() -> None:
         re.search(r'"(/api/iris/[a-z0-9\-/]*)"', x509_js) is None,
         "security-x509.js references no /api/iris/* path other than via IrisApi",
     )
-    # Metadata only: only the HasPrivateKey boolean, never key material.
+    # Metadata only: just the HasPrivateKey flag, never key material.
     for field in ("PrivateKey", "PrivateKeyPassword", "PrivateKeyFile", "CertificateFile", "Password"):
         check(
             re.search(rf"[.]{field}(?![A-Za-z])|[\"']{field}[\"']", x509_js) is None,
@@ -969,10 +879,8 @@ def test_operations_nav_and_view_exist_and_use_only_expected_endpoints() -> None
     for method in other_methods:
         check(method not in operations_js, f"operations.js does NOT call IrisApi.{method}()")
 
-    # operations.js must never construct its own request or authorization
-    # decision — everything it sends is via the IrisApi wrapper, whose
-    # scope is independently verified in
-    # test_no_mutating_http_method_anywhere_in_frontend_js.
+    # operations.js sends everything through the IrisApi wrapper and makes
+    # no authorization decisions of its own.
     check("fetch(" not in operations_js, "operations.js makes no raw fetch() call")
     referenced_paths = set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', operations_js))
     check(
@@ -981,12 +889,9 @@ def test_operations_nav_and_view_exist_and_use_only_expected_endpoints() -> None
         f"(found: {referenced_paths}) — every request goes through IrisApi",
     )
 
-    # No bypass/force field anywhere, and execution is only ever wired to
-    # the Confirm & Execute button's own click handler — never called
-    # during load/refresh. Checked as a literal, callable code form (a
-    # quoted object key) rather than a blunt substring match, so an
-    # explanatory comment describing what this file deliberately does NOT
-    # do isn't mistaken for the thing itself.
+    # No bypass/force field, and execution is only wired to the Confirm &
+    # Execute button. We look for the quoted key, not a plain substring, so
+    # a comment mentioning it doesn't count.
     for bypass_word in ("force", "bypass", "skip_confirmation", "skipConfirmation"):
         check(
             re.search(rf'["\']{bypass_word}["\']\s*:', operations_js) is None,
@@ -1000,11 +905,8 @@ def test_operations_nav_and_view_exist_and_use_only_expected_endpoints() -> None
         confirm_click_wiring is not None,
         "executeConfirmed() is wired to the Confirm button's own click handler",
     )
-    # The only CALL (not comment/docstring mention) of the identifier,
-    # outside its own definition, should be that one click handler. Line
-    # and block comments are stripped first, so a prose mention (like the
-    # one a few lines above explaining this exact guarantee) is never
-    # mistaken for a real call site.
+    # Outside its definition, the only call should be in that click handler.
+    # Comments are stripped first so mentions in prose don't count.
     code_only = re.sub(r"//.*", "", operations_js)
     code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
     invocation_sites = [
@@ -1058,9 +960,9 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
         "ai-assistant.js calls IrisApi.queryAssistant()",
     )
 
-    # The redesigned assistant answers from live data, so it may call a
-    # fixed allowlist of READ-ONLY GET wrappers — and nothing else. Every
-    # mutating wrapper stays forbidden (mutations go through Operations).
+    # The assistant answers from live data, so it may call a fixed list of
+    # read-only GET wrappers and nothing else. Mutations go through
+    # Operations.
     allowed_reads = {
         "queryAssistant", "getInfo", "getProcesses", "getDatabases", "getDatabaseStorage",
         "getWebApps", "getTaskOverview", "getExecutionTraces", "getJournalSettings", "getMonitorDashboard",
@@ -1090,11 +992,9 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
         f"(found: {referenced_paths or 'none, uses IrisApi.queryAssistant()'})",
     )
 
-    # This view must never trigger the existing mutating operation, and
-    # must never carry a confirmation/bypass shortcut. Checked as literal,
-    # callable code forms rather than a blunt substring match, so an
-    # explanatory comment describing what this view deliberately does NOT
-    # do isn't mistaken for the thing itself.
+    # This page must never run the mutating operation or carry a
+    # confirmation/bypass shortcut. We look for the actual code forms, so
+    # comments mentioning them don't count.
     check(
         '"/api/iris/journal/purge-archived"' not in ai_js,
         "ai-assistant.js does NOT reference the mutating purge-archived route as a literal path",
@@ -1251,9 +1151,8 @@ def test_investigation_view_uses_only_expected_endpoints() -> None:
     print("Checking investigation.js calls only its expected read-only endpoints and nothing else...")
     investigation_js = (FRONTEND_DIR / "js" / "investigation.js").read_text(encoding="utf-8")
 
-    # getExecutionTraces reads the Command Center's own trace store (not
-    # IRIS), only for the existing ±30 s related-trace correlation shown in
-    # the audit event detail.
+    # getExecutionTraces reads our own trace store (not IRIS), for the
+    # ±30 s related traces in the audit event detail.
     required_methods = ["IrisApi.getAuditEnabled", "IrisApi.getAuditRecords", "IrisApi.getExecutionTraces"]
     for method in required_methods:
         check(method in investigation_js, f"investigation.js calls {method}()")
@@ -1345,11 +1244,9 @@ def test_capabilities_view_uses_only_expected_endpoint() -> None:
         "capabilities.js renders into the capabilities table body element",
     )
 
-    # Filtering must be a pure re-render of the already-fetched list, never
-    # a second network call — this module fetches exactly once per
-    # load/Refresh, unlike investigation.js's server-side filtered search.
-    # Comments are stripped first so a prose mention of "IrisApi." isn't
-    # mistaken for a second real call site.
+    # Filtering just re-renders the list already fetched; one fetch per
+    # load/Refresh (unlike investigation.js, which searches on the server).
+    # Comments are stripped so a mention of "IrisApi." doesn't count.
     code_only = re.sub(r"//.*", "", capabilities_js)
     code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
     check(
@@ -1385,9 +1282,8 @@ def test_observability_investigation_cross_link_exists() -> None:
         "onInvestigateTimeWindow" in observability_js,
         "observability.js accepts an onInvestigateTimeWindow callback for its own cross-link button",
     )
-    # The cross-link's whole reason for existing is that no real IRIS/trace
-    # ID ties the two systems together — only this app never sends a
-    # mutating request anywhere, still true after adding this feature.
+    # The link is by time window because no ID ties the two together. And
+    # still no mutating request anywhere.
     check("fetch(" not in observability_js, "observability.js still makes no raw fetch() call")
     check(
         set(re.findall(r'"(/api/iris/[a-z0-9\-/]*)"', observability_js)) == set(),
@@ -1437,8 +1333,7 @@ def test_dashboard_is_the_landing_screen_with_activity() -> None:
     ):
         check(f'id="{element_id}"' in html, f"the {element_id!r} dashboard element exists")
 
-    # The redesigned Dashboard has no Quick Access section (the sidebar
-    # already navigates everywhere).
+    # The Dashboard has no Quick Access section (the sidebar covers it).
     check('id="dashboard-quicklinks"' not in html, "the Dashboard has no Quick Access section")
     check("data-quicklink=" not in html, "no dashboard quicklink buttons remain")
 
@@ -1447,15 +1342,13 @@ def test_dashboard_is_the_landing_screen_with_activity() -> None:
         "IrisApi.getExecutionTraces" in dashboard_js,
         "dashboard.js calls IrisApi.getExecutionTraces() for its Recent Activity section",
     )
-    # The Recent Operations summary reuses the existing, read-only
-    # operations registry route — no new backend surface.
+    # Recent Operations uses the existing operations registry route.
     check(
         "IrisApi.getOperations" in dashboard_js,
         "dashboard.js calls IrisApi.getOperations() for its Recent Operations summary",
     )
-    # The Tasks card/micro-bar use the same backend-derived run State as the
-    # Tasks view (GET /api/iris/tasks/overview), never the task list's own
-    # Suspended flag, which was observed reporting false for suspended tasks.
+    # The Tasks card uses the same backend State as the Tasks page, not the
+    # list's Suspended flag (which reported false for suspended tasks).
     check(
         "IrisApi.getTaskOverview" in dashboard_js,
         "dashboard.js calls IrisApi.getTaskOverview() for its Tasks card",
@@ -1471,9 +1364,8 @@ def test_dashboard_is_the_landing_screen_with_activity() -> None:
         and "navigateTo" in dashboard_js,
         "dashboard.js imports and uses navigateTo() for its quicklinks",
     )
-    # Still true after this refinement: the Dashboard remains entirely
-    # read-only — no mutating verb, no raw fetch, and no IrisApi method
-    # beyond the five it has always used plus the two Insights donuts above.
+    # The Dashboard stays read-only: no mutating verb, no raw fetch, and no
+    # IrisApi methods beyond the five it uses plus the two Insights donuts.
     other_methods = [
         "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
         "getJournalSettings", "queryAssistant", "executeJournalPurgeArchived",
@@ -1522,9 +1414,9 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
     )
     check("setInterval(" not in dashboard_js, "dashboard.js chains setTimeout so refreshes never overlap")
     check("Math.random" not in dashboard_js, "dashboard.js never generates synthetic values")
-    # IRIS's Status.SystemMonitor flag is always false on this IRIS version
-    # (a status string cast to boolean), so the running/stale state must come
-    # from the %SYS.Monitor.Control process in the real process list.
+    # Status.SystemMonitor is always false on this IRIS version, so the
+    # monitor state comes from the %SYS.Monitor.Control process in the
+    # process list.
     check(
         "Status.SystemMonitor" not in dashboard_js.replace("Status.SystemMonitor flag", ""),
         "dashboard.js never uses IRIS's Status.SystemMonitor flag for running/stale decisions",
@@ -1560,30 +1452,19 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     js_dir = FRONTEND_DIR / "js"
     mutating_methods = ["PUT", "POST", "DELETE", "PATCH"]
 
-    # The nine sanctioned mutating calls in the entire frontend, all in
-    # api.js: postJournalPurgeArchived (POST /api/iris/journal/purge-
-    # archived, backend/app/routes/journal.py), postNamespaceCreate (POST
-    # /api/iris/namespaces, backend/app/routes/namespaces.py),
-    # postDatabaseCreate (POST /api/iris/databases) and postDatabaseMount
-    # (POST /api/iris/databases/mount, both backend/app/routes/
-    # databases.py), and postWebAppSetEnabled (POST /api/iris/web-apps/
-    # set-enabled, backend/app/routes/web_apps.py), and postUserSetEnabled
-    # (POST /api/iris/security/users/set-enabled, backend/app/routes/
-    # security_users.py), and postTaskRunNow (POST /api/iris/tasks/run-now,
-    # backend/app/routes/tasks.py), and postWebAppUpdateDescription (POST
-    # /api/iris/web-apps/update-description, backend/app/routes/web_apps.py),
-    # and postDatabaseDismount (POST /api/iris/databases/dismount,
-    # backend/app/routes/databases.py) — asserted below to be
-    # scoped to exactly those nine paths, never a different/new one. PUT and PATCH
-    # remain forbidden everywhere, including in api.js — this project has
-    # no PUT or PATCH route at all, mutating or otherwise.
+    # The only mutating calls in the frontend are these ten POST wrappers
+    # in api.js, each checked below against its own route:
+    # postJournalPurgeArchived, postNamespaceCreate, postDatabaseCreate,
+    # postDatabaseMount, postDatabaseDismount, postWebAppSetEnabled,
+    # postWebAppUpdateDescription, postUserSetEnabled, postTaskRunNow,
+    # postDemoRehearsal.
+    # PUT and PATCH aren't allowed anywhere (the backend has no such routes).
     allowed_post_file = "api.js"
 
     for js_file in sorted(js_dir.glob("*.js")):
         content = js_file.read_text(encoding="utf-8")
         for method in mutating_methods:
-            # Looks for the method as a quoted HTTP verb (e.g. method: "POST"),
-            # not as an incidental substring (e.g. a word containing "post").
+            # Match the quoted verb (method: "POST"), not any word containing "post".
             pattern = rf'["\']{method}["\']'
             found = re.search(pattern, content) is not None
             if method == "POST" and js_file.name == allowed_post_file:
@@ -1598,8 +1479,7 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
                 f"{js_file.relative_to(REPO_ROOT)} does not reference HTTP method {method!r}",
             )
 
-    # Each sanctioned POST must be tied to exactly its existing,
-    # already-tested mutating route — never a different/new one.
+    # Each POST must go to its own existing route.
     api_js = (js_dir / "api.js").read_text(encoding="utf-8")
     check(
         '"/api/iris/journal/purge-archived"' in api_js,
@@ -1649,8 +1529,7 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         "/api/iris/demo/rehearsal and exposed as IrisApi.runDemoRehearsal()",
     )
 
-    # operations.js (where the execute UI lives) must call the api.js
-    # wrapper — it never constructs its own fetch call or duplicates
+    # operations.js must use the api.js wrapper, not its own fetch() or
     # authorization logic.
     operations_js = (js_dir / "operations.js").read_text(encoding="utf-8")
     check(
@@ -1662,9 +1541,8 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         "operations.js calls IrisApi.executeJournalPurgeArchived()",
     )
 
-    # namespaces.js (where the "New Namespace" wizard lives) must likewise
-    # call the api.js wrapper only, never a raw fetch() or its own
-    # authorization/confirmation logic.
+    # namespaces.js (New Namespace wizard): must use the api.js wrapper,
+    # never a raw fetch() or its own authorization/confirmation logic.
     namespaces_js = (js_dir / "namespaces.js").read_text(encoding="utf-8")
     check(
         "fetch(" not in namespaces_js,
@@ -1675,9 +1553,8 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
         "namespaces.js calls IrisApi.createNamespace()",
     )
 
-    # databases.js (where the "New Database" wizard lives) must likewise
-    # call the api.js wrapper only, never a raw fetch() or its own
-    # authorization/confirmation logic.
+    # databases.js (New Database wizard): must use the api.js wrapper,
+    # never a raw fetch() or its own authorization/confirmation logic.
     databases_js = (js_dir / "databases.js").read_text(encoding="utf-8")
     check(
         "fetch(" not in databases_js,

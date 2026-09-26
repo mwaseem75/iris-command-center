@@ -1,28 +1,8 @@
-"""The Command Center's second MUTATING route (after
-journal.update_purge_archived) — namespace.create, this project's first
-Namespace mutation.
+"""Namespace creation: POST /api/iris/namespaces (needs %Admin_Manage:U).
 
-Exposed as `POST /api/iris/namespaces`: the SAME resource path
-`GET /api/iris/namespaces` (app/routes/iris.py) already uses to list
-namespaces, with POST as the natural "create" verb on that collection.
-This deliberately differs from journal.update_purge_archived's own,
-deliberately-divergent path choice (`/api/iris/journal/purge-archived`,
-not `/api/iris/journal/settings`) — that divergence exists specifically
-because that operation only ever touches ONE field of a much larger
-JournalSettings object it does not otherwise expose for writing. That
-reasoning doesn't apply here: this operation creates an entire new
-namespace resource, so mirroring the collection's own GET path is the
-more accurate, more RESTful choice.
-
-Privilege: `%Admin_Manage:U` — the ONLY privilege mainspec_v2.json
-documents for both `PUT /v2/namespace` ("Create/Edit a namespace") and
-`POST /v2/namespace/enable-interop`, and already a CONFIRMED member of
-this project's `IRISPrivilege` enum (see app/authorization/privileges.py's
-module docstring — individually exercised during Phase 1 verification).
-No new privilege was invented for this operation.
-
-Neither endpoint has been called against a real IRIS instance as of this
-implementation — see docs/api-capability-matrix.md.
+Unlike the journal route, this creates a whole resource, so it uses POST on
+the same collection path the namespace list uses. Runs through the executor
+with authorization, confirmation and verification.
 """
 
 from fastapi import APIRouter, Depends
@@ -40,14 +20,8 @@ _OPERATION_NAME = "namespace.create"
 
 
 class NamespaceCreateOperationRequest(BaseModel):
-    """The public request body for this route.
-
-    `confirmed` defaults to False (safe default) and is the ONLY way to
-    supply confirmation — there is no "force"/"skip_confirmation" field,
-    the same discipline as JournalPurgeArchivedOperationRequest.
-
-    `extra="forbid"`: a caller sending any field beyond these seven gets
-    an explicit 422 rather than having it silently ignored.
+    """Request body. Nothing happens without confirmed=true, there's no force/skip
+    field, and unknown fields are rejected with 422.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -67,11 +41,7 @@ async def create_namespace(
     client: IRISClient = Depends(get_iris_client),
     privileges: frozenset[str] = Depends(get_caller_privileges),
 ) -> OperationResult:
-    """Always returns HTTP 200 with a structured OperationResult — the real
-    outcome (authorized, confirmation_required, dry_run, success,
-    execution_failed, verification_failed, ...) is in `result.status`, the
-    same convention POST /api/iris/journal/purge-archived already uses.
-    """
+    """Always returns 200 with an OperationResult; the outcome is in `status`."""
     executor = OperationExecutor({_OPERATION_NAME: NamespaceCreateHandler(client)})
     request = OperationRequest(
         operation_name=_OPERATION_NAME,

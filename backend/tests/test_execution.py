@@ -1,7 +1,4 @@
-"""Tests for the operation execution framework. Pure unit tests with fake
-handlers — no IRIS container, no network calls of any kind, no real
-mutating IRIS operation exists anywhere for these tests to accidentally
-call."""
+"""Tests for the operation executor, using fake handlers (no IRIS, no network)."""
 
 import pytest
 
@@ -20,8 +17,7 @@ from app.execution.models import (
 
 
 class RecordingFakeHandler(OperationHandler):
-    """A fake handler that records whether/how it was called, so tests can
-    assert the executor never reached it when it shouldn't have."""
+    """Fake handler that records how it was called."""
 
     def __init__(
         self,
@@ -132,8 +128,8 @@ async def test_mutating_operation_with_confirmation_and_dry_run_is_simulated_onl
 
     assert result.status is OperationResultStatus.DRY_RUN
     assert len(handler.dry_run_calls) == 1
-    assert handler.execute_calls == []  # the real path must never be reached
-    assert result.verification is None  # nothing to verify — nothing happened
+    assert handler.execute_calls == []  # must not run for real
+    assert result.verification is None  # nothing happened, nothing to verify
 
 
 # --- 5. Safe (demo) operation with required privilege -> succeeds in dry-run ---
@@ -141,8 +137,7 @@ async def test_mutating_operation_with_confirmation_and_dry_run_is_simulated_onl
 
 @pytest.mark.asyncio
 async def test_demo_operation_succeeds_in_dry_run_via_real_handler() -> None:
-    """Uses the actual DemoSafeOperationHandler, not a fake, to demonstrate
-    the framework end-to-end."""
+    """Uses the real DemoSafeOperationHandler instead of a fake."""
     executor = OperationExecutor({"demo.safe-operation": DemoSafeOperationHandler()})
     context = _context(privileges=frozenset({"Manage"}), confirmed=True, dry_run=True)
 
@@ -226,10 +221,9 @@ async def test_handler_raising_an_exception_becomes_structured_execution_failure
 
 @pytest.mark.asyncio
 async def test_handler_dry_run_raising_an_exception_becomes_structured_failure_not_a_crash() -> None:
-    """A dry-run's own read(s) can genuinely fail once a handler performs
-    real IO (see JournalUpdatePurgeArchivedHandler.dry_run, Phase 2 Step 7)
-    — this must be caught exactly like an execute() failure, never left to
-    propagate as an unhandled exception out of the executor."""
+    """Handlers can do real reads in dry_run() (e.g. the journal handler), and
+    those can fail. That should be caught like an execute() failure.
+    """
 
     class RaisingOnDryRunHandler(OperationHandler):
         async def dry_run(self, request, context):  # noqa: D102

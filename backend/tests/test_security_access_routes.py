@@ -1,9 +1,8 @@
-"""Tests for the read-only Identity & Access routes (app/routes/security_access.py).
+"""Tests for the Identity & Access routes (app/routes/security_access.py).
 
-Uses mocks (fixtures shared via conftest.py) rather than the real IRIS
-container. Canned bodies mirror ACTUAL responses captured from icc-iris-dev,
-including the role list's omission of %SQLTuneTable and role/owners' mixed
-AdminOption types ("0" vs false).
+The canned bodies are based on real responses, including the missing
+%SQLTuneTable in the role list and the mixed AdminOption types ("0" vs
+false).
 """
 
 import copy
@@ -53,7 +52,7 @@ ROLE_DETAILS: dict[str, dict[str, Any]] = {
                                {"Name": "%DB_USER", "Permissions": "RW"}]},
     "%EnsRole_Developer": {"Description": "Developer", "GrantedRoles": ["%Developer"], "EscalationOnly": False,
                            "Resources": [{"Name": "%Development", "Permissions": "U"}]},
-    # Exists, but not in the list — %Developer only because another role grants it.
+    # Exists but isn't listed; %Developer only because another role grants it.
     "%Developer": {"Description": "A Role owned by all Developers", "GrantedRoles": [], "EscalationOnly": False,
                    "Resources": [{"Name": "%DB_USER", "Permissions": "RW"}]},
     "%SQLTuneTable": {"Description": "Role for use by tunetable to sample tables irrespective of row level security",
@@ -76,7 +75,7 @@ RESOURCES = [
 
 
 def fake_iris(role_details: dict[str, dict[str, Any]] | None = None, failing: set[str] = frozenset()):
-    """A mock `client.get` answering the IRIS security GETs."""
+    """Mock `client.get` for the security GETs."""
     details = ROLE_DETAILS if role_details is None else role_details
 
     async def get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -149,8 +148,7 @@ def test_user_detail_withholds_personal_fields(client: TestClient, iris: AsyncMo
 
 
 def test_user_detail_drops_unmodelled_fields(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    """The model is an allowlist: a field IRIS might add later (e.g. a
-    hypothetical hash) never passes through."""
+    """Fields IRIS might add later (say, a hash) are dropped."""
     body = envelope({**USER_DETAIL, "PasswordHash": "not-a-real-hash"})
     mock_iris_client.get.return_value = body
 
@@ -219,8 +217,8 @@ def test_access_map_merges_details_and_marks_unlisted_roles(client: TestClient, 
     assert body["status"] == OK
     by_name = {entry["Name"]: entry for entry in body["result"]}
     assert [entry["Name"] for entry in body["result"] if entry["Listed"]] == ["%All", "%Manager", "%EnsRole_Developer"]
-    # %Developer is granted by a listed role; %SQLTuneTable is the observed
-    # list omission. Both are confirmed by their own detail call.
+    # %Developer is granted by a listed role and %SQLTuneTable is missing
+    # from the list; both are confirmed by their detail call.
     assert sorted(name for name, entry in by_name.items() if not entry["Listed"]) == ["%Developer", "%SQLTuneTable"]
     assert by_name["%Manager"]["Detail"]["Resources"][0] == {"Name": "%Admin_Secure", "Permissions": "U"}
     assert by_name["%All"]["Detail"]["Resources"] == []

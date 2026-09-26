@@ -1,8 +1,7 @@
 """Tests for POST /api/iris/demo/rehearsal (app/execution/demo_rehearsal.py).
 
-A stateful fake IRIS client stands in for IRISClient, so every change and
-restoration is checked against the fake's real state. No network call is
-made anywhere in this file.
+Uses a fake IRIS client that keeps state, so changes and restores can be
+checked against it.
 """
 
 import json
@@ -23,8 +22,7 @@ PASSWORD = "test-password-not-real"  # conftest's IRIS_PASSWORD
 
 
 class FakeIris:
-    """Just enough of IRISClient for the four handlers and the rehearsal's
-    own read-only candidate lookups."""
+    """Enough of IRISClient for the four handlers and the rehearsal's lookups."""
 
     def __init__(self) -> None:
         self.privileges = {"Manage": True, "Journal": True, "Secure": True, "Operate": True, "Task": True}
@@ -177,7 +175,7 @@ def test_successful_rehearsal_changes_restores_and_dry_runs(http: TestClient, fa
     assert steps["database.dry_run"]["status"] == "dry_run"
     assert steps["task.dry_run"]["status"] == "dry_run"
 
-    # Everything is back to its original value, via the operations themselves.
+    # Everything is back to its original value.
     assert fake.purge_archived is True
     assert fake.web_apps["/csp/user"]["Description"] == "User app"
     assert [p[1] for p in fake.puts] == [
@@ -187,7 +185,7 @@ def test_successful_rehearsal_changes_restores_and_dry_runs(http: TestClient, fa
         {"Description": "User app"},
     ]
 
-    # Each executed/dry-run step carries the id of the trace the executor recorded.
+    # Each step includes the id of its execution trace.
     recorded = {t.trace_id: t for t in store.list_traces()}
     for name in ("journal.change", "journal.restore", "web_app.change", "web_app.restore",
                  "database.dry_run", "task.dry_run"):
@@ -244,7 +242,7 @@ def test_first_step_failure_stops_the_rehearsal(http: TestClient, fake: FakeIris
     assert body["status"] == "stopped"
     assert steps["journal.change"]["status"] == "failed"
     assert steps["journal.change"]["operation_status"] == "execution_failed"
-    # Re-read showed the original still in place: no restore was needed.
+    # The re-read showed the original value, so no restore was needed.
     assert steps["journal.restore"]["status"] == "not_needed"
     assert not any(name.startswith(("web_app", "database", "task")) for name in steps)
     assert fake.purge_archived is True
@@ -263,8 +261,8 @@ def test_missing_privilege_is_denied_by_the_existing_authorization(http: TestCli
 
 
 def test_later_failure_restores_the_temporary_change(http: TestClient, fake: FakeIris) -> None:
-    # The web-app PUT applies the Description but also flips Enabled, so the
-    # handler's verification fails after the change was applied.
+    # The web-app PUT sets the Description but also flips Enabled, so
+    # verification fails after the change went through.
     fake.flip_enabled_on_next_web_app_put = True
 
     body = _post(http)
@@ -289,7 +287,7 @@ def test_restoration_failure_is_reported_clearly(http: TestClient, fake: FakeIri
     assert "could NOT be restored" in body["detail"]
     assert restore["status"] == "failed"
     assert "RESTORATION FAILED" in restore["detail"]
-    assert "'User app'" in restore["detail"]  # tells the operator what to restore manually
+    assert "'User app'" in restore["detail"]  # tells the user what to fix by hand
     assert fake.web_apps["/csp/user"]["Description"] != "User app"
     assert "database.dry_run" not in _steps(body)
 
@@ -302,7 +300,7 @@ def test_dry_run_steps_never_mutate(http: TestClient, fake: FakeIris) -> None:
 
     steps = _steps(body)
     assert steps["database.dry_run"]["target"] == "/usr/irissys/mgr/demo/"
-    assert steps["task.dry_run"]["target"] == "task 42"  # the User task, never the System one
+    assert steps["task.dry_run"]["target"] == "task 42"  # the User task, not the System one
     assert fake.posts == []  # no POST /v2/database-dir/mount, no POST /v2/task/run
     assert all(path in ("/v2/journal/settings", "/v2/web-app") for path, _, _ in fake.puts)
     assert fake.async_tasks == [("/v2/database-dir/info", {"dir": "/usr/irissys/mgr/demo/"})]  # read-only info
@@ -374,7 +372,7 @@ def test_an_unsafe_csp_user_is_never_preferred(http: TestClient, fake: FakeIris)
         ({"Name": "/API/Mgmnt/", "Type": "CSP"}, False),
         ({"Name": "/csp/sys", "Type": "System,CSP"}, False),
         ({"Name": "/csp/x", "Type": "CSP", "IsSystemApp": True}, False),
-        ({"Name": "/csp/x"}, False),  # unknown Type is never assumed safe
+        ({"Name": "/csp/x"}, False),  # unknown Type is never treated as safe
     ],
 )
 def test_is_safe_web_app(entry: dict[str, Any], safe: bool) -> None:

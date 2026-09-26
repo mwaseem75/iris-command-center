@@ -1,17 +1,8 @@
-// Shared, dependency-free visualization primitives for the design system:
-// a CSS-only donut ring (conic-gradient) and a compact horizontal stacked
-// bar. Both are used across Dashboard/Processes/Databases/Web Apps/Tasks/
-// Operations/Observability/Investigation/API Explorer to visualize real
-// distributions computed from data those views ALREADY fetch from existing
-// `/api/iris/*` routes — this module fetches nothing itself.
+// Small chart helpers with no dependencies: a CSS donut (conic-gradient)
+// and a horizontal stacked bar.
 //
-// Nothing here invents, estimates, or randomizes a value: countBy() only
-// ever counts real field values already present in an already-fetched
-// response array, topCategories() only ever folds real counts into a real
-// "Other" aggregate (never a guess), and an empty/zero input renders an
-// explicit empty ring/bar, never a fabricated placeholder shape. There is
-// no CPU/memory/trend/alert concept anywhere in this module — only counts,
-// distributions, and durations of data the backend actually returned.
+// They only draw data the pages already fetched; nothing is fetched here.
+// Empty input draws an empty ring/bar.
 
 const PALETTE = [
   "var(--color-chart-1)",
@@ -23,11 +14,7 @@ const PALETTE = [
 ];
 const NEUTRAL_COLOR = "var(--color-chart-neutral)";
 
-/**
- * Counts occurrences of `keyFn(item)` across `items`. Returns
- * `[{ key, count }]` sorted by count descending — every `key` is a real
- * value read directly from `items`, never invented.
- */
+/** Count `keyFn(item)` over `items`. Returns [{ key, count }], biggest first. */
 export function countBy(items, keyFn) {
   const counts = new Map();
   for (const item of items) {
@@ -40,10 +27,8 @@ export function countBy(items, keyFn) {
 }
 
 /**
- * Caps a countBy() result at `max` entries, folding the remainder into one
- * "Other" entry whose count is the real sum of the folded entries' real
- * counts (never an estimate) — keeps a high-cardinality real field (e.g.
- * free-text event types) from producing an unreadable legend.
+ * Keep the top `max` entries and add the rest up into one "Other" entry,
+ * so fields with lots of values still get a readable legend.
  */
 export function topCategories(counts, max = 6) {
   if (counts.length <= max) return counts;
@@ -78,13 +63,10 @@ const defaultLabel = (entry) => String(entry.key);
 const defaultValue = (entry) => String(entry.count);
 
 /**
- * Renders a compact horizontal stacked bar into `container` (cleared
- * first, so this is safe to call again on refresh/refilter). `entries` is
- * countBy()/topCategories() output. `compact` omits the legend row (for
- * inline use inside a KPI stat card) — the real label/value are still
- * available via each segment's `title` tooltip. Returns nothing; renders
- * nothing (leaves `container` empty) when `entries` is empty, rather than
- * drawing a placeholder bar for data that doesn't exist.
+ * Draw a stacked bar into `container` (cleared first, so it's fine to call
+ * again). `entries` comes from countBy()/topCategories(). `compact` hides
+ * the legend (for use inside a KPI card); each segment still has a title
+ * tooltip. Draws nothing if `entries` is empty.
  */
 export function renderStackedBar(
   container,
@@ -106,8 +88,8 @@ export function renderStackedBar(
     const segment = document.createElement("div");
     segment.className = "viz-bar-segment";
     segment.style.background = entry.color;
-    // A tiny flex-grow floor keeps a real zero-count-adjacent sliver
-    // visible; the tooltip/legend text always shows the true count.
+    // A small minimum grow keeps tiny segments visible; the label still
+    // shows the real count.
     segment.style.flexGrow = String(Math.max(entry.count, total === 0 ? 1 : total * 0.01));
     segment.title = `${formatLabel(entry)} — ${formatValue(entry)}`;
     track.append(segment);
@@ -122,12 +104,9 @@ export function renderStackedBar(
 }
 
 /**
- * Renders a CSS-only donut ring (a `conic-gradient` circle with a punched
- * hole, no SVG/canvas/charting library) plus a legend into `container`
- * (cleared first). `centerLabel`/`centerValue` are plain text placed in
- * the ring's hole — callers pass a real total (e.g. the real item count),
- * never a computed/derived metric IRIS doesn't provide. Renders nothing
- * when `entries` is empty.
+ * Draw a CSS donut plus legend into `container` (cleared first).
+ * `centerLabel`/`centerValue` go in the hole, usually the total count.
+ * Draws nothing if `entries` is empty.
  */
 export function renderDonut(
   container,

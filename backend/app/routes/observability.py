@@ -1,12 +1,6 @@
-"""A single, read-only route exposing the in-memory execution trace store
-(app/observability/store.py). This route makes NO request to IRIS — traces
-are populated entirely by app/execution/executor.py's OperationExecutor as
-a side effect of real operation attempts (see app/observability/tracer.py)
-— and requires no privilege to call, since it exposes only already-
-recorded, already-safe trace data (see app/observability/models.py's
-module docstring for what is and is never recorded).
+"""Returns the recorded execution traces from the in-memory store. No IRIS call.
 
-No mutating call exists anywhere in this module.
+Traces are recorded by the executor whenever an operation is attempted.
 """
 
 from fastapi import APIRouter

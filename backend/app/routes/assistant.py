@@ -1,24 +1,12 @@
-"""The AI Assistant's ONLY backend route: a natural-language query
-endpoint. It never calls IRIS directly — read-only questions reuse the
-exact same, already-verified route functions app/routes/iris.py exposes
-(get_info, get_processes, get_databases, get_web_apps, get_tasks), and the
-one supported mutating question (about journal.update_purge_archived) is
-delegated entirely to app/assistant/journal_operation.py, which itself
-routes through the existing authorization/execution framework — nothing
-in this module holds duplicate IRIS-calling, authorization, or mutation
-logic.
+"""AI Assistant query endpoint.
 
-No LLM is connected. Understanding is a small, deterministic keyword
-classifier (app/assistant/intents.py) — this is intentionally NOT a
-general-purpose chat backend. It answers only the fixed set of questions
-this step defines; anything else gets a graceful, honest fallback
-(app/assistant/responses.UNKNOWN_REPLY), never a guess.
+A keyword classifier (intents.py) picks the question type; read-only answers
+reuse the route functions in routes/iris.py, and the one journal operation
+goes through journal_operation.py. No LLM is involved, and unknown questions
+get a fixed help reply.
 
-GET, not POST: even the journal_operation intent never mutates as a
-byproduct of the HTTP method itself — every real IRIS write still requires
-its own explicit, parsed confirmation (see journal_operation.py) before
-the existing execution framework will proceed. This keeps the assistant on
-the same HTTP method as every other Command Center route.
+It's a GET like the other routes; any real change still needs explicit
+confirmation in the message.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -74,14 +62,8 @@ async def query_assistant(
         else:
             reply = UNKNOWN_REPLY
     except HTTPException:
-        # get_info/get_processes/get_caller_privileges/... already translate
-        # IRIS communication failures into an HTTPException (see
-        # app/routes/iris.py's _as_http_exception and
-        # app/dependencies.py's get_caller_privileges) when called this
-        # way. The assistant answers in chat, not with an HTTP error page,
-        # so this becomes a plain, non-alarming reply instead — never a raw
-        # exception or stack trace, the same discipline every other view in
-        # this app follows.
+        # The route functions raise HTTPException when IRIS can't be
+        # reached. Show a friendly chat reply instead of an error page.
         reply = UNREACHABLE_REPLY
 
     return AssistantQueryResponse(reply=reply, intent=intent.value)

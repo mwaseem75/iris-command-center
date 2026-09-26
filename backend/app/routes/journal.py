@@ -1,14 +1,7 @@
-"""The Command Center's first MUTATING route.
+"""Route for the journal.update_purge_archived operation.
 
-Deliberately NOT `/api/iris/journal/settings` (which would mirror IRIS's
-own `/api/admin/v2/journal/settings` path directly) — this is a distinct,
-operation-scoped public API surface, per this step's explicit instruction
-not to mirror the IRIS path. It exposes exactly one operation
-(`journal.update_purge_archived`, see app/authorization/operations.py),
-not the full JournalSettings object.
-
-This route has NOT been called against any real IRIS instance as of Phase 2
-Step 7 — see docs/first-mutation-implementation.md.
+It uses its own path rather than mirroring /api/admin/v2/journal/settings,
+and only changes PurgeArchived, not the rest of the journal settings.
 """
 
 from fastapi import APIRouter, Depends
@@ -26,17 +19,8 @@ _OPERATION_NAME = "journal.update_purge_archived"
 
 
 class JournalPurgeArchivedOperationRequest(BaseModel):
-    """The public request body for this route.
-
-    `confirmed` defaults to False (safe default) and is the ONLY way to
-    supply confirmation — there is no "force" or "skip_confirmation" field,
-    and none is planned. Leaving `confirmed` False (or omitting it) is
-    guaranteed, by the Step 4/5 framework this route delegates to, to stop
-    before any PUT is sent.
-
-    `extra="forbid"`: a caller sending any field beyond these three (e.g.
-    ArchiveName, or any other JournalSettings property) gets an explicit
-    422 rather than having it silently ignored.
+    """Request body. Nothing happens without confirmed=true, and there's no
+    force/skip field. Unknown fields are rejected with 422.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -52,13 +36,8 @@ async def update_journal_purge_archived(
     client: IRISClient = Depends(get_iris_client),
     privileges: frozenset[str] = Depends(get_caller_privileges),
 ) -> OperationResult:
-    """Always returns HTTP 200 with a structured OperationResult — the real
-    outcome (authorized, confirmation_required, dry_run, success,
-    execution_failed, verification_failed, ...) is in `result.status`, the
-    same convention this project already uses (e.g. the OAuth2 "not
-    configured" case in app/routes/iris.py). This keeps "the HTTP
-    transaction succeeded" and "the requested operation succeeded" as two
-    separate, non-conflated facts.
+    """Always returns 200 with an OperationResult; whether the change actually
+    happened is in `status` (success, confirmation_required, dry_run, ...).
     """
     executor = OperationExecutor(
         {_OPERATION_NAME: JournalUpdatePurgeArchivedHandler(client)}

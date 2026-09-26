@@ -1,27 +1,20 @@
-// Operations view: a "Supported Actions" catalog of the mutating operations
-// the Command Center supports (risk level and required privilege come from
-// the live registry, GET /api/iris/operations), plus the full UI flow for the
-// one operation executed on this page — journal.update_purge_archived:
+// Operations page: a "Supported Actions" catalog of the changes the
+// Command Center can make (risk and required privilege come from
+// GET /api/iris/operations), plus the full flow for the one run on this
+// page, journal.update_purge_archived:
 //
-//   Review -> explicit confirmation -> [existing backend framework decides
-//   authorization -> execution -> post-action verification] -> result
+//   Review -> confirm -> [backend: authorization -> execution -> verification] -> result
 //
-// The stages in brackets ALL happen server-side, inside the existing,
-// already-tested POST /api/iris/journal/purge-archived route (see
-// backend/app/routes/journal.py and backend/app/execution/executor.py).
-// This file never re-implements, pre-checks, or second-guesses that
-// decision — it only (a) shows the operation's own registry metadata and
-// the current PurgeArchived value (both already-existing, already-used
-// reads), and (b) sends exactly what the user explicitly chose
-// (PurgeArchived + confirmed) to that one existing endpoint. There is no
-// "force"/"bypass" field anywhere in this file, and nothing here executes
-// automatically — the POST only ever fires from the Confirm & Execute
-// button's own click handler.
+// The part in brackets happens on the server in
+// POST /api/iris/journal/purge-archived. This file just shows the registry
+// info and the current PurgeArchived value, and sends what the user picked
+// (PurgeArchived + confirmed). Nothing runs on its own; the POST only comes
+// from the Confirm & Execute button.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 const JOURNAL_OPERATION_NAME = "journal.update_purge_archived";
 
 const dom = {
@@ -51,19 +44,17 @@ const dom = {
   resultList: document.getElementById("operations-result-list"),
 };
 
-// Module-level state for the execute panel only — never used to skip a
-// server-side check, only to drive which UI stage (choose/confirm/result)
-// is currently shown. Reset on every load and after every execution.
-let journalOperation = null; // the operation's own registry metadata, from GET /api/iris/operations
-let currentPurgeArchived = null; // last-known value, from GET /api/iris/journal/settings
-let pendingTarget = null; // the value the user picked but has not yet confirmed
-let journalSelected = false; // true once the user opened the journal action; nothing is preselected
+// State for the execute panel: which step (choose/confirm/result) is
+// showing. Reset on every load and after every run.
+let journalOperation = null;  // registry entry, from GET /api/iris/operations
+let currentPurgeArchived = null;  // last known value, from GET /api/iris/journal/settings
+let pendingTarget = null;  // value picked but not confirmed yet
+let journalSelected = false;  // true once the journal action is opened; nothing is preselected
 
-// The supported mutating actions, grouped for the catalog. Only the friendly
-// title/description/group and where the action is performed live here; risk
-// level and required privilege always come from the registry. An action
-// missing from the registry is not shown. `view` is the existing view whose
-// own review/confirm flow performs the action; `null` = this page (journal).
+// The actions in the catalog, grouped. Only the title, description, group
+// and where it's done live here; risk and privilege come from the
+// registry, and actions missing from the registry aren't shown. `view` is
+// the page that performs it; `null` means this page (journal).
 const CATALOG_GROUPS = ["Journal", "Namespaces", "Databases", "Web Applications", "Users", "Tasks"];
 const SUPPORTED_ACTIONS = [
   {
@@ -140,9 +131,7 @@ const VIEW_LABEL = {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in the other views.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -174,9 +163,7 @@ function formatKind(kind) {
 }
 
 function formatPrivileges(privileges) {
-  // required_privileges is an OR-set (the caller needs ANY ONE of them —
-  // see OperationDefinition's docstring), so " or " mirrors the backend's
-  // own semantics rather than inventing new wording.
+  // required_privileges means any one of them, hence " or ".
   return Array.isArray(privileges) && privileges.length > 0
     ? privileges.join(" or ")
     : PLACEHOLDER;
@@ -191,10 +178,8 @@ function formatRisk(riskLevel) {
   return `${riskLevel.charAt(0).toUpperCase()}${riskLevel.slice(1)} risk`;
 }
 
-// Same status-badge convention already used by observability.js's trace
-// status column — reused here so risk level and confirmation-required read
-// as the same kind of at-a-glance safety signal, instead of plain table
-// text next to a view whose whole purpose is "Act—safely."
+// Same badge style as the Observability status column, so risk and
+// confirmation stand out.
 const RISK_BADGE_CLASS = {
   none: "status-badge--neutral",
   low: "status-badge--ok",
@@ -210,8 +195,7 @@ function makeRiskBadge(riskLevel) {
   return badge;
 }
 
-// Built via document.createElement + .textContent — never innerHTML — so a
-// registry value containing HTML-special characters is never markup.
+// Built with createElement/textContent (no innerHTML).
 function makeEl(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -252,8 +236,7 @@ function makeActionCard(action, operation) {
   return card;
 }
 
-/** Renders the Supported Actions catalog from the registry: only the
- * actions listed above that the registry actually defines, grouped. */
+/** Render the catalog: the actions above that exist in the registry, grouped. */
 function renderCatalog(operations) {
   dom.catalog.replaceChildren();
   const byName = new Map(Array.isArray(operations) ? operations.map((op) => [op.name, op]) : []);
@@ -282,9 +265,10 @@ function markOpened(name) {
   });
 }
 
-/** "Open →": the journal action shows this page's existing review/execute
- * panels; every other action goes to the existing view whose own
- * review/confirm flow performs it. Opening never executes anything. */
+/**
+ * "Open ->": the journal action shows the panels on this page; the others
+ * go to the page that performs them. Opening doesn't run anything.
+ */
 function openAction(action) {
   if (action.view) {
     navigateTo(action.view);
@@ -308,7 +292,7 @@ function renderReview(operations) {
     : null;
   journalOperation = operation || null;
 
-  // Shown only after the user opens the journal action — never preselected.
+  // Only shown once the journal action is opened.
   if (!operation) {
     dom.reviewGrid.hidden = true;
     return;
@@ -316,10 +300,7 @@ function renderReview(operations) {
 
   dom.reviewGrid.hidden = !journalSelected;
 
-  // The row explicitly naming the field execution would change
-  // (PurgeArchived) is what satisfies "clearly show what execution
-  // changes" — it is real, registry-sourced fact (the operation's own
-  // description already names this field), not invented copy.
+  // This row says which field will change (PurgeArchived).
   const rows = [
     ["Operation ID", textOrPlaceholder(operation.name)],
     ["Description", textOrPlaceholder(operation.description)],
@@ -346,10 +327,7 @@ function renderReview(operations) {
   }
 }
 
-/**
- * Fetches GET /api/iris/operations and renders the catalog + review card.
- * This is a READ-ONLY call — no mutating request happens here.
- */
+/** Load GET /api/iris/operations and render the catalog and review card. */
 export async function loadOperations() {
   setLoading(true);
   setErrorBanner(null);
@@ -359,8 +337,7 @@ export async function loadOperations() {
   try {
     response = await IrisApi.getOperations();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load operations. The Command Center backend may be unreachable."
@@ -391,13 +368,12 @@ export async function loadOperations() {
   renderReview(operations);
   setLoading(false);
 
-  // Independent read (GET /api/iris/journal/settings) that populates the
-  // execute panel's "current value" — only once the journal action has been
-  // opened; it never confirms or executes anything itself.
+  // Read the current value for the execute panel, once the journal action
+  // is open.
   if (journalSelected) await loadCurrentPurgeArchived();
 }
 
-// --- Execute panel: Review -> explicit confirmation -> execute -> result ---
+// --- Execute panel: review -> confirm -> execute -> result ---
 
 function addInfoRow(list, label, value, { mono = true } = {}) {
   const row = document.createElement("div");
@@ -418,10 +394,8 @@ function formatBoolean(value) {
   return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
 }
 
-// Shows the "choose a value" stage and hides the confirm/result stages —
-// the panel's default, at-rest state. Never called from an execution
-// callback, only from load/cancel/after-result, so the page can never be
-// left mid-confirmation by accident.
+// Show the "choose a value" step and hide confirm/result. Called on load,
+// cancel and after a result, never mid-run.
 function showChooseStage() {
   pendingTarget = null;
   dom.executeChoose.hidden = false;
@@ -430,11 +404,9 @@ function showChooseStage() {
 }
 
 /**
- * Fetches the CURRENT PurgeArchived value via the existing, already-used
- * GET /api/iris/journal/settings — read-only, no confirmation needed to
- * merely look at it. Only updates the value display; deliberately never
- * touches which stage (choose/confirm/result) is showing, so calling this
- * after an execution never hides the result the user just got.
+ * Read the current PurgeArchived value (GET /api/iris/journal/settings).
+ * Only updates the value shown, not which step is showing, so calling it
+ * after a run doesn't hide the result.
  */
 async function refreshCurrentValueDisplay() {
   dom.executeCurrentList.replaceChildren();
@@ -447,18 +419,15 @@ async function refreshCurrentValueDisplay() {
     currentPurgeArchived = value;
     addInfoRow(dom.executeCurrentList, "Current PurgeArchived Value", formatBoolean(value));
   } catch {
-    // Generic, non-alarming — same discipline as every other view's error
-    // handling.
+    // Keep it low-key, like the other pages' errors.
     currentPurgeArchived = null;
     addInfoRow(dom.executeCurrentList, "Current PurgeArchived Value", "Could not load");
   }
 }
 
 /**
- * The view-load/Refresh path: refreshes the current value AND resets the
- * panel back to its at-rest "choose a value" stage. Never called from
- * executeConfirmed() (see refreshCurrentValueDisplay above) — only from
- * loadOperations(), i.e. on view load or an explicit Refresh click.
+ * On load/Refresh: update the current value and go back to the "choose a
+ * value" step. Not called after a run (see refreshCurrentValueDisplay).
  */
 async function loadCurrentPurgeArchived() {
   dom.executeLoadingState.hidden = false;
@@ -472,9 +441,7 @@ async function loadCurrentPurgeArchived() {
   showChooseStage();
 }
 
-// The "choose a value" step — deliberately NOT the confirmation itself.
-// Clicking one of these buttons only moves to a distinct confirm stage; it
-// sends no request.
+// Picking a value only moves on to the confirm step; nothing is sent.
 function chooseTarget(target) {
   pendingTarget = target;
   const privilegesText =
@@ -494,10 +461,9 @@ function chooseTarget(target) {
 function renderExecutionResult(result) {
   dom.resultList.replaceChildren();
 
-  // An audit-friendly record: operation, outcome, and both the
-  // authorization/verification detail strings the backend already
-  // produced — never re-worded or summarized away, so the exact reason for
-  // any denial or failure stays traceable to its source.
+  // Show the operation, the outcome, and the backend's authorization and
+  // verification messages as-is, so the reason for a denial or failure is
+  // clear.
   addInfoRow(dom.resultList, "Operation", textOrPlaceholder(result.operation_name));
   addInfoRow(dom.resultList, "Status", textOrPlaceholder(result.status));
   addInfoRow(dom.resultList, "Detail", textOrPlaceholder(result.detail), { mono: false });
@@ -535,21 +501,15 @@ function renderExecutionResult(result) {
 }
 
 /**
- * The ONLY place in this file (or this view) that calls
- * IrisApi.executeJournalPurgeArchived — reachable ONLY via the Confirm &
- * Execute button's click handler below, never from page load, never from
- * loadOperations()/loadCurrentPurgeArchived(), and never automatically.
- * `confirmed` is always `true` here because this function only runs after
- * the user reached this stage via chooseTarget() and clicked Confirm —
- * there is no path that calls this with a fabricated confirmation.
+ * The only call to IrisApi.executeJournalPurgeArchived, from the Confirm &
+ * Execute button. `confirmed` is true because you only get here by picking
+ * a value and clicking Confirm.
  */
 async function executeConfirmed() {
   if (pendingTarget === null) return;
   const target = pendingTarget;
 
-  // Disabling synchronously, before any await, is what makes a second
-  // rapid click a no-op — the same in-flight-request guard used by every
-  // Refresh button elsewhere in this app.
+  // Disable right away so a double click doesn't fire two requests.
   dom.confirmButton.disabled = true;
   dom.cancelButton.disabled = true;
   dom.executeConfirm.hidden = true;
@@ -572,10 +532,8 @@ async function executeConfirmed() {
     dom.executingState.hidden = true;
     dom.confirmButton.disabled = false;
     dom.cancelButton.disabled = false;
-    // Reflect whatever actually happened by re-reading the real current
-    // value, rather than assuming the request succeeded — but WITHOUT
-    // resetting the panel back to the choose stage, so the result stays
-    // visible. Click Refresh to start another change.
+    // Re-read the real value instead of assuming it worked, but stay on the
+    // result step so it's still visible. Refresh to make another change.
     await refreshCurrentValueDisplay();
   }
 }

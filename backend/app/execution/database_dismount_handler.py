@@ -1,41 +1,17 @@
-"""The handler for `database.dismount` — dismount an existing, currently
-mounted, non-system local IRIS database. Same architecture and discipline as
-database.mount: real validation against live IRIS read data in both
-dry_run() and execute(), and only execute() ever calls the real write —
-dry_run() never does.
+"""Handler for database.dismount (POST /v2/database-dir/dismount?dir=..., no body).
 
-Endpoint: `POST /v2/database-dir/dismount?dir=<Directory>` ("(%Admin_Operate:U)
-Dismount a local database", mainspec_v2.json), with NO request body.
+IRIS itself only refuses to dismount the manager's database (IRISSYS, 409);
+it would happily dismount IRISLIB, IRISTEMP, IRISAUDIT and so on. So we
+refuse, before sending anything:
+- IRIS's own databases (_SYSTEM_DATABASES)
+- databases with MountRequired not explicitly false
+- databases used by the %SYS namespace in any role
+- mirrored databases
+- directories that aren't a configured database, don't exist, are already
+  dismounted, or whose mount state we can't read
 
-Request-shape evidence. IRIS's own implementation was read (read-only, via
-the Atelier API) — `%Api.Admin.Endpoints.Database.Actions` on IRIS 2026.2:
-  - `ValidateSemantics()` opens `SYS.Database` by directory and answers 404
-    if it does not exist, before anything runs.
-  - `RunDismount()` calls `SYS.Database.Dismount()` synchronously
-    (`ShouldRunAsync()` is false) and returns `{}`. The ONLY database IRIS
-    itself refuses is the manager's database (error #345 "Cannot dismount
-    manager's database", answered as 409). Every other database —
-    IRISLIB, IRISTEMP, IRISAUDIT, IRISSECURITY, ... — IRIS would dismount,
-    so this handler refuses them itself (see below).
-  - `NeedsRequestBody()` is false for dismount; `ResourcesOR()` is
-    `%Admin_Operate` (the registry entry's privilege).
-
-Safety policy — refused before any write, from real IRIS data:
-  - Any database IRIS installs for itself (_SYSTEM_DATABASES, the
-    IRIS*/ENSLIB databases observed on icc-iris-dev).
-  - Any database whose GET /v2/databases entry has `MountRequired: true` —
-    IRIS's own "must be mounted" flag (true for every IRIS* database live).
-  - Any database the %SYS namespace uses in any role (GET /v2/namespaces).
-  - Any mirrored database (POST /v2/database-dir/info `Mirrored`).
-  - A directory that is not a configured database (not in GET
-    /v2/databases), is unknown to IRIS (404), or is already dismounted —
-    and any request whose mount state can't be determined.
-The dry-run preview also names every namespace that maps this database
-(from GET /v2/namespaces), so the operator sees what will be affected.
-
-No real dismount has been executed against IRIS as of this implementation.
-All tests use a fake/mock IRIS client (see
-backend/tests/test_database_dismount.py).
+The dry run also lists the namespaces that use the database, so you can
+see what will be affected.
 """
 
 import asyncio
@@ -61,25 +37,23 @@ _INFO_PATH = "/v2/database-dir/info"
 _DATABASES_PATH = "/v2/databases"
 _NAMESPACES_PATH = "/v2/namespaces"
 
-# The databases IRIS installs for its own use (all observed on icc-iris-dev,
-# IRIS 2026.2). Compared case-insensitively by database Name.
+# Databases IRIS creates for itself (compared by name, case-insensitive).
 _SYSTEM_DATABASES = frozenset(
     {"IRISSYS", "IRISSECURITY", "IRISLIB", "IRISTEMP", "IRISLOCALDATA", "IRISAUDIT", "IRISMETRICS", "ENSLIB"}
 )
 
-# GET /v2/namespaces fields that name a database.
+# Namespace fields that name a database.
 _NAMESPACE_DB_FIELDS = ("Globals", "Routines", "Library", "SysGlobals", "SysRoutines", "TempGlobals")
 
-# Same bounded policy as database.mount.
+# Same retry schedule as database.mount.
 _VERIFY_RETRY_DELAYS_SECONDS: tuple[float, ...] = (0.2, 0.5, 1.0)
 
-# Sentinels for _read_info() — distinct from real values.
+# Sentinel values for _read_info().
 _NOT_FOUND = "not_found"
 
 
 class DatabaseDismountParameters(BaseModel):
-    """`Directory` identifies the database (the spec's `dir` query
-    parameter). Dismount takes no other input."""
+    """`Directory` is the database (the spec's dir parameter). No other input."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -88,7 +62,7 @@ class DatabaseDismountParameters(BaseModel):
     @field_validator("Directory")
     @classmethod
     def _validate_directory(cls, value: str) -> str:
-        # Same defensive rules as database.mount / database.create.
+        # Same checks as database.mount / database.create.
         if not value:
             raise ValueError("Directory is required and cannot be empty.")
         if not value.startswith("/"):
@@ -105,8 +79,7 @@ def _failure(detail: str, **data: Any) -> HandlerExecutionResult:
 
 
 class DatabaseDismountHandler(OperationHandler):
-    """Requires an IRISClient supplied by the caller (typically a route), so
-    it can be unit-tested with a fake/mock client."""
+    """Takes an IRISClient so tests can pass a fake."""
 
     def __init__(
         self,
@@ -118,9 +91,9 @@ class DatabaseDismountHandler(OperationHandler):
         self._verify_retry_delays_seconds = verify_retry_delays_seconds
 
     async def _read_info(self, directory: str) -> dict[str, Any] | str:
-        """Read-only POST /v2/database-dir/info (async task): the real
-        `Mounted` / `Mirrored` values (None if absent or not a bool), or
-        _NOT_FOUND on the documented 404."""
+        """Read Mounted and Mirrored from POST /v2/database-dir/info
+        (None if missing), or _NOT_FOUND on 404.
+        """
         try:
             task_id = await self._iris_client.post_async_task(_INFO_PATH, params={"dir": directory})
             task = await self._iris_client.wait_for_async_task(task_id)
@@ -142,10 +115,9 @@ class DatabaseDismountHandler(OperationHandler):
     async def _validate(
         self, request: OperationRequest
     ) -> tuple[DatabaseDismountParameters, dict[str, Any]] | tuple[None, HandlerExecutionResult]:
-        """Every check that precedes the write, in order: request shape, the
-        configured-database entry, system database, MountRequired, %SYS use,
-        existence/mount state, mirroring. Read-only — safe for both
-        dry_run() and execute()."""
+        """All checks before the write, in order: request, configured database,
+        system database, MountRequired, %SYS use, mount state, mirroring.
+        """
         try:
             params = DatabaseDismountParameters.model_validate(request.parameters)
         except ValidationError as exc:
@@ -234,8 +206,7 @@ class DatabaseDismountHandler(OperationHandler):
         }
 
     async def dry_run(self, request: OperationRequest, context: ExecutionContext) -> HandlerExecutionResult:
-        """Validation and read-only IRIS lookups only — never sends the
-        dismount."""
+        """Validate and read from IRIS only; never sends the dismount."""
         params, result = await self._validate(request)
         if params is None:
             return result
@@ -290,9 +261,7 @@ class DatabaseDismountHandler(OperationHandler):
         context: ExecutionContext,
         execution_result: HandlerExecutionResult,
     ) -> PostActionVerificationResult:
-        """A fresh POST /v2/database-dir/info read (independent of the
-        dismount response), retried with the bounded policy above,
-        confirming IRIS now reports `Mounted: false`."""
+        """Re-read /v2/database-dir/info (with retries) and check Mounted is now false."""
         directory = execution_result.data.get("directory")
         name = execution_result.data.get("name")
 
@@ -302,8 +271,8 @@ class DatabaseDismountHandler(OperationHandler):
             if delay_before_this_attempt:
                 await asyncio.sleep(delay_before_this_attempt)
             attempts_made += 1
-            # The dismount already happened; a read failure here must
-            # surface as VERIFICATION_FAILED, not an unhandled error.
+            # The change already happened, so a failed read here is a
+            # VERIFICATION_FAILED result, not an exception.
             try:
                 info = await self._read_info(directory)
             except IRISClientError as exc:

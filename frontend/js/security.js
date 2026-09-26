@@ -1,22 +1,13 @@
-// Security view — page-level load/connection status and the OAuth 2.0 tab:
-// this instance as an authorization server, its registered clients, the
-// server definitions (external authorization servers) it uses as a client
-// and their client configurations, resource servers and their mappings, plus
-// "oauth-client", "oauth-definition", "oauth-config" and
-// "oauth-resource-server" detail in the page's shared drawer
-// (security-access.js).
+// Security page: the page-level status and the OAuth 2.0 tab (this
+// instance as an authorization server, its clients, the server definitions
+// it uses as a client and their configurations, resource servers and
+// mappings), with details in the shared drawer (security-access.js).
 //
-// Read-only and allowlisted. It calls only these GET endpoints (via IrisApi,
-// see backend/app/routes/security_access.py) and no mutating one:
-//   - getSecurityOAuthOverview — every area in one allowlisted response;
-//     loaded when the Security view opens and on Refresh, and the source of
-//     the page's connection status,
-//   - getSecurityOAuthServerClient / ServerDefinition / ClientConfiguration
-//     / ResourceServer — fresh allowlisted detail for the drawer.
-// Client secrets, key passwords, tokens and other secret values are never
-// requested: the backend's models only name safe fields, and this module
-// reads nothing else. `*Credentials` fields name X.509 credentials and link
-// to the Certificates drawer — they are aliases, not key material.
+// Uses getSecurityOAuthOverview (everything in one call; also drives the
+// page status) and getSecurityOAuthServerClient / ServerDefinition /
+// ClientConfiguration / ResourceServer for the drawer. The backend only
+// returns safe fields, so no secrets or tokens come through. `*Credentials`
+// fields are X.509 aliases and link to the Certificates drawer.
 
 import { IrisApi, ApiError } from "./api.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
@@ -100,7 +91,7 @@ const TABLES = {
   },
 };
 
-let overview = null; // last allowlisted overview, or null if the load failed
+let overview = null;  // last overview, or null if it failed
 let loadSeq = 0;
 
 // --- helpers ---
@@ -121,8 +112,10 @@ function seconds(value) {
   return typeof value === "number" ? `${value} s` : PLACEHOLDER;
 }
 
-/** Client configurations across all server definitions, each tagged with
- * its definition's ID. Null if the definitions list itself failed. */
+/**
+ * Client configurations from all server definitions, each tagged with its
+ * definition's ID. Null if the definitions list failed.
+ */
 function clientConfigurations(o) {
   if (!Array.isArray(o.ServerDefinitions)) return null;
   return o.ServerDefinitions.flatMap((d) =>
@@ -139,9 +132,8 @@ function link(kind, name) {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern used in the other
-  // views. Every Security module listens to this same button.
+  // Disable right away so a double click doesn't fire two requests.
+  // All the Security tabs listen to this button.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -249,7 +241,7 @@ function renderServer() {
   );
 }
 
-/** The allowlisted server discovery metadata (endpoints and capabilities). */
+/** Server discovery metadata (endpoints and capabilities). */
 function metadataList(metadata) {
   const rows = [
     ["Issuer", "issuer"],
@@ -462,9 +454,8 @@ async function renderResourceServerDrawer(name, isCurrent) {
 // --- load ---
 
 /**
- * Loads the allowlisted OAuth 2.0 overview and renders the OAuth tab and the
- * page's connection status. Called when the Security view opens and on
- * Refresh. Only a GET — no mutating request exists anywhere in this file.
+ * Load the OAuth 2.0 overview and render the tab and the page status.
+ * Runs when the page opens and on Refresh.
  */
 export async function loadSecurity() {
   const seq = ++loadSeq;
@@ -542,7 +533,7 @@ export function initSecurityControls() {
     loadSecurity();
   });
 
-  // Client-side search over the last loaded overview — never a request.
+  // Filters the last loaded data locally, no request.
   dom.form.addEventListener("submit", (event) => event.preventDefault());
   dom.search.addEventListener("input", () => {
     if (overview) renderTables();

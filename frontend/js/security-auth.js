@@ -1,18 +1,14 @@
-// Security view — Authentication tab: how the instance authenticates
-// connections. Summary cards, system-wide web authentication, services,
-// superservers and application class access, plus "service" and
-// "superserver" detail in the page's shared drawer (security-access.js).
+// Security page, Authentication tab: summary cards, web authentication
+// settings, services, superservers and class access, with service and
+// superserver details in the shared drawer (security-access.js).
 //
-// Read-only. It calls only these GET endpoints (via IrisApi, see
-// backend/app/routes/security_access.py) and no mutating one:
-//   - getSecurityServices / getSecurityServiceDetail(name)
-//   - getSecurityWebAuth — SMTPUsername and TwoFactorFrom are withheld by
-//     the backend; IRIS returns no SMTP password at all.
-//   - getSecuritySuperservers — each entry already merged with its detail.
-//   - getSecurityClassAccess
+// Uses getSecurityServices / getSecurityServiceDetail, getSecurityWebAuth
+// (SMTPUsername and TwoFactorFrom are withheld by the backend),
+// getSecuritySuperservers (already merged with details) and
+// getSecurityClassAccess.
 //
-// Data loads the first time the tab is shown, and again on Refresh or when
-// the Security view is reopened after that.
+// Loads the first time the tab is shown, then on Refresh or when the page
+// is reopened.
 
 import { IrisApi, ApiError } from "./api.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
@@ -56,8 +52,7 @@ const dom = {
   },
 };
 
-// System-wide web authentication switches, in IRIS's own terms. Each
-// item's tooltip shows the raw IRIS field it reflects.
+// Web authentication switches. The tooltip shows the IRIS field name.
 const WEB_AUTH_METHODS = [
   ["AutheUnauthenticated", "Unauthenticated"],
   ["AutheCache", "Instance authentication"],
@@ -75,7 +70,7 @@ const WEB_AUTH_METHODS = [
   ["AutheTwoFactorPW", "Two-factor: time-based one-time password"],
 ];
 
-// Service AutheEnabled bits exactly as mainspec_v2.json documents them.
+// AutheEnabled bits for services.
 const SERVICE_AUTHE_BITS = [
   [0, "AutheK5CCache"],
   [1, "AutheK5Prompt"],
@@ -96,7 +91,7 @@ const SERVICE_AUTHE_BITS = [
   [25, "MutualTLS"],
 ];
 
-// Superserver SSLSupportLevel per the spec: 0 = None, 1 = Accept, 2 = Require.
+// SSLSupportLevel: 0 = None, 1 = Accept, 2 = Require.
 const TLS_LEVELS = { 0: ["None", "status-badge--warning"], 1: ["Accept", "status-badge--neutral"], 2: ["Require", "status-badge--ok"] };
 
 const SUPERSERVER_PROTOCOLS = [
@@ -151,7 +146,7 @@ function tlsBadge(level) {
 }
 
 function formatAllowedConnections(list) {
-  // mainspec_v2.json: "If empty, then there are no restrictions."
+  // Empty means no restrictions.
   return Array.isArray(list) && list.length > 0 ? list.join(", ") : "Unrestricted";
 }
 
@@ -583,8 +578,10 @@ async function loadSecurityAuth() {
   dom.loading.hidden = true;
 }
 
-/** Called when the Security view is (re)opened: refreshes only if this tab
- * has already been loaded once — otherwise it loads when first shown. */
+/**
+ * Called when the Security page is reopened. Only refreshes if this tab
+ * was already loaded; otherwise it loads when first shown.
+ */
 export function refreshSecurityAuthIfLoaded() {
   if (loaded) loadSecurityAuth();
 }
@@ -620,7 +617,7 @@ export function initSecurityAuthControls() {
     summaryActions[Number(card.dataset.cardIndex)]?.();
   });
 
-  // Client-side filtering over the last fetched lists — never a request.
+  // Filters the last loaded data locally, no request.
   const c = dom.services;
   c.form.addEventListener("submit", (event) => event.preventDefault());
   c.search.addEventListener("input", renderServicesTable);

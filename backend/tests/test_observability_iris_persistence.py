@@ -1,15 +1,8 @@
-"""Focused tests for the optional, feature-flagged IRIS execution-trace
-persistence added in app/observability/iris_trace_writer.py and wired into
-app/observability/store.py's record_trace(). No test here makes a real
-network call or contacts a real IRIS instance — IRISTraceWriter's IRIS
-Native API handle is always a fake/mock.
+"""Tests for the optional IRIS trace persistence (iris_trace_writer.py and
+the hook in store.record_trace()). The IRIS connection is always faked.
 
-Two things these tests exist to guarantee:
-  1. With no persister registered (the default), record_trace() behaves
-     exactly as covered by test_observability.py — untouched by this file.
-  2. With a persister registered, a persistence failure of any kind can
-     NEVER raise out of record_trace() or otherwise affect the in-memory
-     store it protects.
+The main points: with no persister, record_trace() behaves as before; with
+one, a failing write never breaks record_trace() or the in-memory store.
 """
 
 import asyncio
@@ -25,9 +18,8 @@ from app.observability.models import ExecutionTrace
 
 @pytest.fixture(autouse=True)
 def _reset_store() -> None:
-    # store._persister/_pending_persist_tasks are process-global module
-    # state, same as store._traces — reset before AND after every test so
-    # a persister registered here can never leak into another test file.
+    # The persister and pending tasks are module globals, so reset them
+    # before and after each test.
     store.clear_traces()
     store.set_trace_persister(None)
     yield
@@ -40,8 +32,7 @@ def _trace(name: str = "demo.op") -> ExecutionTrace:
 
 
 class _FakePersister:
-    """Records every trace passed to persist_sync(); raises if configured
-    to, so tests can exercise store.py's failure-swallowing behavior."""
+    """Records the traces it's given, or raises if told to."""
 
     def __init__(self, *, raises: bool = False):
         self.calls: list[ExecutionTrace] = []
@@ -54,14 +45,12 @@ class _FakePersister:
 
 
 async def _drain_pending_persist_tasks() -> None:
-    """Awaits every in-flight background persistence task store.py is
-    currently tracking — the deterministic alternative to sleeping and
-    hoping a background task has finished."""
+    """Wait for the background persist tasks instead of sleeping."""
     while store._pending_persist_tasks:
         await asyncio.gather(*store._pending_persist_tasks, return_exceptions=True)
 
 
-# --- store.py: record_trace() + the optional persister hook ---
+# --- store.record_trace() with a persister ---
 
 
 @pytest.mark.asyncio
@@ -82,7 +71,7 @@ async def test_record_trace_forwards_to_a_registered_persister() -> None:
     await _drain_pending_persist_tasks()
 
     assert persister.calls == [trace]
-    # The in-memory store is unaffected either way.
+    # The in-memory store is fine either way.
     assert store.list_traces() == [trace]
 
 
@@ -92,15 +81,14 @@ async def test_record_trace_never_raises_when_persister_raises() -> None:
     store.set_trace_persister(persister)
 
     store.record_trace(_trace())  # must not raise synchronously
-    await _drain_pending_persist_tasks()  # the background task must not raise either
+    await _drain_pending_persist_tasks()  # and neither does the background task
 
     assert persister.calls  # it was still attempted
 
 
 def test_record_trace_with_persister_but_no_running_loop_does_not_raise() -> None:
-    # A plain (non-async) test function has no running event loop — this
-    # is the same situation test_observability.py's existing sync tests
-    # (e.g. test_store_is_capped_and_newest_first) call record_trace() from.
+    # Plain sync test, so no running event loop (same as the sync tests in
+    # test_observability.py).
     store.set_trace_persister(_FakePersister())
 
     store.record_trace(_trace())  # must not raise
@@ -120,12 +108,11 @@ async def test_set_trace_persister_none_disables_background_persistence_again() 
     assert persister.calls == []
 
 
-# --- IRISTraceWriter: sequence/eviction bookkeeping and failure isolation ---
+# --- IRISTraceWriter: sequence numbers, eviction, failures ---
 
 
 class _FakeIrisNative:
-    """Minimal stand-in for the object iris.createIRIS() returns — only the
-    get/set/kill subset IRISTraceWriter.persist_sync() actually calls."""
+    """Fake for what iris.createIRIS() returns (just get/set/kill)."""
 
     def __init__(self) -> None:
         self.values: dict[tuple, str] = {}
@@ -145,7 +132,7 @@ class _FakeIrisNative:
 
 
 def _connected_writer(fake_iris: _FakeIrisNative) -> IRISTraceWriter:
-    writer = IRISTraceWriter.__new__(IRISTraceWriter)  # bypass __init__'s Settings requirement
+    writer = IRISTraceWriter.__new__(IRISTraceWriter)  # skip __init__ (it needs Settings)
     writer._settings = None
     writer._connection = MagicMock()
     writer._iris = fake_iris
@@ -172,7 +159,7 @@ def test_persist_sync_evicts_the_oldest_trace_once_over_the_cap() -> None:
 
     assert fake_iris.values[("CommandCenterTrace", "seq")] == "201"
     assert ("CommandCenterTrace", "trace", 201) in fake_iris.values
-    # The oldest surviving entry (seq 1) was evicted to hold the cap at 200.
+    # seq 1 was evicted to keep the cap at 200.
     assert ("kill", ("CommandCenterTrace", "trace", 1)) in fake_iris.calls
 
 
@@ -208,12 +195,11 @@ def test_close_swallows_errors_from_the_underlying_connection() -> None:
     assert writer._iris is None
 
 
-# --- Startup hydration: IRISTraceWriter.load_recent_sync() + store.hydrate_traces() ---
+# --- Startup: load_recent_sync() + hydrate_traces() ---
 
 
 def _persisted(fake_iris: _FakeIrisNative, names: list[str]) -> list[ExecutionTrace]:
-    """Writes `names` (oldest first) through the real persist_sync(), so the
-    global has exactly the shape production code produces."""
+    """Write `names` (oldest first) with the real persist_sync()."""
     writer = _connected_writer(fake_iris)
     traces = [_trace(name) for name in names]
     for trace in traces:
@@ -228,7 +214,7 @@ def test_load_recent_sync_returns_persisted_traces_newest_first() -> None:
     loaded = _connected_writer(fake_iris).load_recent_sync()
 
     assert [t.operation_name for t in loaded] == ["three", "two", "one"]
-    assert loaded[0] == written[2]  # full round trip, schema unchanged
+    assert loaded[0] == written[2]  # round trip keeps the same schema
 
 
 def test_load_recent_sync_on_an_empty_global_returns_nothing() -> None:
@@ -244,7 +230,7 @@ def test_load_recent_sync_reads_only_the_surviving_capped_range() -> None:
     assert len(loaded) == 200
     assert loaded[0].operation_name == "op-205"
     assert loaded[-1].operation_name == "op-6"
-    # It never asks for an evicted (or never-written) subscript.
+    # Never reads an evicted or unwritten entry.
     trace_gets = [
         call[1][2]
         for call in fake_iris.calls
@@ -313,11 +299,11 @@ def test_hydrate_traces_with_nothing_persisted_leaves_the_store_empty() -> None:
     assert store.list_traces() == []
 
 
-# --- app/main.py lifespan wiring ---
+# --- app/main.py lifespan ---
 
 
 class _FakeWriter:
-    """Stands in for IRISTraceWriter inside the real lifespan."""
+    """Replaces IRISTraceWriter in the real lifespan."""
 
     instances: list["_FakeWriter"] = []
     to_load: list[ExecutionTrace] = []

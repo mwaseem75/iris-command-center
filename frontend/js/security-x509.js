@@ -1,23 +1,16 @@
-// Security view — Certificates tab: X.509 credentials and their
-// certificates' metadata, plus "x509" detail in the page's shared drawer
-// (security-access.js).
+// Security page, Certificates tab: X.509 credentials and their certificate
+// details, with more in the shared drawer.
 //
-// Read-only and metadata-only. It calls only these GET endpoints (via
-// IrisApi, see backend/app/routes/security_access.py) and no mutating one:
-//   - getSecurityX509Overview — every credential with its certificate's
-//     subject, issuer, serial number and validity,
-//   - getSecurityX509CredentialDetail(alias) and
-//     getSecurityX509Certificate(alias) — fresh data for the drawer.
-// Private keys, key passwords and certificate contents are never requested:
-// the backend's models only pass the documented metadata fields, and this
-// module reads nothing else — only the HasPrivateKey boolean.
+// Uses getSecurityX509Overview, getSecurityX509CredentialDetail(alias) and
+// getSecurityX509Certificate(alias). No key material is requested; only the
+// HasPrivateKey flag.
 //
-// Validity status is derived only from ValidityNotBefore/ValidityNotAfter
-// as IRIS reports them ("YYYY-MM-DD HH:MM:SS", no timezone — read as the
-// browser's local time). Anything missing or unparseable is "Unknown".
+// Validity comes from ValidityNotBefore/ValidityNotAfter ("YYYY-MM-DD
+// HH:MM:SS", no timezone, so read as local time). Missing or unparseable
+// dates show "Unknown".
 //
-// Data loads the first time the tab is shown, and again on Refresh or when
-// the Security view is reopened after that.
+// Loads the first time the tab is shown, then on Refresh or when the page
+// is reopened.
 
 import { IrisApi } from "./api.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
@@ -72,7 +65,7 @@ function parseIrisDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Validity status from the certificate's own reported dates only. */
+/** Validity status from the certificate's dates. */
 function validityOf(certificate, now = new Date()) {
   if (!certificate) return "Unknown";
   const notAfter = parseIrisDate(certificate.ValidityNotAfter);
@@ -96,8 +89,7 @@ function formatPrivateKey(value) {
 }
 
 function formatOwners(owners) {
-  // mainspec_v2.json: "If the OwnerList is empty, the credentials are
-  // available to any user."
+  // An empty OwnerList means any user can use the credentials.
   if (!Array.isArray(owners)) return "Not reported";
   return owners.length === 0 ? "Any user" : owners.join(", ");
 }
@@ -361,8 +353,10 @@ async function loadSecurityX509() {
   if (!empty) renderTable();
 }
 
-/** Called when the Security view is (re)opened: refreshes only if this tab
- * has already been loaded once — otherwise it loads when first shown. */
+/**
+ * Called when the Security page is reopened. Only refreshes if this tab
+ * was already loaded; otherwise it loads when first shown.
+ */
 export function refreshSecurityX509IfLoaded() {
   if (loaded) loadSecurityX509();
 }
@@ -397,7 +391,7 @@ export function initSecurityX509Controls() {
     summaryActions[Number(card.dataset.cardIndex)]?.();
   });
 
-  // Client-side filtering over the last fetched overview — never a request.
+  // Filters the last loaded data locally, no request.
   dom.form.addEventListener("submit", (event) => event.preventDefault());
   dom.search.addEventListener("input", renderTable);
   dom.status.addEventListener("change", renderTable);

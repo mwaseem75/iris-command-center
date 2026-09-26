@@ -1,33 +1,16 @@
-"""The handler for `web_app.set_enabled` — enable or disable an existing IRIS
-web application. Same architecture and discipline as database.mount: real
-validation against live IRIS read data in both dry_run() and execute(), and
-only execute() ever calls the real write — dry_run() never does.
+"""Handler for web_app.set_enabled (PUT /v2/web-app?name=..., %Admin_Secure:U).
 
-Endpoint: `PUT /v2/web-app?name=<Name>` ("(%Admin_Secure:U) Create/Edit a
-web application", mainspec_v2.json), body `{"Enabled": <bool>}` and nothing
-else.
+Sends {"Enabled": b} and nothing else. Both dry_run() and execute()
+validate against live IRIS data; only execute() sends the PUT.
 
-Request-shape evidence. The spec alone only hints at partial updates
-("NameSpace ... Required on creation, optional on updates"), so IRIS's own
-implementation was read (read-only, via the Atelier API) before this handler
-was written — `%Api.Admin.Endpoints.WebApp.App` on IRIS 2026.2:
-  - `MergeJsonAndProperties()` copies ONLY keys present in the JSON body
-    (`%IsDefined`) into the properties passed to
-    `Security.Applications.Modify()` — so `{"Enabled": b}` changes only
-    Enabled. A true partial update.
-  - It then ALWAYS sets `properties("Type") = $$$AppTypeCSP`. Every PUT
-    resets the app's Type to plain CSP — for a "System,CSP" app that would
-    silently clear its System flag. Hence the System-type hard deny below,
-    and the Type-unchanged check in verify().
-  - `ValidateRequest()` requires `NameSpace` when the app does not exist, so
-    `{"Enabled": b}` alone can never create one (it is a 400). The existence
-    pre-check below makes that a clear failure before any write.
-  - `ResourcesOR()` is `%Admin_Secure` only — the privilege IRIS itself
-    enforces for this call (see _REQUIRED_IRIS_PRIVILEGE).
-
-No real PUT /v2/web-app has been executed against IRIS as of this
-implementation. All tests use a fake/mock IRIS client (see
-backend/tests/test_web_app_set_enabled.py).
+From reading %Api.Admin.Endpoints.WebApp.App on 2026.2:
+- Only keys present in the body are changed (a partial update)...
+- ...but every PUT also sets Type to plain CSP. For a "System,CSP" app
+  that would quietly drop the System flag, so System apps are refused and
+  verify() checks the Type didn't change.
+- A missing app plus no NameSpace in the body is a 400, so this can't
+  create an app; we check existence first anyway.
+- IRIS requires %Admin_Secure for the PUT (_REQUIRED_IRIS_PRIVILEGE).
 """
 
 import asyncio
@@ -50,14 +33,12 @@ from app.iris_client.exceptions import IRISClientError, IRISResponseError
 _WEB_APP_PATH = "/v2/web-app"
 _WEB_APPS_PATH = "/v2/web-apps"
 
-# The operation's registry entry requires Manage (project policy); IRIS's
-# own implementation additionally enforces %Admin_Secure for this PUT, so a
-# caller without it is rejected here, before any IRIS call, rather than
-# surfacing as an opaque 403 mid-execution.
+# Our registry entry requires Manage, but IRIS also wants %Admin_Secure
+# for this PUT. Check it up front instead of hitting a 403 halfway.
 _REQUIRED_IRIS_PRIVILEGE = "Secure"
 
-# Web apps this Command Center itself depends on — changing them could cut
-# it off from IRIS. Compared case-insensitively, without a trailing slash.
+# Web apps the Command Center itself relies on; touching them could cut
+# us off from IRIS. Compared case-insensitively, ignoring a trailing slash.
 _PROTECTED_APPS: dict[str, str] = {
     "/api/admin": (
         "it is the IRIS SysAdmin API this Command Center authenticates against "
@@ -69,8 +50,7 @@ _PROTECTED_APPS: dict[str, str] = {
     ),
 }
 
-# Same bounded policy as database.mount: one immediate check plus three
-# increasing delays, never unbounded.
+# Same retry schedule as database.mount.
 _VERIFY_RETRY_DELAYS_SECONDS: tuple[float, ...] = (0.2, 0.5, 1.0)
 
 
@@ -109,8 +89,7 @@ def _state_word(enabled: bool) -> str:
 
 
 class WebAppSetEnabledHandler(OperationHandler):
-    """Requires an IRISClient supplied by the caller (typically a route), so
-    it can be unit-tested with a fake/mock client."""
+    """Takes an IRISClient so tests can pass a fake."""
 
     def __init__(
         self,
@@ -122,8 +101,7 @@ class WebAppSetEnabledHandler(OperationHandler):
         self._verify_retry_delays_seconds = verify_retry_delays_seconds
 
     async def _read_list_entry(self, name: str) -> dict[str, Any] | None:
-        """Read-only GET /v2/web-apps; the entry whose Name is exactly
-        `name`, or None."""
+        """GET /v2/web-apps and return the entry named exactly `name`, or None."""
         body = await self._iris_client.get(_WEB_APPS_PATH)
         entries = body.get("result") if isinstance(body, dict) else None
         if not isinstance(entries, list):
@@ -134,8 +112,7 @@ class WebAppSetEnabledHandler(OperationHandler):
         )
 
     async def _read_enabled(self, name: str) -> bool | None:
-        """Read-only GET /v2/web-app?name=; the real `Enabled` bool, or None
-        if absent/not a bool (never guessed)."""
+        """GET /v2/web-app?name= and return Enabled, or None if it's missing or not a bool."""
         body = await self._iris_client.get(_WEB_APP_PATH, params={"name": name})
         result = body.get("result") if isinstance(body, dict) else None
         enabled = result.get("Enabled") if isinstance(result, dict) else None
@@ -144,9 +121,9 @@ class WebAppSetEnabledHandler(OperationHandler):
     async def _validate(
         self, request: OperationRequest, context: ExecutionContext
     ) -> tuple[WebAppSetEnabledParameters, dict[str, Any]] | tuple[None, HandlerExecutionResult]:
-        """Every check that precedes the write, in order: request shape,
-        IRIS's own privilege, the hard-deny list, existence, System type, and
-        the current state. Read-only — safe for both dry_run() and execute()."""
+        """All checks before the write, in order: request, IRIS privilege, protected
+        apps, existence, System type, current state. Read-only.
+        """
         try:
             params = WebAppSetEnabledParameters.model_validate(request.parameters)
         except ValidationError as exc:
@@ -227,7 +204,7 @@ class WebAppSetEnabledHandler(OperationHandler):
     async def dry_run(
         self, request: OperationRequest, context: ExecutionContext
     ) -> HandlerExecutionResult:
-        """Validation and read-only IRIS lookups only — never calls put()."""
+        """Validate and read from IRIS only; never sends the PUT."""
         params, result = await self._validate(request, context)
         if params is None:
             return result
@@ -284,11 +261,9 @@ class WebAppSetEnabledHandler(OperationHandler):
         context: ExecutionContext,
         execution_result: HandlerExecutionResult,
     ) -> PostActionVerificationResult:
-        """Fresh reads, independent of the PUT response, retried with the
-        bounded policy above: GET /v2/web-app must report the requested
-        Enabled value, and GET /v2/web-apps must still report the app's
-        original Type (IRIS's PUT forces Type to CSP; for the non-System
-        apps this operation allows, that must be a no-op)."""
+        """Re-read (with retries): GET /v2/web-app must show the requested Enabled
+        value, and GET /v2/web-apps must still show the original Type.
+        """
         data = execution_result.data
         name = data.get("name")
         target = data.get("enabled_after")
@@ -301,8 +276,8 @@ class WebAppSetEnabledHandler(OperationHandler):
             if delay_before_this_attempt:
                 await asyncio.sleep(delay_before_this_attempt)
             attempts_made += 1
-            # The change already happened; a read failure here must surface
-            # as VERIFICATION_FAILED, not an unhandled error.
+            # The change already happened, so a failed read here is a
+            # VERIFICATION_FAILED result, not an exception.
             try:
                 last_enabled = await self._read_enabled(name)
                 entry = await self._read_list_entry(name)

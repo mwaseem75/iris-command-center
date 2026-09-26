@@ -1,40 +1,29 @@
-// Web Apps view: a read-only Web Apps Explorer — KPI cards, the Enabled/
-// Disabled strip, a client-side search/filter toolbar, a compact table,
-// and a detail drawer with Configuration and (REST apps only) REST
-// Endpoints tabs, plus a read-only Web Sessions section. It calls exactly
-// four read-only endpoints:
-//   - GET /api/iris/web-apps (the list; IrisApi.getWebApps()),
-//   - GET /api/iris/web-apps/detail?name= (one app's full configuration,
-//     fetched only when its drawer opens; IrisApi.getWebAppDetail()),
-//   - GET /api/iris/web-apps/rest-endpoints?name= (a REST app's route map,
-//     fetched only when its REST Endpoints tab is first opened;
-//     IrisApi.getWebAppRestEndpoints()), and
-//   - GET /api/iris/web-sessions (active sessions, fetched alongside the
-//     list; IrisApi.getWebSessions()). The backend strips every session's
-//     IRIS ID before responding, and this module never reads or shows one.
-// It also offers exactly two MUTATING actions, both through the backend's
-// operation framework (dry run, explicit confirmation, execution and
-// verification all happen there): web_app.set_enabled (Enabled State
-// section, POST /api/iris/web-apps/set-enabled via
-// IrisApi.setWebAppEnabled()) and web_app.update_description (Description
-// section, POST /api/iris/web-apps/update-description via
-// IrisApi.updateWebAppDescription()). There are no other web-app actions
-// (other edits/delete), and no session actions.
+// Web Apps page: KPI cards, an Enabled/Disabled bar, search/filters, a
+// table and a detail drawer (Configuration tab, plus REST Endpoints for REST
+// apps), and a Web Sessions section.
 //
-// Every value shown is a field IRIS actually returned: the table uses
-// backend/app/models/iris.py's WebAppEntry, the drawer's configuration
-// sections use WebAppDetail (all 46 fields, see DETAIL_SECTIONS). The only
-// derived value is "Kind": REST when DispatchClass is set, otherwise CSP.
-// IRIS's own list `Type` never says "REST" (live values are only "CSP" and
-// "System,CSP"), and mainspec_v2.json documents DispatchClass as "For REST
-// Web Application only" — so the derivation is labelled as such in the UI
-// and the real `Type` is always shown alongside it.
+// Reads:
+// - GET /api/iris/web-apps (the list)
+// - GET /api/iris/web-apps/detail?name= (full config, when the drawer opens)
+// - GET /api/iris/web-apps/rest-endpoints?name= (route map, when the REST
+//   tab is first opened)
+// - GET /api/iris/web-sessions (loaded with the list; the backend strips
+//   the session IDs)
+//
+// Two changes are possible, both through the backend's operation framework:
+// web_app.set_enabled (Enabled State section) and web_app.update_description
+// (Description section). Nothing else can be edited, and there are no
+// session actions.
+//
+// "Kind" is the only derived value: REST if DispatchClass is set, otherwise
+// CSP. IRIS's own `Type` is only ever "CSP" or "System,CSP", so it's shown
+// next to it.
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar } from "./viz.js";
 
-const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
+const PLACEHOLDER = "—";  // shown for empty values
 
 const dom = {
   loadingState: document.getElementById("web-apps-loading-state"),
@@ -149,8 +138,8 @@ const dom = {
   descriptionResult: document.getElementById("web-apps-description-result"),
 };
 
-// [label, WebAppEntry field, value kind] — the list-endpoint facts shown at
-// the top of the drawer immediately, before the detail request finishes.
+// [label, WebAppEntry field, value kind]: list data shown at the top of
+// the drawer right away, before the detail loads.
 const SUMMARY_FIELDS = [
   ["Namespace", "Namespace", "text"],
   ["Type", "Type", "text"],
@@ -161,10 +150,8 @@ const SUMMARY_FIELDS = [
   ["Dispatch Class", "DispatchClass", "mono"],
 ];
 
-// [section title, [[label, WebAppDetail field, value kind], ...]] — every
-// one of the 46 fields WebAppDetail defines appears exactly once, grouped
-// by what an administrator is looking for. Units ("s") follow the spec's
-// own descriptions ("in seconds") for each timeout field.
+// [section title, [[label, WebAppDetail field, value kind], ...]]. All 46
+// WebAppDetail fields appear once, grouped. Timeouts are in seconds.
 const DETAIL_SECTIONS = [
   ["General", [
     ["Description", "Description", "text"],
@@ -232,10 +219,8 @@ const DETAIL_SECTIONS = [
   ]],
 ];
 
-// AutheEnabled bit numbers exactly as mainspec_v2.json documents them
-// ("these bits correspond to the same bit numbers in the Security.System
-// class"). Cross-checked live: 32 ⇔ ["Password"], 64 ⇔ ["Unauthenticated"],
-// 96 ⇔ both, matching the list endpoint's AuthenticationMethods for every app.
+// AutheEnabled bit numbers (same as in Security.System). Checked against a
+// real instance: 32 = Password, 64 = Unauthenticated, 96 = both.
 const AUTHE_BITS = [
   [2, "Kerberos (K5API)"],
   [5, "Password"],
@@ -247,8 +232,7 @@ const AUTHE_BITS = [
   [21, "Two-Factor TOTP"],
 ];
 
-// KPI cards: [label, filter it applies (or null for Total), predicate].
-// Every count is computed from the fetched list — nothing invented.
+// KPI cards: [label, filter it applies (null for Total), predicate].
 const SUMMARY_CARDS = [
   ["Total", null, () => true],
   ["REST", { select: "filterKind", value: "REST" }, (app) => kindOf(app) === "REST"],
@@ -270,38 +254,35 @@ const CARD_COLORS = [
   "var(--color-chart-4)",
 ];
 
-// Real WebAppEntry fields the free-text search matches against.
+// Fields the search box matches against.
 const SEARCH_FIELDS = ["Name", "Namespace", "Type", "Resource", "DispatchClass"];
 
-// The full list from the last successful fetch — filtering and the drawer
-// summary both read from this; neither triggers a re-fetch.
+// The last fetched list; filtering and the drawer summary read from it.
 let allWebApps = [];
 
-// Name of the app whose drawer is open, and a counter so a slow detail
-// response for a previously opened app can never overwrite a newer one.
+// App shown in the drawer, plus a counter so a slow response for an app
+// opened earlier can't overwrite a newer one.
 let currentDrawerName = null;
 let detailRequestSeq = 0;
 
-// REST Endpoints tab state. Route maps are cached per app name until the
-// next list Refresh (each fetch costs IRIS a few seconds); a cached entry
-// is either { routeMap } or { unavailable: message }. `restRequestSeq`
-// guards against a slow response for a previously viewed app.
+// REST tab state. Route maps are cached per app until the next Refresh
+// (each one takes IRIS a few seconds). A cache entry is { routeMap } or
+// { unavailable: message }. `restRequestSeq` drops stale responses.
 let activeDrawerTab = "config";
 let restCache = new Map();
 let restRequestSeq = 0;
 let currentRouteMap = null;
 let currentEndpointIndex = null;
 
-// Web Sessions state. `allSessions` is null when the last sessions fetch
-// failed (a distinct "unknown" state from a real empty list). Sessions are
-// identified in the UI only by their position in the last fetched list —
-// never by IRIS's session ID, which the backend withholds.
+// Sessions state. `allSessions` is null if the last fetch failed (not the
+// same as an empty list). Sessions are identified by their position in the
+// list, since there's no session ID.
 let allSessions = null;
 let sessionsLoadSeq = 0;
 let currentSessionIndex = null;
 
-// [label, WebSessionEntry field, value kind] — every field the backend
-// returns for a session (all of GET /v2/web-sessions except ID).
+// [label, WebSessionEntry field, value kind]: every field we get (all of
+// GET /v2/web-sessions except ID).
 const SESSION_FIELDS = [
   ["Username", "Username", "text"],
   ["Application", "Application", "mono"],
@@ -322,9 +303,7 @@ function authMethodsOf(app) {
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
-  // Disabling the button synchronously, before any await, is what makes a
-  // second rapid Refresh click a no-op — the same pattern already used and
-  // reviewed in dashboard.js/system.js/processes.js/databases.js.
+  // Disable right away so a double click doesn't fire two requests.
   dom.refreshButton.disabled = isLoading;
   dom.refreshButton.classList.toggle("btn--spinning", isLoading);
 }
@@ -362,9 +341,10 @@ function formatSeconds(value) {
   return typeof value === "number" ? `${value} s` : PLACEHOLDER;
 }
 
-/** Decodes the real AutheEnabled bitmask into the spec's documented names,
- * always followed by the raw value; an undocumented set bit is shown as
- * "bit N" rather than guessed. */
+/**
+ * Turn the AutheEnabled bitmask into names, followed by the raw value.
+ * Unknown bits show as "bit N".
+ */
 function formatAutheEnabled(value) {
   if (typeof value !== "number") return PLACEHOLDER;
   const names = AUTHE_BITS.filter(([bit]) => (value & (1 << bit)) !== 0).map(([, name]) => name);
@@ -376,8 +356,10 @@ function formatAutheEnabled(value) {
   return `${names.length > 0 ? names.join(", ") : "None"} (${value})`;
 }
 
-/** MatchRoles pairs as "MatchRole → TargetRoles"; an empty MatchRole means
- * the target roles are always granted (per the spec's own description). */
+/**
+ * MatchRoles as "MatchRole -> TargetRoles". An empty MatchRole means the
+ * target roles are always granted.
+ */
 function formatMatchRoles(value) {
   if (!Array.isArray(value) || value.length === 0) return PLACEHOLDER;
   return value
@@ -415,9 +397,7 @@ function statusBadge(enabled) {
   return enabled ? ["Enabled", "status-badge--ok"] : ["Disabled", "status-badge--neutral"];
 }
 
-// Table rows/drawer rows are always built via document.createElement +
-// .textContent — never innerHTML — so a name/class/path containing
-// HTML-special characters can never be interpreted as markup.
+// Rows are built with createElement/textContent (no innerHTML).
 function makeCell(text, { mono = false } = {}) {
   const cell = document.createElement("td");
   cell.className = mono ? "data-table__cell data-table__cell--mono" : "data-table__cell";
@@ -455,8 +435,7 @@ function makeInfoRow(label, field, text, kind) {
   return row;
 }
 
-/** A real Enabled/Disabled split over the fetched list. Hidden entirely
- * when there's nothing to show. */
+/** Enabled/Disabled bar. Hidden when there's nothing to show. */
 function renderOverview(webApps) {
   dom.overview.hidden = false;
   const entries = countBy(webApps, (app) => (app.Enabled ? "Enabled" : "Disabled"));
@@ -507,14 +486,13 @@ function applyCardFilter(index) {
     dom.filterAuth.value = "";
   } else {
     const select = dom[filter.select];
-    // Clicking the already-active card clears that filter.
+    // Clicking the active card again clears the filter.
     select.value = select.value === filter.value ? "" : filter.value;
   }
   renderTable();
 }
 
-/** Rebuilds a <select>'s options from real values, keeping the current
- * selection if that value still exists after a refresh. */
+/** Rebuild a <select>'s options, keeping the current choice if it's still there. */
 function populateSelect(select, allLabel, values) {
   const previous = select.value;
   const allOption = document.createElement("option");
@@ -633,8 +611,10 @@ function renderDrawerConfig(detail) {
   }
 }
 
-/** Fetches GET /api/iris/web-apps/detail for the open drawer's app. Only
- * the most recent request's result is ever rendered. */
+/**
+ * Load GET /api/iris/web-apps/detail for the open app. Only the latest
+ * request's result is rendered.
+ */
 async function loadDrawerDetail(name) {
   const seq = ++detailRequestSeq;
   dom.drawerConfig.replaceChildren();
@@ -665,19 +645,17 @@ async function loadDrawerDetail(name) {
   }
 }
 
-// --- Enabled State (web_app.set_enabled — the drawer's one MUTATING action) ---
+// --- Enabled State (web_app.set_enabled) ---
 //
-// Flow, same as the Database drawer's mount: "Check" sends a dry run
-// (IrisApi.setWebAppEnabled(fields, true, true) — the executor's dry-run
-// branch is only reached with confirmed=true, and the handler's dry_run()
-// never sends the PUT). Only a successful preview offers the confirm
-// control, which is enabled only after the acknowledgment checkbox; the
-// real request is sent only from submitEnable(). The backend alone
-// authorizes, hard-denies protected apps, executes and verifies — this code
-// never decides any of that itself, it only shows what the backend returned.
+// Same flow as Mount in the Databases drawer. "Check" sends a dry run
+// (setWebAppEnabled(fields, true, true); the dry run still needs
+// confirmed=true to get past the executor, and never sends the PUT). Only
+// a successful preview shows the confirm button, which needs the checkbox
+// ticked, and only submitEnable() sends the real request. The backend does
+// the authorization and protection checks; this just shows what it says.
 
-// The fields the operator previewed — set only by a successful dry run,
-// cleared whenever the drawer's app or its current state changes.
+// What was previewed. Set by a successful dry run, cleared when the app or
+// its state changes.
 let pendingEnableFields = null;
 
 function enableTargetFor(app) {
@@ -704,8 +682,10 @@ function resetEnableControls() {
   dom.enableCheckButton.disabled = false;
 }
 
-/** Labels the controls for the app's real current state (from the list),
- * and drops a preview that no longer matches it. */
+/**
+ * Label the controls for the app's current state and drop a preview that
+ * no longer matches.
+ */
 function syncEnableControls(app) {
   const target = enableTargetFor(app);
   dom.enableCheckButton.hidden = target === null;
@@ -738,7 +718,7 @@ async function handleEnableCheckClick() {
 
   try {
     const preview = await IrisApi.setWebAppEnabled(fields, true, true);
-    if (currentDrawerName !== fields.Name) return; // drawer moved to another app
+    if (currentDrawerName !== fields.Name) return;  // drawer switched to another app
     const handlerResult = preview && preview.handler_result;
     if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
       pendingEnableFields = fields;
@@ -746,8 +726,8 @@ async function handleEnableCheckClick() {
       dom.enableConfirm.hidden = false;
       updateEnableConfirmEnabled();
     } else {
-      // Unauthorized, protected, no-op, unknown app… shown exactly as the
-      // backend explained it.
+      // Unauthorized, protected, no change, unknown app... shown as the backend
+      // explained it.
       showEnableError(
         (handlerResult && handlerResult.detail) ||
           preview.detail ||
@@ -766,8 +746,10 @@ async function handleEnableCheckClick() {
   }
 }
 
-/** Status, detail, execution detail and verification exactly as the
- * backend returned them — same rendering as the Database drawer's mount. */
+/**
+ * Status, detail, execution detail and verification as the backend
+ * returned them (same as Mount in the Databases drawer).
+ */
 function renderEnableResult(result) {
   const rows = [
     ["Status", textOrPlaceholder(result.status)],
@@ -787,9 +769,8 @@ function renderEnableResult(result) {
 }
 
 /**
- * The ONLY place in this file that sends a real (non-dry-run) change —
- * reachable only via the confirm button, which is enabled only after a
- * successful preview and the acknowledgment checkbox.
+ * The only place that sends a real enable/disable. Only reachable from the
+ * confirm button, after a successful preview and the checkbox.
  */
 async function submitEnable() {
   const fields = pendingEnableFields;
@@ -817,27 +798,24 @@ async function submitEnable() {
   if (currentDrawerName === fields.Name) renderEnableResult(result);
 
   if (result.status === "success" || result.status === "verification_failed") {
-    // Re-read the real list rather than patching local state — the drawer
-    // re-renders from it (same app, so the result above stays visible).
+    // Reload the list instead of patching local state; the drawer re-renders
+    // (same app, so the result stays).
     await loadWebApps();
   }
 }
 
-// --- Description (web_app.update_description — the drawer's second
-// MUTATING action) ---
+// --- Description (web_app.update_description) ---
 //
-// The same flow as Enabled State above: "Check" sends a dry run
-// (IrisApi.updateWebAppDescription(fields, true, true) — the handler's
-// dry_run() never sends the PUT); only a successful preview offers the
-// confirm control, enabled only after the acknowledgment checkbox; the real
-// request is sent only from submitDescription(). The backend alone
-// authorizes, refuses protected apps, executes and verifies. The input is
-// prefilled with the app's real Description from the detail load.
+// Same flow as Enabled State: "Check" sends a dry run
+// (updateWebAppDescription(fields, true, true)), a successful preview shows
+// the confirm button (after the checkbox), and only submitDescription()
+// sends the real request. The input starts with the app's current
+// Description.
 
-// The fields the operator previewed — set only by a successful dry run,
-// cleared whenever the drawer's app or the typed text changes.
+// What was previewed. Set by a successful dry run, cleared when the app or
+// the text changes.
 let pendingDescriptionFields = null;
-// Whether the operator has edited the input since it was last prefilled.
+// Whether the input was edited since it was last filled in.
 let descriptionEdited = false;
 
 function updateDescriptionConfirmEnabled() {
@@ -863,8 +841,10 @@ function resetDescriptionControls() {
   dom.descriptionCheckButton.disabled = true;
 }
 
-/** Prefills the input with the app's real Description (from GET
- * /api/iris/web-apps/detail), unless the operator is mid-edit. */
+/**
+ * Fill the input with the app's current Description, unless the user is
+ * editing it.
+ */
 function syncDescriptionFromDetail(app, detail) {
   const current = detail && typeof detail.Description === "string" ? detail.Description : null;
   dom.descriptionInput.disabled = current === null;
@@ -900,8 +880,8 @@ async function handleDescriptionCheckClick() {
       dom.descriptionConfirm.hidden = false;
       updateDescriptionConfirmEnabled();
     } else {
-      // Unauthorized, protected, no-op, too long, unknown app… shown exactly
-      // as the backend explained it.
+      // Unauthorized, protected, no change, too long, unknown app... shown as the
+      // backend explained it.
       showDescriptionError(
         (handlerResult && handlerResult.detail) || preview.detail || "This change could not be validated against IRIS.",
       );
@@ -933,9 +913,9 @@ function renderDescriptionResult(result) {
 }
 
 /**
- * The ONLY place in this file that sends a real Description change —
- * reachable only via the confirm button, which is enabled only after a
- * successful preview of exactly the typed text and the acknowledgment.
+ * The only place that sends a real Description change. Only reachable from
+ * the confirm button, after previewing exactly this text and ticking the
+ * checkbox.
  */
 async function submitDescription() {
   const fields = pendingDescriptionFields;
@@ -963,8 +943,8 @@ async function submitDescription() {
   if (currentDrawerName === fields.Name) renderDescriptionResult(result);
 
   if (result.status === "success" || result.status === "verification_failed") {
-    // Re-read the real data; the drawer re-renders (same app, so the result
-    // above stays visible) and the input is refilled from IRIS.
+    // Reload; the drawer re-renders (same app, so the result stays) and the
+    // input is refilled from IRIS.
     descriptionEdited = false;
     await loadWebApps();
   }
@@ -981,7 +961,7 @@ function trimmedOrNull(value) {
 function makeMethodBadge(method) {
   const badge = document.createElement("span");
   badge.className = "method-badge";
-  // Colour is keyed by IRIS's own verb, lower-cased (see styles.css).
+  // Color by HTTP verb, lowercased (see styles.css).
   badge.dataset.method = String(method || "").toLowerCase();
   badge.textContent = textOrPlaceholder(method);
   return badge;
@@ -1005,7 +985,7 @@ function setDrawerTab(tab) {
 }
 
 function resetRestPanel() {
-  restRequestSeq += 1; // discard any in-flight route-map response
+  restRequestSeq += 1;  // ignore any route-map response still in flight
   currentRouteMap = null;
   currentEndpointIndex = null;
   dom.restLoading.hidden = true;
@@ -1018,15 +998,17 @@ function resetRestPanel() {
   showEndpointList();
 }
 
-/** Fetches (or reuses) the route map for `name` and renders it. Only the
- * most recent request's result is ever rendered. */
+/**
+ * Fetch (or reuse) the route map for `name` and render it. Only the latest
+ * request's result is rendered.
+ */
 async function loadRestEndpoints(name) {
   const cached = restCache.get(name);
   if (cached) {
     renderRestResult(cached);
     return;
   }
-  if (!dom.restLoading.hidden) return; // this app's request is already in flight
+  if (!dom.restLoading.hidden) return;  // already loading for this app
 
   const seq = ++restRequestSeq;
   dom.restError.hidden = true;
@@ -1049,9 +1031,8 @@ async function loadRestEndpoints(name) {
   } catch (err) {
     if (seq !== restRequestSeq) return;
     if (err instanceof ApiError && err.status === 404) {
-      // The backend's 404 means IRIS itself has no route map for this app
-      // (observed live for /api/interop-editors) — a real, cacheable
-      // answer, not a transient failure.
+      // A 404 means IRIS can't produce a route map for this app (e.g.
+      // /api/interop-editors). That's a real answer, so cache it.
       const entry = {
         unavailable:
           "IRIS's API Management API returned no REST route map for this application, so its endpoints cannot be listed here.",
@@ -1081,7 +1062,7 @@ function renderRestResult(entry) {
     return;
   }
   dom.restUnavailable.hidden = true;
-  if (currentRouteMap === entry.routeMap) return; // already rendered; keep filters/detail
+  if (currentRouteMap === entry.routeMap) return;  // already rendered; keep the filters/detail
   currentRouteMap = entry.routeMap;
   currentEndpointIndex = null;
 
@@ -1183,7 +1164,7 @@ function showEndpointDetail(index) {
   dom.restDetailParams.replaceChildren();
   for (const param of params) {
     const row = document.createElement("tr");
-    // An unresolvable $ref is shown verbatim, never guessed into a name.
+    // An unresolvable $ref is shown as-is.
     const nameText = param.ref ? `${param.ref} (unresolved)` : textOrPlaceholder(param.name);
     row.append(
       makeCell(nameText, { mono: true }),
@@ -1222,7 +1203,7 @@ function openDrawer(name) {
   currentDrawerName = app.Name;
   renderDrawerSummary(app);
 
-  // The REST Endpoints tab exists only for REST apps (DispatchClass set).
+  // The REST tab is only for REST apps (DispatchClass set).
   dom.drawerTabs.hidden = kindOf(app) !== "REST";
   if (!isSameApp) {
     resetRestPanel();
@@ -1243,7 +1224,7 @@ function openDrawer(name) {
 
 function closeDrawer() {
   currentDrawerName = null;
-  detailRequestSeq += 1; // discard any in-flight detail response
+  detailRequestSeq += 1;  // ignore any detail response still in flight
   resetRestPanel();
   resetEnableControls();
   resetDescriptionControls();
@@ -1267,7 +1248,7 @@ function renderWebApps(webApps) {
   }
 
   allWebApps = webApps;
-  // A Refresh re-reads route maps too; an open REST tab re-fetches below.
+  // Refresh also clears the route maps; an open REST tab reloads below.
   restCache = new Map();
   currentRouteMap = null;
   dom.content.hidden = false;
@@ -1279,26 +1260,26 @@ function renderWebApps(webApps) {
   renderOverview(webApps);
   renderTable();
 
-  // After a refresh, re-open (and re-fetch) the drawer's app with fresh
-  // data — or close it honestly if that app no longer exists.
+  // After a refresh, reopen the drawer's app with fresh data, or close it if
+  // the app is gone.
   if (currentDrawerName !== null) {
     if (allWebApps.some((app) => app.Name === currentDrawerName)) openDrawer(currentDrawerName);
     else closeDrawer();
   }
 }
 
-// --- Web Sessions (read-only) ---
+// --- Web Sessions ---
 
-/** IRIS reports a session's Application with a trailing slash (observed
- * live: "/csp/sys/") while GET /v2/web-apps names have none ("/csp/sys"),
- * so both sides are compared without it. */
+/**
+ * Sessions report Application with a trailing slash ("/csp/sys/") but web
+ * app names have none ("/csp/sys"), so compare without it.
+ */
 function normalizeAppName(name) {
   if (typeof name !== "string") return "";
   return name.length > 1 ? name.replace(/\/+$/, "") : name;
 }
 
-/** The configured web app a session belongs to, or null when no app in
- * the last fetched list has that name. */
+/** The web app a session belongs to, or null if there's no app by that name. */
 function webAppForSession(session) {
   const target = normalizeAppName(session.Application);
   if (!target) return null;
@@ -1311,8 +1292,10 @@ function sessionsForApp(app) {
   return allSessions.filter((session) => normalizeAppName(session.Application) === target);
 }
 
-/** Fetches GET /api/iris/web-sessions. Never throws — returns either
- * { sessions } or { error } so a sessions failure never breaks the app list. */
+/**
+ * GET /api/iris/web-sessions. Doesn't throw: returns { sessions } or
+ * { error }, so a failure here doesn't break the app list.
+ */
 async function fetchWebSessions() {
   try {
     const response = await IrisApi.getWebSessions();
@@ -1347,11 +1330,11 @@ function renderSessionsResult(result) {
       populateSessionFilters();
       renderSessionsTable();
     }
-    // A position-identified session can't be matched across a refresh, so
-    // an open session drawer is closed rather than showing another session.
+    // Sessions are identified by position, so they can't be matched after a
+    // refresh; close an open session drawer instead.
     closeSessionDrawer();
   }
-  // The open app drawer's "Active Sessions" count depends on this list.
+  // The open app drawer's "Active Sessions" count uses this list.
   if (currentDrawerName !== null) {
     const app = allWebApps.find((entry) => entry.Name === currentDrawerName);
     if (app) renderDrawerSummary(app);
@@ -1372,7 +1355,7 @@ function makeStatCard(label, value, accent) {
   return card;
 }
 
-/** Aggregate counts, each computed from the fetched list — nothing invented. */
+/** Summary counts from the fetched list. */
 function renderSessionsSummary() {
   const distinct = (field) => new Set(allSessions.map((s) => s[field])).size;
   dom.sessionsSummaryGrid.replaceChildren(
@@ -1394,7 +1377,7 @@ function populateSessionFilters() {
   populateSelect(dom.sessionsFilterUser, "All users", values("Username"));
 }
 
-// Fields the free-text session search matches — never an ID (none exists here).
+// Fields the session search matches (there's no ID to match).
 const SESSION_SEARCH_FIELDS = ["Username", "Application", "LicenseId", "SesProcessId", "Timeout"];
 
 function renderSessionsTable() {
@@ -1494,17 +1477,14 @@ function closeSessionDrawer() {
   dom.sessionDrawer.hidden = true;
 }
 
-/**
- * Fetches GET /api/iris/web-apps and renders it. No mutating request exists
- * anywhere in this file.
- */
+/** Load GET /api/iris/web-apps and render it. */
 export async function loadWebApps() {
   setLoading(true);
   setErrorBanner(null);
   setConnectionState("checking", "Checking connection…", "");
 
-  // Sessions load in parallel but render after the list, since each is
-  // matched to a web app by name. A newer load supersedes an older one.
+  // Sessions load in parallel but render after the list, since they're
+  // matched to apps by name. A newer load replaces an older one.
   const sessionsSeq = ++sessionsLoadSeq;
   dom.sessionsLoading.hidden = false;
   dom.sessionsError.hidden = true;
@@ -1514,8 +1494,7 @@ export async function loadWebApps() {
   try {
     response = await IrisApi.getWebApps();
   } catch (err) {
-    // ApiError messages are already generic (see api.js) — never a stack
-    // trace, header, or credential value.
+    // ApiError messages are already safe to show (see api.js).
     const message =
       err instanceof ApiError
         ? "Could not load web application information. The Command Center backend may be unreachable."
@@ -1542,9 +1521,7 @@ export async function loadWebApps() {
   }
 
   if (envelopeErrors.length > 0) {
-    // The backend's own response envelope flagged something — a real,
-    // observed field (status.errors), not an invented threshold. Same
-    // pattern already used and reviewed in system.js/processes.js/databases.js.
+    // IRIS returned warnings in status.errors.
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");
     setErrorBanner("IRIS reported one or more warnings for this request.");
   } else {
@@ -1566,8 +1543,7 @@ export function initWebAppsControls() {
     navigateTo("dashboard");
   });
 
-  // Filtering is purely client-side over the last fetched list — instant,
-  // and never a new request.
+  // Filtering is local, no request.
   dom.filterForm.addEventListener("submit", (event) => event.preventDefault());
   dom.filterSearch.addEventListener("input", renderTable);
   for (const select of [dom.filterKind, dom.filterStatus, dom.filterNamespace, dom.filterAuth]) {
@@ -1581,8 +1557,7 @@ export function initWebAppsControls() {
     renderTable();
   });
 
-  // Event delegation for KPI cards and table rows — the same pattern
-  // processes.js/databases.js/namespaces.js use.
+  // Delegated listeners for KPI cards and table rows.
   dom.summaryGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".stat-card");
     if (card) applyCardFilter(Number(card.dataset.cardIndex));
@@ -1615,8 +1590,7 @@ export function initWebAppsControls() {
     else if (!dom.drawer.hidden) closeDrawer();
   });
 
-  // Drawer tabs (REST apps only), with arrow-key switching per the WAI-ARIA
-  // tabs pattern.
+  // Drawer tabs (REST apps only), with arrow-key switching (WAI-ARIA tabs).
   dom.tabConfig.addEventListener("click", () => setDrawerTab("config"));
   dom.tabRest.addEventListener("click", () => setDrawerTab("rest"));
   dom.drawerTabs.addEventListener("keydown", (event) => {
@@ -1626,7 +1600,7 @@ export function initWebAppsControls() {
     (activeDrawerTab === "rest" ? dom.tabRest : dom.tabConfig).focus();
   });
 
-  // REST endpoint filtering is client-side over the cached route map.
+  // REST endpoint filtering works on the cached route map.
   dom.restFilterForm.addEventListener("submit", (event) => event.preventDefault());
   dom.restSearch.addEventListener("input", renderEndpointList);
   dom.restMethod.addEventListener("change", renderEndpointList);
@@ -1643,8 +1617,7 @@ export function initWebAppsControls() {
   });
   dom.restBack.addEventListener("click", backToEndpointList);
 
-  // Enabled State (web_app.set_enabled): dry-run check, acknowledgment,
-  // then the one real request.
+  // Enabled State: dry-run check, checkbox, then the real request.
   dom.enableCheckButton.addEventListener("click", () => {
     handleEnableCheckClick();
   });
@@ -1653,9 +1626,8 @@ export function initWebAppsControls() {
     submitEnable();
   });
 
-  // Description (web_app.update_description): dry-run check of the typed
-  // text, acknowledgment, then the one real request. Editing the text
-  // discards a preview of different text.
+  // Description: dry-run check of the typed text, checkbox, then the real
+  // request. Changing the text throws away a preview of different text.
   dom.descriptionInput.addEventListener("input", () => {
     descriptionEdited = true;
     if (pendingDescriptionFields && pendingDescriptionFields.Description !== dom.descriptionInput.value) {
@@ -1670,8 +1642,7 @@ export function initWebAppsControls() {
     submitDescription();
   });
 
-  // Web Sessions: client-side filtering over the last fetched list, and a
-  // read-only detail drawer (no session actions exist anywhere here).
+  // Web Sessions: local filtering and a read-only detail drawer.
   dom.sessionsFilterForm.addEventListener("submit", (event) => event.preventDefault());
   dom.sessionsFilterSearch.addEventListener("input", renderSessionsTable);
   dom.sessionsFilterApp.addEventListener("change", renderSessionsTable);

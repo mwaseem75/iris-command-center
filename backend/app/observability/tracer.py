@@ -1,16 +1,8 @@
-"""TraceRecorder: the ONLY place ExecutionTrace/Span objects are built.
-Used exclusively by app/execution/executor.py, one instance per
-OperationExecutor.execute() call — instances are never shared across
-calls, so concurrent executions never interleave spans into the same
-trace.
+"""TraceRecorder builds the ExecutionTrace for one OperationExecutor.execute()
+call. A new one is made per call, so concurrent runs never mix spans.
 
-This class performs no filtering of its own: it records exactly the
-attributes its caller passes it. The discipline of only ever passing safe,
-non-sensitive values (operation names, statuses, privilege names, short
-reason strings — never a credential, token, or Authorization header) lives
-entirely in app/execution/executor.py, the single call site. See
-app/observability/models.py's module docstring for the full safety
-rationale.
+It records whatever attributes it's given; executor.py is responsible for
+only passing safe values.
 """
 
 import time
@@ -34,12 +26,11 @@ class TraceRecorder:
         self._perf_start = time.perf_counter()
 
     def timer(self) -> _SpanTimer:
-        """Call at the START of a stage, before the work it will time."""
+        """Call at the start of a stage."""
         return _SpanTimer()
 
     def span(self, name: str, timer: _SpanTimer, *, status: str, **attributes: Any) -> None:
-        """Close out a stage that actually ran, using the timer captured
-        at its start."""
+        """Record a stage that ran, timed from its timer()."""
         end = utc_now()
         duration_ms = (time.perf_counter() - timer.perf_start) * 1000
         self._trace.spans.append(
@@ -54,9 +45,7 @@ class TraceRecorder:
         )
 
     def skip(self, name: str, reason: str) -> None:
-        """Record a stage that never ran — keeps every trace's spans list
-        a complete, consistent four-stage shape regardless of where an
-        attempt actually stopped."""
+        """Record a stage that didn't run, so every trace has all four spans."""
         now = utc_now()
         self._trace.spans.append(
             Span(
@@ -70,10 +59,9 @@ class TraceRecorder:
         )
 
     def set_result(self, **fields: str | None) -> None:
-        """Set one or more of the trace's summary result fields
-        (authorization_result/confirmation_result/execution_result/
-        verification_result) — field names are validated by ExecutionTrace
-        itself (an unknown kwarg raises, same as any Pydantic model)."""
+        """Set trace summary fields (authorization_result, confirmation_result, ...).
+        Unknown names raise, since ExecutionTrace is a Pydantic model.
+        """
         for key, value in fields.items():
             if not hasattr(self._trace, key):
                 raise AttributeError(f"ExecutionTrace has no field {key!r}")
