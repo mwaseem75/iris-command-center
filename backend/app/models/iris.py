@@ -1048,9 +1048,19 @@ class DashboardStatus(BaseModel):
     SystemMonitor: bool
 
 
+def _blank_or_non_numeric_to_none(value: Any) -> Any:
+    """Right after IRIS starts, a busy process can briefly report Commands
+    as "" (observed live). Blank/non-numeric strings become None; every
+    other value is validated exactly as before (real integers, and numeric
+    strings, still parse to int)."""
+    if isinstance(value, str) and not value.strip().lstrip("+-").isdigit():
+        return None
+    return value
+
+
 class DashboardBusyProcess(BaseModel):
     Process: int | str
-    Commands: int
+    Commands: Annotated[int | None, BeforeValidator(_blank_or_non_numeric_to_none)]
 
 
 class DashboardSystemUsage(BaseModel):

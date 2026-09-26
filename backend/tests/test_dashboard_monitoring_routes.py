@@ -73,6 +73,29 @@ def test_monitor_dashboard_license_without_limit(client: TestClient, mock_iris_c
     assert licensing == {"LicenseLimit": 8, "LicenseUse": "", "LicenseUseHigh": ""}
 
 
+def test_monitor_dashboard_busy_process_blank_commands_at_startup(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    # Observed live right after IRIS started: a busy process reported
+    # Commands as "" — previously a 500. Real values must be unchanged.
+    body = copy.deepcopy(DASHBOARD)
+    body["SystemUsage"]["BusyProcesses"] = [
+        {"Process": 666, "Commands": 103855},
+        {"Process": 667, "Commands": ""},
+        {"Process": 668, "Commands": "42"},
+    ]
+    mock_iris_client.get.return_value = envelope(body)
+
+    response = client.get("/api/iris/monitor/dashboard")
+
+    assert response.status_code == 200
+    assert response.json()["result"]["SystemUsage"]["BusyProcesses"] == [
+        {"Process": 666, "Commands": 103855},
+        {"Process": 667, "Commands": None},
+        {"Process": 668, "Commands": 42},
+    ]
+
+
 def test_monitor_dashboard_unexpected_shape_is_rejected(client: TestClient, mock_iris_client: AsyncMock) -> None:
     body = copy.deepcopy(DASHBOARD)
     del body["Alerts"]
