@@ -1,612 +1,294 @@
-# IRIS Command Center
+# ✨ IRIS Command Center
 
 **Observe. Investigate. Act—safely.**
 
-A modern, permission-aware operations and investigation console for **InterSystems IRIS**, built on the IRIS SysAdmin REST APIs, Management APIs, Security APIs, Audit APIs, and Native API.
-
+A modern operational console for **InterSystems IRIS** that brings monitoring, administration, investigation, security visibility, issue resolution, and operational tracing into one place.
+It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and a deterministic AI Assistant.
 <p align="center">
-  <img width="650" alt="image" src="https://github.com/user-attachments/assets/dd29861d-7f46-454e-ab0a-6aca372e2f7e" />
-
+  <img src="https://github.com/user-attachments/assets/dd29861d-7f46-454e-ab0a-6aca372e2f7e" alt="IRIS Command Center" width="720">
 </p>
-
 <p align="center">
-  <a href="https://www.intersystems.com/">
-    <img src="https://img.shields.io/badge/Platform-InterSystems%20IRIS-009688?style=flat-square" alt="Platform">
-  </a>
-  <a href="https://fastapi.tiangolo.com/">
-    <img src="https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square" alt="Backend">
-  </a>
-  <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript">
-    <img src="https://img.shields.io/badge/Frontend-Vanilla%20JavaScript-F7DF1E?style=flat-square" alt="Frontend">
-  </a>
-  <a href="https://www.docker.com/">
-    <img src="https://img.shields.io/badge/Deployment-Docker-2496ED?style=flat-square" alt="Docker">
-  </a>
-  <a href="https://www.python.org/">
-    <img src="https://img.shields.io/badge/Language-Python-3776AB?style=flat-square" alt="Python">
-  </a>
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
-  </a>
-</p>
-
-<p align="center">
-  <strong>Observe</strong> ·
-  <strong>Investigate</strong> ·
-  <strong>Act Safely</strong> ·
-  <strong>Verify</strong> ·
-  <strong>Trace</strong>
+  <a href="https://www.intersystems.com/"><img src="https://img.shields.io/badge/Platform-InterSystems%20IRIS-009688?style=flat-square" alt="InterSystems IRIS"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square" alt="FastAPI"></a>
+  <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/Frontend-Vanilla%20JavaScript-F7DF1E?style=flat-square" alt="Vanilla JavaScript"></a>
+  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Deployment-Docker-2496ED?style=flat-square" alt="Docker"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Language-Python-3776AB?style=flat-square" alt="Python"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT"></a>
 </p>
 
 ---
-
-## Table of Contents
-
-- [Project Vision](#project-vision)
-- [The Problem](#the-problem)
-- [The Solution](#the-solution)
-- [Core Operational Model](#core-operational-model)
-- [Features at a Glance](#features-at-a-glance)
-- [Application Architecture](#application-architecture)
-- [Application Workflow](#application-workflow)
-- [Community Use Cases](#community-use-cases)
-- [Web Apps & REST Explorer](#web-apps--rest-explorer)
-- [Security & Access](#security--access)
-- [Observability & Trace Persistence](#observability--trace-persistence)
-- [AI Assistant](#ai-assistant)
-- [Safe Administration](#safe-administration)
-- [Dashboard & System Explorers](#dashboard--system-explorers)
-- [Task Management](#task-management)
-- [Investigation](#investigation)
-- [Real IRIS Data](#real-iris-data)
-- [Security Principles](#security-principles)
-- [Technology Stack](#technology-stack)
-- [IRIS API Integration](#iris-api-integration)
-- [Project Structure](#project-structure)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Testing & Verification](#testing--verification)
-- [Screenshots](#screenshots)
-- [Demo Flow](#demo-flow)
-- [Contest Focus](#contest-focus)
-- [Online Demo](#online-demo)
-- [Roadmap](#roadmap)
-- [Documentation](#documentation)
-- [Development Philosophy](#development-philosophy)
-- [Contributing](#contributing)
-- [License](#license)
+## 🎬 Application Layout
+<img width="2500" alt="image" src="https://github.com/user-attachments/assets/ee5c61bd-3f14-4c5f-bca6-29d27685790e" />
 
 ---
 
-# Project Vision
+## 🏗️ Architecture
 
-InterSystems IRIS provides a powerful set of capabilities for system administration, application management, security, monitoring, and investigation.
-
-However, these capabilities are exposed across multiple management areas and API surfaces.
-
-**IRIS Command Center** brings those capabilities together into a single modern operational console.
-
-The goal is not to replace the underlying IRIS administration APIs.
-
-The goal is to make them:
-
-- Easier to explore
-- Easier to understand
-- Safer to use
-- Easier to investigate
-- Easier to extend
-- More accessible to developers and administrators
-
-The project is built around a simple operational philosophy:
-
-> **Observe what is happening. Investigate why it is happening. Act only when it is safe to do so.**
-
----
-
-# The Problem
-
-An IRIS administrator or support engineer may need to move between:
-
-```text
-Management Portal
-       │
-       ├── System configuration
-       ├── Web applications
-       ├── Tasks
-       └── Security
-       
-SysAdmin REST APIs
-       │
-       ├── Namespaces
-       ├── Databases
-       ├── Processes
-       └── Configuration
-
-Management APIs
-       │
-       └── REST applications / endpoint definitions
-
-Security APIs
-       │
-       ├── Users
-       ├── Roles
-       ├── Resources
-       └── Authentication
-
-Audit APIs
-       │
-       └── Security investigation
-
-Custom scripts
-```
-
-This can make operational investigation fragmented.
-
-There are also additional challenges:
-
-### Fragmented visibility
-
-Information about a single incident may be distributed across several IRIS APIs.
-
-### Privilege complexity
-
-Different operations require different administrative privileges.
-
-### Risky mutations
-
-A configuration change should not become an unchecked REST request.
-
-### Sensitive information
-
-Security and management APIs may expose information that should never reach the browser.
-
-### AI safety
-
-An AI assistant should not receive unrestricted access to privileged administrative operations.
-
----
-
-# The Solution
-
-IRIS Command Center provides a unified operational layer around these capabilities.
 <img width="1536" alt="image" src="https://github.com/user-attachments/assets/e43f7850-f6a0-4eff-a792-bb9a70dc4f9e" />
 
-
-
-The browser does not directly perform IRIS administrative operations.
-
-The backend provides the application, authorization, safety, and observability boundary.
-
 ---
 
-# Core Operational Model
+## ⭐ Why It Is Different
 
-The Command Center is organized around five stages:
+IRIS Command Center is not simply another dashboard.
+
+Its administrative workflows follow a consistent safety model:
 
 ```text
-┌───────────────┐
-│    OBSERVE    │
-│               │
-│ System State  │
-│ Configuration │
-│ Security      │
-└───────┬───────┘
-        │
-        ▼
-┌───────────────┐
-│  INVESTIGATE  │
-│               │
-│ Audit         │
-│ Sessions      │
-│ Traces        │
-│ Relationships │
-└───────┬───────┘
-        │
-        ▼
-┌───────────────┐
-│  ACT SAFELY   │
-│               │
-│ Authorize     │
-│ Dry Run       │
-│ Confirm       │
-│ Execute       │
-└───────┬───────┘
-        │
-        ▼
-┌───────────────┐
-│    VERIFY     │
-│               │
-│ Fresh IRIS    │
-│ State Check   │
-└───────┬───────┘
-        │
-        ▼
-┌───────────────┐
-│     TRACE     │
-│               │
-│ What happened │
-│ When          │
-│ Result        │
-└───────────────┘
-```
-
-This model is shared across the application's administrative operations.
-
----
-
-# Features at a Glance
-
-Rather than treating every screen as an isolated feature, the Command Center groups capabilities into operational areas.
-
-| Capability Area | What it provides | Primary purpose |
-|---|---|---|
-| **Observe** | Dashboard, Namespaces, Databases, Processes, Tasks | Understand current IRIS state |
-| **Web Apps** | Web application configuration, REST APIs, sessions | Manage and investigate IRIS applications |
-| **Security** | Users, Roles, Resources, Services, Authentication, Wallet | Understand security posture |
-| **Investigate** | IRIS audit trail, execution traces, session information | Find and understand operational activity |
-| **Act Safely** | Authorization, dry-run, confirmation, execution, verification | Perform controlled administrative changes |
-| **Observability** | Structured execution traces | Understand what Command Center did |
-| **IRIS Persistence** | Optional trace persistence inside IRIS | Keep operational traces with the managed environment |
-| **AI Assistant** | Deterministic operational intent handling | Natural-language access to safe operations |
-| **REST Explorer** | Generated REST endpoint discovery | Understand IRIS REST applications |
-| **Community Platform** | Reusable API and safety patterns | Provide building blocks for IRIS developers |
-
----
-
-# Application Architecture
-
-The architecture deliberately separates the browser from the IRIS administrative APIs.
-
-```text
-┌───────────────────────────────────────────────────────────────┐
-│                           BROWSER                             │
-│                                                               │
-│  Dashboard     Namespaces      Databases      Processes       │
-│  Web Apps      REST Explorer   Tasks          Security        │
-│  Investigation Observability   AI Assistant                 │
-│                                                               │
-│             HTML + CSS + Vanilla JavaScript                   │
-└───────────────────────────────┬───────────────────────────────┘
-                                │
-                                │ HTTP
-                                ▼
-┌───────────────────────────────────────────────────────────────┐
-│                       FASTAPI BACKEND                         │
-│                                                               │
-│ Authentication                                                │
-│ Authorization                                                 │
-│ Operation Registry                                            │
-│ Validation                                                    │
-│ Risk Assessment                                               │
-│ Dry Run                                                        │
-│ Confirmation                                                   │
-│ Execution                                                     │
-│ Verification                                                  │
-│ Secret Filtering                                               │
-│ ★ Observability / Trace Generation ★                          │
-└───────────────────────────────┬───────────────────────────────┘
-                                │
-               ┌────────────────┼────────────────┐
-               │                │                │
-               ▼                ▼                ▼
-       ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-       │ SysAdmin API │ │ Management   │ │ Security /   │
-       │              │ │ API          │ │ Audit API    │
-       └──────────────┘ └──────────────┘ └──────────────┘
-               │                │                │
-               └────────────────┼────────────────┘
-                                ▼
-                    ┌──────────────────────┐
-                    │  INTERSYSTEMS IRIS   │
-                    │                      │
-                    │       2026.2         │
-                    │                      │
-                    │ ★ Trace Storage ★    │
-                    └──────────────────────┘
-```
-
----
-
-# Application Workflow
-
-## Read Operation
-
-A normal read operation follows:
-
-```text
-Browser
-   │
-   ▼
-FastAPI Route
-   │
-   ▼
-IRIS API Client
-   │
-   ▼
-InterSystems IRIS
-   │
-   ▼
-Live IRIS Response
-   │
-   ▼
-Validated Backend Model
-   │
-   ▼
-Browser
-```
-
----
-
-## Administrative Operation
-
-A mutating operation follows a stricter path:
-
-```text
-User Request
-     │
-     ▼
-Authorization
-     │
-     ▼
-Risk Assessment
-     │
-     ▼
+Request
+   ↓
+Authorize
+   ↓
 Dry Run
-     │
-     ▼
+   ↓
 Review
-     │
-     ▼
-Explicit Confirmation
-     │
-     ▼
-Execute against IRIS
-     │
-     ▼
-Post-Action Verification
-     │
-     ▼
-Execution Trace
-     │
-     ▼
-Result
-```
-
----
-
-# Community Use Cases
-
-IRIS Command Center is designed to be useful beyond the contest demonstration.
-
-## 1. IRIS Administration Console
-
-Provide a unified operational view for common IRIS administration activities.
-
-```text
-Dashboard
-    │
-    ├── Namespaces
-    ├── Databases
-    ├── Processes
-    ├── Web Apps
-    ├── Tasks
-    └── Security
-```
-
----
-
-## 2. Incident Investigation
-
-When something goes wrong, the operator can move from system state into investigation.
-
-```text
-Dashboard
    ↓
-Web App
+Confirm
    ↓
-Application Configuration
-   ↓
-Active Sessions
-   ↓
-Processes
-   ↓
-Security
-   ↓
-IRIS Audit
-   ↓
-Command Center Trace
-```
-
-This provides a practical investigation path without requiring the operator to manually assemble information from multiple interfaces.
-
----
-
-## 3. REST API Discovery
-
-Developers working with IRIS REST applications can explore:
-
-```text
-REST Application
-      ↓
-Generated API Definition
-      ↓
-HTTP Method
-      ↓
-Endpoint Path
-      ↓
-Operation ID
-      ↓
-Implementation Method
-      ↓
-Parameters
-```
-
-This can be useful when learning, documenting, troubleshooting, or integrating with an existing IRIS REST application.
-
----
-
-## 4. Security Review
-
-Security teams can use the Command Center to navigate relationships such as:
-
-```text
-User
-  ↓
-Role
-  ↓
-Resource
-  ↓
-Access
-```
-
-alongside:
-
-```text
-Services
-   ↓
-Authentication
-   ↓
-Superserver
-   ↓
-TLS
-```
-
-The interface provides visibility without attempting to make security decisions on behalf of the administrator.
-
----
-
-## 5. Controlled Configuration Changes
-
-For supported administrative operations:
-
-```text
-Requested Change
-      ↓
-Dry Run
-      ↓
-Review
-      ↓
-Confirmation
-      ↓
 Execute
-      ↓
+   ↓
 Verify
-      ↓
+   ↓
 Trace
 ```
 
-This provides a consistent safety model across operations.
+That same model is reused across supported mutations.
+
+### Design principles
+
+- **Live IRIS data** — no fabricated system health or performance values.
+- **Privilege-aware operations** — required IRIS privileges are evaluated by the backend.
+- **Dry-run first** — supported mutations can be previewed without changing IRIS.
+- **Explicit confirmation** — mutations require deliberate user confirmation.
+- **Post-action verification** — the final state is read back from IRIS.
+- **Traceable operations** — controlled actions produce structured execution traces.
+- **Secret filtering** — sensitive values are removed before reaching the browser or traces.
+- **Controlled AI** — the assistant does not receive a privileged shortcut into IRIS.
 
 ---
 
-## 6. Web Application Troubleshooting
+# 🎯 Use Cases
 
-An administrator can inspect a web application from several perspectives:
+IRIS Command Center is designed around practical operational scenarios rather than isolated screens.
+
+### 1. 🛠️ IRIS System Administration
+
+Monitor an IRIS instance, explore its configuration, and perform supported administrative tasks from one operational console.
+
+### 2. 🚨 Incident Investigation
+
+Start with an observed issue, inspect system state and configuration, investigate native IRIS audit activity, and follow related Command Center execution traces.
+
+### 3. 🛡️ Safe Configuration Changes
+
+Preview a supported change, review what will happen, explicitly confirm it, execute it against IRIS, and verify the resulting state.
+
+Examples include:
+
+- Creating a namespace
+- Creating a database
+- Mounting or safely dismounting a database
+- Updating journal configuration
+- Enabling or disabling a web application
+- Updating a web application description
+- Managing supported user state
+- Running an eligible task
+
+### 4. 🌐 Web Application Troubleshooting
+
+Inspect web application configuration, authentication, CORS, JWT, sessions, cookies, REST endpoints, and related application state.
+
+### 5. 🔐 Security Review
+
+Review users, roles, resources, authentication posture, wallet metadata, X.509 metadata, and OAuth2 configuration while keeping secrets out of the browser.
+
+### 6. 🩺 Database Troubleshooting & Recovery
+
+Detect supported database-state issues, understand the evidence behind the recommended fix, execute the existing safe operation, and verify that the issue is resolved.
+
+### 7. 🔍 REST API Discovery
+
+Explore generated REST API definitions when developing, integrating with, documenting, or troubleshooting an IRIS REST application.
+
+### 8. 🤖 AI-Assisted IRIS Operations
+
+Ask natural-language questions about live IRIS data while keeping the assistant inside the same controlled application API boundary.
+
+### 9. 👁️ Operational Audit & Traceability
+
+Understand two complementary perspectives:
 
 ```text
-Web Application
-      │
-      ├── General Configuration
-      ├── Authentication
-      ├── CORS
-      ├── JWT
-      ├── Sessions
-      └── REST Endpoints
+IRIS Native Audit
+      ↓
+What security activity did IRIS record?
+
+Command Center Trace
+      ↓
+What operation did Command Center perform?
+```
+
+### 10. 💻 IRIS Developer & Community Reference
+
+Use the project as a reference for:
+
+- IRIS SysAdmin API integration
+- Privilege-aware operations
+- Safe mutation workflows
+- Post-action verification
+- REST API discovery
+- Security-aware API response filtering
+- Operational observability
+- IRIS Vector Search
+- Embedded Python
+- Controlled AI assistance
+
+### 11. 🐳 DevOps & Containerized Environments
+
+Start a reproducible IRIS + Command Center environment with Docker. The frontend is automatically installed into IRIS and served by IRIS after startup.
+
+### 12. 🎬 Demonstration & Training
+
+Use Demo Activity and Issue Resolution Rehearsal to demonstrate the complete operational lifecycle:
+
+```text
+Detect
+  ↓
+Explain
+  ↓
+Recommend
+  ↓
+Review
+  ↓
+Confirm
+  ↓
+Execute
+  ↓
+Verify
+  ↓
+Trace
 ```
 
 ---
 
-## 7. Task Investigation
+# 🧭 Features at a Glance
 
-When a scheduled task behaves unexpectedly:
+| Area | What you can do |
+|---|---|
+| 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, and recent activity |
+| 🗂️ **Namespaces** | Explore namespaces, relationships, and create namespaces safely |
+| 💾 **Databases** | Inspect databases, storage, integrity, create/mount/dismount with controlled workflows |
+| ⚙️ **Processes** | Search, filter, and investigate live IRIS processes |
+| 🌐 **Web Applications** | Inspect configuration, REST applications, sessions, enable/disable apps, update descriptions |
+| ⏱️ **Tasks** | Inspect task state, schedules, settings, and supported Run Now workflow |
+| 🔐 **Security** | Explore users, roles, resources, authentication posture, wallets, X.509, and OAuth2 |
+| 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
+| 👁️ **Observability** | Inspect structured execution traces and persist them inside IRIS |
+| 🩺 **Issue Resolver** | Detect supported issues, explain them, recommend a safe fix, then verify the result |
+| 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs |
+| 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
+| 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
+| 📦 **ZPM / IPM** | Install the frontend as an IRIS package |
+| 🐳 **Docker** | Run IRIS, backend, and frontend together with Docker Compose |
+
+---
+
+
+## 🩺 Deterministic Issue Resolver
+
+The **Fix Issues** workflow provides a controlled operational path:
 
 ```text
-Find Task
-   ↓
-Check State
-   ↓
-Review Schedule
-   ↓
-Review Execution
-   ↓
-Inspect Settings
+Detect
+  ↓
+Explain
+  ↓
+Recommend
+  ↓
+Review
+  ↓
+Confirm
+  ↓
+Execute
+  ↓
+Verify
+  ↓
+Observe
 ```
 
-Sensitive settings are filtered before reaching the browser.
+The resolver currently detects supported database-state issues using live IRIS information.
 
----
-
-## 8. AI-Assisted Operations
-
-The AI Assistant provides a natural-language entry point to safe operational information.
-
-Examples:
+For example:
 
 ```text
-How many processes are running?
-
-Show me the current IRIS system status.
-
-Show me the current namespaces.
-
-How many databases are mounted?
+Issue detected
+Database: IPM
+State: Dismounted
+        ↓
+Recommended action
+Mount database
+        ↓
+Review "Why this fix?"
+        ↓
+Existing Mount workflow
+        ↓
+Confirmation
+        ↓
+IRIS operation
+        ↓
+Fresh verification
+        ↓
+Issue disappears
+        ↓
+Execution trace
 ```
 
-The assistant reuses the same application APIs rather than creating a privileged shortcut.
+The resolver does **not** autonomously modify IRIS.
 
 ---
 
-## 9. Community Development Platform
+## 🔍 "Why this fix?"
 
-The project can also serve as a reference for developers who want to:
+Supported issues include evidence explaining the recommendation.
 
-- Consume IRIS SysAdmin APIs from Python
-- Build IRIS administration tooling
-- Implement privilege-aware operations
-- Add dry-run workflows
-- Verify configuration changes
-- Explore IRIS REST applications
-- Protect sensitive API responses
-- Add AI safely to administrative tooling
+The explanation is derived from the same live issue data used by the resolver rather than from a separate AI-generated claim.
+
+This keeps the reasoning visible:
+
+| Evidence | Example |
+|---|---|
+| Current state | Database is dismounted |
+| Safety eligibility | Database is eligible for the supported mount workflow |
+| Recommended operation | `database.mount` |
+| Verification | Fresh IRIS read confirms the database is mounted |
 
 ---
 
-# Web Apps & REST Explorer
+# 🌐 Web Applications & REST Explorer
 
-Web application management is one of the major capabilities of IRIS Command Center.
+The Web Apps explorer provides a live view of configured IRIS web applications.
 
-The explorer provides a live view of configured IRIS web applications and distinguishes between REST and CSP applications.
+### Configuration areas
 
-## Web Application Details
-
-Configuration is organized into:
-
-- General
-- Dispatch & Routing
-- Authentication & Access
+- General configuration
+- Dispatch & routing
+- Authentication & access
 - JWT
 - CORS
-- Sessions & Cookies
-- Static Files & Pages
-- Python WSGI/ASGI
+- Sessions & cookies
+- Static files & pages
+- Python WSGI/ASGI configuration
 
----
+### REST Explorer
 
-## REST Endpoint Explorer
-
-For REST applications, Command Center retrieves the generated REST API definition.
-
-Endpoint information includes:
+For REST applications, Command Center retrieves the generated REST API definition and exposes:
 
 - HTTP method
-- Path
+- Endpoint path
 - Operation ID
 - Implementing service method
-- Summary
-- Description
+- Summary and description
 - Parameters
-
-Endpoints can be searched and filtered.
 
 ```text
 IRIS Web Application
@@ -615,156 +297,84 @@ Management API
         ↓
 REST Application
         ↓
-Generated API Specification
+Generated API Definition
         ↓
-Command Center
-        ↓
-Searchable REST Explorer
+Command Center REST Explorer
 ```
 
----
+### Web Sessions
 
-## Web Sessions
+Active session information can be inspected using safe metadata.
 
-Active web sessions can be inspected using safe session metadata such as:
-
-- User
-- Application
-- Client information
-- Process information
-
-Session identifiers are removed by the backend before the response reaches the browser.
+Session identifiers are stripped by the backend before the response reaches the browser.
 
 ---
 
-# Security & Access
+# 🔐 Security
 
-Security is organized around three complementary areas:
+Security is organized into focused areas rather than exposing sensitive configuration indiscriminately.
 
-```text
-┌─────────────────────────────────────────┐
-│              SECURITY                   │
-├─────────────────────────────────────────┤
-│                                         │
-│  Identity & Access                      │
-│    Users                                │
-│    Roles                                │
-│    Resources                            │
-│                                         │
-│  Authentication                         │
-│    Services                             │
-│    Web Authentication                   │
-│    Superservers                         │
-│    Class Access                         │
-│                                         │
-│  Wallet                                 │
-│    Collections                          │
-│    Secret Metadata                      │
-│                                         │
-└─────────────────────────────────────────┘
-```
+| Area | Visibility |
+|---|---|
+| **Identity & Access** | Users, roles, resources, access relationships |
+| **Authentication** | Services, web authentication, superservers, class access |
+| **Wallet** | Collections, resources, secret names and types |
+| **X.509** | Credential and certificate metadata without private keys |
+| **OAuth2** | Server/client configuration metadata without secrets or tokens |
+
+### Sensitive information is protected
+
+The application deliberately withholds or filters values such as:
+
+- Passwords
+- JWTs
+- Authorization headers
+- Private keys
+- Wallet secret values
+- OAuth secrets/tokens
+- Session identifiers
+- Sensitive personal fields
 
 ---
 
-## Identity & Access
+# 🔎 Investigation
 
-### Users
+The Investigation interface exposes the **native IRIS security audit trail**.
 
-User information includes:
+### Filters
 
-- Name
-- Full name
-- Enabled state
-- Type
+- Date range
+- Event type
+- Event
+- Username
 - Namespace
-- Roles
-- Authentication information
+- Free text
+- Sorting
 
-Sensitive personal fields are withheld.
+The interface uses the real IRIS audit records and provides a focused detail workspace for individual events.
 
----
+### Native audit vs Command Center trace
 
-### Roles
+These are complementary sources:
 
-Role information includes:
+| Source | Answers |
+|---|---|
+| **IRIS Native Audit** | What security activity did IRIS record? |
+| **Command Center Trace** | What controlled operation did Command Center perform? |
 
-- Role name
-- Description
-- Granted roles
-- Resource grants
-- Owners
-- Privileged relationships
+Related activity can be connected using the existing time-proximity correlation.
 
----
-
-### Resources
-
-Resource information includes:
-
-- Resource name
-- Description
-- Public permission
-- Resource information
-- Role access
+> The two systems remain distinct; correlation does not pretend they share a native correlation ID.
 
 ---
 
-## Authentication Posture
-
-The Authentication area provides visibility into:
-
-- IRIS services
-- Web authentication
-- Superservers
-- Class access
-
-Configurations that may deserve further review, such as enabled unauthenticated services or superserver configurations without TLS, can be highlighted in the UI.
-
----
-
-## Wallet
-
-The Wallet interface provides safe visibility into wallet metadata.
-
-It exposes:
-
-- Collections
-- Edit resources
-- Use resources
-- Secret names
-- Secret types
-
-Secret values are never displayed.
-
-The backend uses explicit field allowlists so sensitive fields cannot simply flow through to the browser.
-
----
-
-# Observability & Trace Persistence
-
-**Observability is a first-class capability of IRIS Command Center.**
+# 👁️ Observability
 
 Every controlled administrative operation can produce a structured execution trace.
 
-```text
-Operation
-    │
-    ├── Authorization
-    │
-    ├── Confirmation
-    │
-    ├── Execution
-    │
-    └── Verification
-            │
-            ▼
-      Execution Trace
-```
+A trace records safe operational information such as:
 
-A trace can contain:
-
-- Operation name
-- Operation ID
+- Operation name and ID
 - Timestamp
 - Duration
 - Status
@@ -774,9 +384,795 @@ A trace can contain:
 - Verification events
 - Safe operation attributes
 
-Sensitive credentials and authorization headers are not persisted in traces.
+```text
+Authorization
+      ↓
+Confirmation
+      ↓
+Execution
+      ↓
+Verification
+      ↓
+Completed Trace
+```
+
+## Persisting traces in IRIS
+
+Trace persistence can be enabled with:
+
+```env
+PERSIST_TRACES_TO_IRIS=true
+```
+
+When enabled, Command Center keeps traces in memory and also persists them inside the connected IRIS environment.
+
+```text
+                 Command Center
+                       │
+                       ▼
+                Execution Trace
+                  /          \
+                 /            \
+                ▼              ▼
+       In-Memory Store    IRIS Trace Storage
+```
+
+The persisted trace store is bounded and designed so a persistence problem does not cause the administrative operation itself to fail.
 
 ---
+
+# 🤖 AI Assistant
+
+The current AI Assistant intentionally uses a **deterministic intent classifier**, not an external LLM.
+
+It provides a natural-language interface while keeping the operational path inside the existing application architecture.
+
+### Example questions
+
+```text
+Is IRIS healthy?
+
+How many processes are running?
+
+Which databases are mounted?
+
+Show me the current namespaces.
+
+What changed recently?
+```
+
+### Architecture
+
+```text
+User Question
+     ↓
+Deterministic Intent Detection
+     ↓
+Existing Command Center API
+     ↓
+Live IRIS Data
+     ↓
+Structured Answer
+```
+
+The assistant does not receive unrestricted access to privileged IRIS operations.
+
+For administrative actions, the existing authorization, dry-run, confirmation, execution, verification, and trace workflow remains the boundary.
+
+---
+
+# 🔍 IRIS Vector Search
+
+Command Center demonstrates **InterSystems IRIS Vector Search** as an operational knowledge capability.
+
+The knowledge corpus is derived from the application's operation and capability definitions and is persisted in IRIS.
+
+```text
+Operation / Capability Knowledge
+            ↓
+     Deterministic Embedding
+            ↓
+      IRIS VECTOR column
+            ↓
+     VECTOR_COSINE search
+            ↓
+       Top results
+```
+
+The feature can be enabled with:
+
+```env
+ENABLE_KNOWLEDGE_SEARCH=true
+```
+
+The AI Assistant can use this search for operational questions that benefit from capability knowledge.
+
+---
+
+# 🐍 Embedded Python
+
+Command Center also demonstrates **InterSystems IRIS Embedded Python** using live diagnostics from the connected IRIS instance.
+
+The diagnostics include information such as:
+
+- Python version
+- Platform
+- Hostname
+- CPU count
+- Load information
+- IRIS process information
+- Manager-directory disk information
+- Memory information
+- Installed package count
+
+The backend invokes the controlled diagnostic code inside IRIS and returns safe structured data.
+
+No user-provided text is passed into arbitrary Python imports or invocation parameters.
+
+---
+
+# 🛡️ Safe Administration
+
+Supported administrative operations use a common execution framework.
+
+| Stage | Purpose |
+|---|---|
+| **Authorize** | Check required IRIS privilege and operation-specific safety rules |
+| **Dry Run** | Validate and preview without mutating IRIS |
+| **Review** | Show the user what will happen |
+| **Confirm** | Require explicit confirmation |
+| **Execute** | Perform the controlled IRIS operation |
+| **Verify** | Read fresh IRIS state and compare with the requested result |
+| **Trace** | Record the operation lifecycle |
+
+### Current supported operation families
+
+| Area | Operations |
+|---|---|
+| **Journal** | Update Journal Settings |
+| **Namespaces** | Create Namespace |
+| **Databases** | Create, Mount, Dismount, Integrity Check |
+| **Web Applications** | Enable/Disable, Update Description |
+| **Users** | Enable/Disable with safety protections |
+| **Tasks** | Run Task Now |
+
+Operations are registered centrally so authorization, risk, confirmation, execution, and verification can be handled consistently.
+
+---
+
+# 📊 Dashboard & Explorers
+
+The dashboard provides a live operational snapshot.
+
+### Live areas
+
+- Namespace count
+- Database count
+- Process count
+- Web application count
+- Task count
+- IRIS uptime
+- License usage
+- System health indicators
+- Database storage
+- Process distribution
+- Recent operations
+- Command Center Issues
+
+The interface intentionally avoids inventing values that the connected IRIS APIs do not provide.
+
+> **If IRIS does not provide a value, Command Center does not pretend that it does.**
+
+---
+
+# 💾 Database Explorer
+
+The Database Explorer provides:
+
+- Database overview
+- Mount state
+- Database details
+- Storage information
+- Integrity checking
+- Creation
+- Mounting
+- Dismounting where safe
+
+Safety rules prevent dismounting protected system databases and other databases that are not eligible for the supported workflow.
+
+The integrity check is read-only.
+
+---
+
+# 🗂️ Namespace Explorer
+
+The Namespace Explorer provides:
+
+- Namespace overview
+- Namespace details
+- Database relationships
+- Namespace creation
+
+Namespace creation includes post-action verification and accounts for IRIS configuration propagation.
+
+---
+
+# ⚙️ Process Explorer
+
+The Process Explorer provides:
+
+- Live process list
+- State distribution
+- Search
+- Filtering
+- Process details
+
+The application deliberately avoids fabricating process-performance telemetry that is not available from the connected API.
+
+---
+
+# ⏱️ Task Management
+
+Task Management provides:
+
+- Task overview
+- Running / suspended / not-running state
+- Task details
+- Scheduling information
+- Execution information
+- Safe settings display
+- Controlled Run Now workflow for eligible user tasks
+
+Sensitive task settings are recursively redacted before reaching the browser.
+
+---
+
+# 🎯 Demo Activity
+
+Command Center includes a controlled **Demo Activity** workflow for demonstrating the safety model without leaving arbitrary configuration behind.
+
+The standard rehearsal temporarily changes supported configuration and restores the original state.
+
+The **Issue Resolution Rehearsal** demonstrates the complete issue lifecycle:
+
+```text
+Temporary issue
+     ↓
+Detect
+     ↓
+Explain
+     ↓
+Recommend
+     ↓
+Fix through existing operation
+     ↓
+Verify
+     ↓
+Restore / clean end state
+     ↓
+Trace
+```
+
+The rehearsal is manually initiated and protected by the same confirmation and execution framework.
+
+---
+
+### Technology stack
+
+| Layer | Technology |
+|---|---|
+| Platform | InterSystems IRIS 2026.2 |
+| Backend | Python, FastAPI, Pydantic |
+| Frontend | HTML5, CSS3, Vanilla JavaScript |
+| IRIS integration | SysAdmin REST, Management, Security, Audit APIs |
+| Native integration | InterSystems IRIS Native API |
+| Vector Search | IRIS Vector Search |
+| Embedded runtime | IRIS Embedded Python |
+| Deployment | Docker, Docker Compose |
+| Packaging | ZPM / IPM |
+| Testing | pytest, frontend smoke tests |
+
+---
+
+# 🔌 IRIS API Integration
+
+Command Center integrates with several IRIS API surfaces:
+
+```text
+                    InterSystems IRIS
+                           │
+       ┌───────────────────┼───────────────────┐
+       │                   │                   │
+       ▼                   ▼                   ▼
+  SysAdmin API        Management API      Security API
+       │                   │                   │
+       ▼                   ▼                   ▼
+ System State         REST Apps          Users / Roles
+ Databases            Route Maps         Resources
+ Processes                                Authentication
+ Web Apps                                  Wallet
+ Tasks
+ Journal
+       │
+       ▼
+    Audit API
+       │
+       ▼
+ Investigation
+
+       │
+       ▼
+    Native API
+       │
+       ▼
+ Trace Persistence / Embedded Python
+```
+
+The implementation is based on **observed live IRIS behavior**, not only on the published API specification.
+
+---
+
+# 📦 Deployment
+
+## Docker — recommended
+
+The Docker Compose deployment runs the complete application stack:
+
+| Service | Purpose | Port |
+|---|---|---:|
+| `backend` | FastAPI application | `8000` |
+| `iris` | InterSystems IRIS + Command Center UI | `52773` / `1973` |
+
+The Docker deployment is designed so you do **not** need to install Python or IRIS separately for the standard quick start.
+
+The Command Center frontend is served by IRIS itself. There is no separate Nginx frontend container in the stack.
+
+## ZPM / IPM
+
+The frontend is packaged as an IRIS application named:
+
+```text
+iris-command-center
+```
+
+The Docker stack installs this package automatically when the IRIS container starts. No manual `zpm load` step is required.
+
+The resulting console is served directly by IRIS:
+
+```text
+http://localhost:52773/iris-command-center/index.html
+```
+
+The FastAPI backend remains a separate service on port `8000`.
+
+The repository also contains `module.xml`, so the same package can be installed through IPM/ZPM when the package is published to an IPM-compatible registry or Open Exchange.
+
+---
+
+# 🚀 Quick Start
+
+## Prerequisites
+
+- Docker Desktop / Docker Engine
+- Docker Compose
+- Git
+
+No separate Python or IRIS installation is required for the Docker deployment.
+
+## 1. Clone
+
+```bash
+git clone https://github.com/mwaseem75/iris-command-center.git
+cd iris-command-center
+```
+
+## 2. Configure environment
+
+Copy the example file:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Edit `.env` with the credentials for the IRIS environment used by the Docker stack.
+
+> **Do not commit `.env`.** It is intentionally excluded from the Docker build context.
+
+## 3. Start everything
+
+```bash
+docker compose up -d --build
+```
+
+Check the services:
+
+```bash
+docker compose ps
+```
+
+The first startup can take longer while IRIS initializes. During startup, the IRIS container automatically loads the `iris-command-center` package from the mounted repository files.
+
+## 4. Open Command Center
+
+```text
+http://localhost:52773/iris-command-center/index.html
+```
+
+The frontend is served directly by IRIS. No separate frontend server or manual ZPM installation is required.
+
+### Useful endpoints
+
+| URL | Purpose |
+|---|---|
+| `http://localhost:52773/iris-command-center/index.html` | Command Center |
+| `http://localhost:8000/docs` | FastAPI OpenAPI documentation |
+| `http://localhost:52773/csp/sys/UtilHome.csp` | IRIS Management Portal |
+
+---
+
+# ⚙️ Configuration
+
+The Docker deployment supports these environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `IRIS_BASE_URL` | IRIS web/API base URL |
+| `IRIS_USERNAME` | IRIS service account username |
+| `IRIS_PASSWORD` | IRIS service account password |
+| `IRIS_NAMESPACE` | IRIS namespace used for native operations |
+| `IRIS_SUPERSERVER_PORT` | IRIS Native API / Superserver port |
+| `PERSIST_TRACES_TO_IRIS` | Persist execution traces inside IRIS |
+| `ENABLE_KNOWLEDGE_SEARCH` | Enable IRIS Vector Search knowledge |
+| `AUTO_RUN_DEMO_ACTIVITY` | Enable the optional startup demo rehearsal |
+
+Port `5500` is not part of the Docker deployment. It may still be used during frontend development with a local static server such as:
+
+```bash
+cd frontend
+python -m http.server 5500
+```
+
+The backend may retain `http://localhost:5500` in its CORS allowlist for this development workflow.
+
+Example:
+
+```env
+IRIS_BASE_URL=http://iris:52773
+IRIS_USERNAME=_SYSTEM
+IRIS_PASSWORD=change-me
+IRIS_NAMESPACE=USER
+IRIS_SUPERSERVER_PORT=1972
+PERSIST_TRACES_TO_IRIS=true
+ENABLE_KNOWLEDGE_SEARCH=true
+AUTO_RUN_DEMO_ACTIVITY=true
+```
+
+> Use development-only credentials for local Docker deployments. Never commit real passwords, tokens, private keys, or other secrets.
+
+---
+
+## 🔄 Automatic IRIS Package Installation
+
+The Docker deployment keeps the frontend installation reproducible across container recreation.
+
+At IRIS startup:
+
+```text
+Repository
+   │
+   ├── module.xml
+   └── frontend/
+          │
+          ▼
+   /home/irisowner/dev
+          │
+          ▼
+   Automatic IPM/ZPM load
+          │
+          ▼
+   IRIS CSP Application
+          │
+          ▼
+/iris-command-center/index.html
+```
+
+The package definition and frontend files are mounted read-only into the IRIS container. A small startup script performs the package load together with the existing IRIS startup initialization.
+
+This means a fresh or recreated IRIS container does not depend on a previous manual `zpm "load"` operation.
+
+The intended deployment model is therefore:
+
+```text
+docker compose up
+       ↓
+IRIS starts
+       ↓
+Package automatically loaded
+       ↓
+Command Center served by IRIS
+       ↓
+FastAPI backend on :8000
+```
+
+There is deliberately no Nginx frontend container in the production-style Docker stack.
+
+---
+
+# 🧪 Testing & Verification
+
+The project uses automated tests plus live IRIS verification.
+
+## Backend
+
+```bash
+pytest
+```
+
+Coverage includes:
+
+- API routes
+- Authorization
+- Operation execution
+- Dry-run behavior
+- Post-action verification
+- Database safety
+- Web application safety
+- User safety
+- Task safety
+- Security filtering
+- Wallet protection
+- Session protection
+- Investigation
+- Observability
+- Trace persistence
+- Issue resolution
+- Vector Search
+- Embedded Python
+- Demo workflows
+
+## Frontend
+
+Frontend smoke tests and JavaScript syntax checks cover important UI behavior and integration points.
+
+## Live IRIS verification
+
+Important workflows have also been exercised against a real IRIS 2026.2 environment, including:
+
+- Namespace creation
+- Database creation
+- Database integrity checks
+- Database mount/dismount safety
+- Journal configuration
+- Web application inspection
+- Security inspection
+- Wallet inspection
+- Audit investigation
+- Execution tracing
+- Vector Search
+- Embedded Python
+- Issue detection and resolution
+
+---
+
+# 🖼️ Screens & Visuals
+
+The repository's README includes the multi-screen product tour.
+
+```text
+assets/
+└── iris-command-center-multiple-screens.gif
+```
+
+The product tour is intentionally made from actual Command Center screens rather than mock UI.
+
+---
+
+# 🎬 Suggested Demo
+
+A concise end-to-end demonstration can follow this sequence:
+
+```text
+1. Dashboard
+      ↓
+2. Inspect live system state
+      ↓
+3. Explore Web Apps / REST endpoints
+      ↓
+4. Open Security
+      ↓
+5. Investigate native IRIS audit activity
+      ↓
+6. Open Observability
+      ↓
+7. Show a controlled operation
+      ↓
+8. Dry Run
+      ↓
+9. Confirm
+      ↓
+10. Execute
+      ↓
+11. Verify
+      ↓
+12. Inspect execution trace
+      ↓
+13. Use Fix Issues
+      ↓
+14. Review "Why this fix?"
+      ↓
+15. Resolve and verify the issue
+      ↓
+16. Ask the AI Assistant a live question
+      ↓
+17. Show Vector Search / Embedded Python
+```
+
+---
+
+# 🧩 Project Structure
+
+```text
+iris-command-center/
+│
+├── backend/
+│   ├── app/
+│   │   ├── auth/
+│   │   ├── models/
+│   │   ├── observability/
+│   │   ├── operations/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── main.py
+│   └── tests/
+│
+├── frontend/
+│   ├── index.html
+│   ├── css/
+│   ├── js/
+│   └── assets/
+│
+├── assets/
+│   └── iris-command-center-multiple-screens.gif
+│
+├── spec/
+│   └── mainspec_v2.json
+│
+├── docker-compose.yml
+├── Dockerfile
+├── module.xml
+├── .env.example
+└── README.md
+```
+
+---
+
+# 🛡️ Security Model
+
+The application follows a few non-negotiable rules.
+
+| Principle | Implementation |
+|---|---|
+| **No implicit trust** | The frontend is not a security boundary |
+| **Privilege-aware** | Operations require their configured IRIS privilege |
+| **Dry-run first** | Supported mutations can be previewed without writes |
+| **Explicit confirmation** | Mutations require deliberate confirmation |
+| **Verify after mutation** | Fresh IRIS state is checked after execution |
+| **Unknown operations denied** | Unsupported actions are rejected |
+| **Secrets protected** | Sensitive fields are filtered before browser exposure |
+| **No credential traces** | Passwords, JWTs, and authorization headers are excluded |
+| **AI stays inside the boundary** | Assistant reuses existing APIs rather than bypassing them |
+
+---
+
+# 🧠 Development Philosophy
+
+### Verify First
+
+Test IRIS API behavior against a real IRIS instance.
+
+### Build Incrementally
+
+Implement and validate one capability at a time.
+
+### Reuse Proven Patterns
+
+Authorization, operation execution, verification, observability, and UI patterns should be reused rather than duplicated.
+
+### Keep the Browser Simple
+
+Security and business rules belong in the backend.
+
+### Prefer Real Data
+
+Use live IRIS responses whenever possible.
+
+### Protect Sensitive Data
+
+Remove sensitive values before they reach the browser or traces.
+
+### Fail Safely
+
+Unknown, unsupported, or ambiguous operations should be rejected rather than guessed.
+
+---
+
+# 🤝 Contributing
+
+Contributions, API discoveries, documentation improvements, and UI enhancements are welcome.
+
+When adding an IRIS capability:
+
+1. Verify the API against a real IRIS instance.
+2. Document observed behavior.
+3. Add the backend API client method.
+4. Add the appropriate model.
+5. Add tests.
+6. Protect sensitive fields.
+7. Add authorization for mutations.
+8. Add dry-run support where appropriate.
+9. Add post-action verification.
+10. Update the documentation.
+
+---
+
+# 📄 License
+
+This project is licensed under the **MIT License**.
+
+---
+
+<p align="center">
+
+### IRIS Command Center
+
+**Observe. Investigate. Act—safely.**
+
+`OBSERVE` → `INVESTIGATE` → `ACT SAFELY` → `VERIFY` → `TRACE`
+
+**A modern operational interface for InterSystems IRIS.**
+
+</p>
+
+
+
+
+The core idea is simple:
+
+> **Make IRIS administration easier to understand and safer to operate without bypassing the underlying IRIS security and management model.**
+
+### Who is it for?
+
+| Role | Useful for |
+|---|---|
+| 🛠️ **IRIS Administrators** | Monitor systems, inspect configuration, and perform controlled administration |
+| 🔎 **Support & Operations Teams** | Investigate incidents and follow operational traces |
+| 💻 **IRIS Developers & Integrators** | Explore REST applications, APIs, namespaces, databases, and processes |
+| 🔐 **Security Teams** | Review users, roles, resources, authentication, wallets, X.509, and OAuth2 visibility |
+| 🤖 **AI / Automation Developers** | See how natural-language assistance can reuse safe operational APIs |
+
+
+The project is built around a simple operational philosophy:
+
+> **Observe what is happening. Investigate why it is happening. Act only when it is safe to do so.**
+
+---
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+
+
+
+
+
+
+
+
 
 ## Trace Persistence in IRIS
 
@@ -1565,42 +1961,8 @@ Examples include:
 - Audit investigation
 - Execution tracing
 
----
 
-# Screenshots
-
-Application screenshots are maintained under:
-
-```text
-docs/images/
-```
-
-Recommended screenshots:
-
-```text
-docs/images/dashboard.png
-docs/images/namespaces.png
-docs/images/databases.png
-docs/images/processes.png
-docs/images/web-apps.png
-docs/images/rest-explorer.png
-docs/images/security.png
-docs/images/investigation.png
-```
-
-Example:
-
-![IRIS Command Center Dashboard](docs/images/dashboard.png)
-
-> Screenshot filenames should be updated to match the actual files committed to the repository.
-
----
-
-# Demo Flow
-
-A strong demonstration flow is:
-
-```text
+WORKFLOW
                     IRIS COMMAND CENTER
                             │
                             ▼
