@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, Request
 
 from app.embedded_python.diagnostics import EmbeddedPythonDiagnostics
 from app.iris_client.client import IRISClient
+from app.knowledge.store import IRISKnowledgeStore
 from app.iris_client.exceptions import (
     IRISAuthError,
     IRISConnectionError,
@@ -22,6 +23,11 @@ def get_iris_client(request: Request) -> IRISClient:
 
 def get_python_diagnostics(request: Request) -> EmbeddedPythonDiagnostics:
     return request.app.state.python_diagnostics
+
+
+def get_knowledge_store(request: Request) -> IRISKnowledgeStore | None:
+    """None unless Settings.enable_knowledge_search is on (see app/main.py)."""
+    return getattr(request.app.state, "knowledge_store", None)
 
 
 async def get_caller_privileges(

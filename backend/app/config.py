@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # host, so 1973 is the correct default for this project's dev setup.
     iris_superserver_port: int = 1973
 
+    # --- Optional IRIS Vector Search knowledge base (see
+    # app/knowledge/store.py). Off by default. When enabled, startup
+    # creates the CommandCenter.Knowledge table in iris_namespace if it is
+    # missing and reindexes the in-code corpus into it (over the same
+    # Native API connection settings as above); GET
+    # /api/iris/knowledge/search then answers from IRIS. ---
+    enable_knowledge_search: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
