@@ -746,6 +746,13 @@
             <p class="info-panel__meta" id="databases-count"></p>
           </div>
 
+          <!-- Fix Issues (MVP): issues detected from live data (GET /api/iris/issues); the fix
+               always runs through the existing database.mount flow in the database drawer. -->
+          <section class="info-card db-issues" aria-labelledby="databases-issues-title">
+            <h3 class="info-card__title" id="databases-issues-title">Fix Issues</h3>
+            <div id="databases-issues-body"><p class="ns-hint">Checking for actionable issues&hellip;</p></div>
+          </section>
+
           <p class="empty-state" id="databases-empty" hidden>No databases reported.</p>
 
           <div id="databases-content" hidden>

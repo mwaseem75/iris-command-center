@@ -56,6 +56,7 @@ from app.routes.databases import router as databases_router
 from app.routes.demo import router as demo_router
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
+from app.routes.issues import router as issues_router
 from app.routes.security_access import router as security_access_router
 from app.routes.security_users import router as security_users_router
 from app.routes.tasks import router as tasks_router
@@ -149,3 +150,4 @@ app.include_router(observability_router)
 app.include_router(capabilities_router)
 app.include_router(python_router)
 app.include_router(knowledge_router)
+app.include_router(issues_router)

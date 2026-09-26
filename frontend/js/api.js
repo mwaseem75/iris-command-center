@@ -428,6 +428,8 @@ export const IrisApi = {
   // computed by Embedded Python inside IRIS. Unavailable fields are null
   // and listed in `unavailable`.
   getPythonDiagnostics: () => fetchIris("/api/iris/python/diagnostics"),
+  // { issues: [...] } — read-only issue detection (backend/app/routes/issues.py).
+  getIssues: () => fetchIris("/api/iris/issues"),
   // The Command Center's own KnowledgeSearchResponse shape (backend/app/
   // knowledge/store.py): { query, results: [{ source, title, body, score }] }
   // — stored corpus documents ranked by IRIS Vector Search. 503 while the

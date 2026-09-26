@@ -149,6 +149,7 @@ const dom = {
   drawerMountAckCheckbox: document.getElementById("databases-drawer-mount-ack-checkbox"),
   drawerMountConfirmButton: document.getElementById("databases-drawer-mount-confirm-button"),
   drawerMountResult: document.getElementById("databases-drawer-mount-result"),
+  issuesBody: document.getElementById("databases-issues-body"),
   drawerDismountCheckButton: document.getElementById("databases-drawer-dismount-check-button"),
   drawerDismountLoading: document.getElementById("databases-drawer-dismount-loading"),
   drawerDismountLoadingText: document.getElementById("databases-drawer-dismount-loading-text"),
@@ -262,6 +263,7 @@ function deriveExpectedName(directory) {
 // database back up here by name when a card is clicked (event delegation),
 // rather than re-fetching or capturing per-card closures.
 let allDatabases = [];
+let onOpenTrace = null; // app.js's shared "open this trace in Observability" helper
 
 // The full namespace list from the last successful (best-effort) fetch —
 // used only to compute "Namespace Usage" in the drawer. `null` specifically
@@ -859,9 +861,11 @@ async function submitMount() {
   dom.drawerMountLoadingText.textContent = "Mounting database…";
   dom.drawerMountLoading.hidden = false;
 
+  const startedMs = Date.now();
   try {
     const result = await IrisApi.mountDatabase(fields, true, false);
     renderMountResult(result);
+    await appendMountTraceLink(startedMs);
     if (result.status === "success") {
       // Re-read the real database list rather than patching local state.
       await loadDatabases();
@@ -1151,6 +1155,92 @@ export async function loadDatabases() {
 
   renderDatabases(databases);
   setLoading(false);
+  loadIssues();
+}
+
+// --- Fix Issues (MVP): dismounted databases only ---
+//
+// Issues come from GET /api/iris/issues (read-only detection on the backend,
+// which applies the system/mirrored exclusions). "Fix Issue" only opens this
+// database's drawer at its existing Mount section, so the fix runs through
+// the unchanged flow: Check Mount (dry run) -> explicit confirmation ->
+// Confirm & Mount -> verification -> trace.
+
+function hint(text) {
+  const p = document.createElement("p");
+  p.className = "ns-hint";
+  p.textContent = text;
+  return p;
+}
+
+async function loadIssues() {
+  let issues;
+  try {
+    const response = await IrisApi.getIssues();
+    issues = Array.isArray(response?.issues) ? response.issues : null;
+  } catch {
+    issues = null;
+  }
+  if (issues === null) {
+    dom.issuesBody.replaceChildren(hint("Could not check for actionable issues right now."));
+    return;
+  }
+  if (issues.length === 0) {
+    dom.issuesBody.replaceChildren(hint("No actionable issues detected."));
+    return;
+  }
+  dom.issuesBody.replaceChildren(
+    ...issues.map((issue) => {
+      const item = document.createElement("div");
+      item.className = "db-issue";
+      const text = document.createElement("div");
+      const title = document.createElement("p");
+      title.className = "db-issue__title";
+      title.textContent = `Database ${textOrPlaceholder(issue.database)} is ${textOrPlaceholder(issue.status)}`;
+      const recommended = document.createElement("p");
+      recommended.className = "db-issue__fix";
+      recommended.textContent = `Recommended: ${issue.recommended_operation} (read-write)`;
+      text.append(title, hint(issue.explanation), recommended);
+      item.append(text);
+      if (allDatabases.some((db) => db.Name === issue.database)) {
+        const button = document.createElement("button");
+        button.className = "btn btn--primary";
+        button.type = "button";
+        button.textContent = "Fix Issue";
+        button.addEventListener("click", () => {
+          openDrawer(issue.database);
+          dom.drawerMountCheckButton.scrollIntoView({ block: "center" });
+          dom.drawerMountCheckButton.focus();
+        });
+        item.append(button);
+      }
+      return item;
+    }),
+  );
+}
+
+/** After a real mount attempt: the execution trace the framework recorded
+ * for it (the newest database.mount trace started since `sinceMs`). */
+async function appendMountTraceLink(sinceMs) {
+  if (!onOpenTrace) return;
+  try {
+    const traces = (await IrisApi.getExecutionTraces())?.traces || [];
+    const trace = traces.find(
+      (t) => t.operation_name === "database.mount" && new Date(t.start_time).getTime() >= sinceMs - 1000,
+    );
+    if (!trace) return;
+    const button = document.createElement("button");
+    button.className = "dash-panel__link";
+    button.type = "button";
+    button.textContent = "Open execution trace →";
+    button.addEventListener("click", () => {
+      closeDrawer();
+      onOpenTrace(trace.trace_id);
+    });
+    dom.drawerMountResult.append(button);
+  } catch {
+    // The trace link is a convenience; the mount result above stands alone.
+  }
 }
 
 // --- "New Database" wizard: Configure -> Review (dry-run preview) ->
@@ -1450,7 +1540,8 @@ async function submitCreate() {
   }
 }
 
-export function initDatabasesControls() {
+export function initDatabasesControls({ onOpenTrace: openTrace } = {}) {
+  onOpenTrace = typeof openTrace === "function" ? openTrace : null;
   dom.refreshButton.addEventListener("click", () => {
     loadDatabases();
   });

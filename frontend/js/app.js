@@ -66,7 +66,7 @@ function init() {
   initSystemControls();
   initNamespacesControls();
   initProcessesControls();
-  initDatabasesControls();
+  initDatabasesControls({ onOpenTrace: openTrace });
   initWebAppsControls();
   initTasksControls();
   initSecurityControls();

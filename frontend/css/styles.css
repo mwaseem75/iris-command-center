@@ -5143,3 +5143,38 @@ html.detail-workspace-open {
   display: flex;
   gap: 8px;
 }
+
+/* --- Databases: Fix Issues panel (MVP) --- */
+.db-issues {
+  margin-bottom: 16px;
+}
+
+.db-issue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.db-issue + .db-issue {
+  margin-top: 10px;
+}
+
+.db-issue__title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.db-issue__fix {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
