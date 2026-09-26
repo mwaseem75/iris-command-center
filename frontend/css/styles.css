@@ -4876,3 +4876,270 @@ html.detail-workspace-open {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* --- Investigation view: audit evidence layout ---
+   Scoped to #view-investigation; KPI treatment mirrors the System/Journal
+   views. Timeline dots are positioned from real UTC timestamps in JS. */
+
+#view-investigation .view__header {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+}
+
+#view-investigation .info-panel {
+  margin-bottom: 16px;
+  border-left: 3px solid var(--color-accent);
+}
+
+.inv-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+#view-investigation .inv-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+#view-investigation .inv-kpis .stat-card {
+  padding: 12px 16px;
+}
+
+#view-investigation .inv-kpis .stat-card__value {
+  font-size: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#view-investigation .inv-kpis .stat-card__meta {
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-card[data-card="inv-events"] { --stat-card-accent: var(--color-chart-1); }
+.stat-card[data-card="inv-event-kinds"] { --stat-card-accent: var(--color-chart-2); }
+.stat-card[data-card="inv-users"] { --stat-card-accent: var(--color-chart-3); }
+.stat-card[data-card="inv-namespaces"] { --stat-card-accent: var(--color-chart-4); }
+.stat-card[data-card="inv-related"] { --stat-card-accent: var(--color-chart-6); }
+
+.inv-card {
+  margin-bottom: 16px;
+}
+
+.inv-timeline-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 20px;
+  align-items: start;
+}
+
+.inv-timeline__plot {
+  position: relative;
+  height: calc(var(--inv-lanes, 1) * 24px + 8px);
+  margin: 0 6px;
+}
+
+.inv-timeline__lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--color-border-subtle);
+}
+
+.inv-timeline__dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 1px solid var(--color-surface);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.inv-timeline__dot:hover,
+.inv-timeline__dot:focus-visible {
+  transform: translate(-50%, -50%) scale(1.6);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  z-index: 1;
+}
+
+.inv-timeline__axis {
+  position: relative;
+  height: 18px;
+  margin: 6px 6px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.inv-timeline__tick {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+.inv-timeline__tick:first-child:not(:last-child) {
+  transform: none;
+}
+
+.inv-timeline__tick:last-child:not(:first-child) {
+  transform: translateX(-100%);
+}
+
+.inv-timeline__caption {
+  margin: 10px 6px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
+
+.inv-legend {
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.inv-legend__item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+
+.inv-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.inv-legend__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-legend__count {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.inv-filters__hint {
+  margin: 10px 0 0;
+}
+
+.inv-related-cell {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.inv-related {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.inv-related__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inv-related__name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.inv-related__meta {
+  grid-column: 1;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-text-faint);
+}
+
+.inv-related__open {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.inv-detail__long {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 1100px) {
+  #view-investigation .inv-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .inv-timeline-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  #view-investigation .inv-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inv-related {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inv-related__open {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+}
+
+/* Investigation title: a little room below the text so the Syne "g"
+   descender in "Investigation" is never cut; typography unchanged. */
+#view-investigation .view__title {
+  padding-bottom: 0.1em;
+}
+
+.inv-pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.inv-pager__info {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.inv-pager__buttons {
+  display: flex;
+  gap: 8px;
+}

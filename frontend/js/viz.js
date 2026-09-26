@@ -52,7 +52,7 @@ export function topCategories(counts, max = 6) {
   return [...head, { key: "Other", count: tailTotal }];
 }
 
-function assignColors(entries) {
+export function assignColors(entries) {
   return entries.map((entry, i) => ({
     ...entry,
     color: entry.key === "Other" ? NEUTRAL_COLOR : PALETTE[i % PALETTE.length],

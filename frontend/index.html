@@ -2575,18 +2575,21 @@
         <section class="view" id="view-investigation" data-view="investigation" aria-labelledby="investigation-title" hidden>
           <div class="view__header">
             <div>
-              <h2 class="view__title" id="investigation-title">Investigation</h2>
-              <p class="view__subtitle">Search and filter IRIS security audit records to investigate an issue.</p>
+              <h2 class="view__title" id="investigation-title">Audit Investigation</h2>
+              <p class="view__subtitle view__subtitle--wide">Native IRIS security audit evidence &mdash; what changed in IRIS, when, and by whom. Command Center execution traces live in Observability.</p>
             </div>
-            <button
-              class="btn btn--primary"
-              type="submit"
-              form="investigation-filter-form"
-              id="investigation-search-button"
-            >
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Search
-            </button>
+            <div class="inv-header-actions">
+              <button class="btn" type="button" id="investigation-open-observability">Open Observability &rarr;</button>
+              <button
+                class="btn btn--primary"
+                type="submit"
+                form="investigation-filter-form"
+                id="investigation-search-button"
+              >
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Search
+              </button>
+            </div>
           </div>
 
           <div class="banner banner--error" id="investigation-error-banner" hidden role="alert">
@@ -2608,27 +2611,73 @@
             <p class="info-panel__meta" id="investigation-count"></p>
           </div>
 
-          <section class="info-card info-card--wide" aria-labelledby="investigation-filters-title">
+          <!-- Counts over the audit records returned for the current filters. -->
+          <div class="stat-grid inv-kpis" id="investigation-kpis" aria-label="Audit summary">
+            <article class="stat-card" data-card="inv-events">
+              <p class="stat-card__label">Audit Events</p>
+              <p class="stat-card__value" id="investigation-kpi-events">&mdash;</p>
+              <p class="stat-card__meta">returned by IRIS</p>
+            </article>
+            <article class="stat-card" data-card="inv-event-kinds">
+              <p class="stat-card__label">Event Kinds</p>
+              <p class="stat-card__value" id="investigation-kpi-event-kinds">&mdash;</p>
+              <p class="stat-card__meta" id="investigation-kpi-event-kinds-meta"></p>
+            </article>
+            <article class="stat-card" data-card="inv-users">
+              <p class="stat-card__label">Users</p>
+              <p class="stat-card__value" id="investigation-kpi-users">&mdash;</p>
+              <p class="stat-card__meta">distinct usernames</p>
+            </article>
+            <article class="stat-card" data-card="inv-namespaces">
+              <p class="stat-card__label">Namespaces</p>
+              <p class="stat-card__value" id="investigation-kpi-namespaces">&mdash;</p>
+              <p class="stat-card__meta">distinct namespaces</p>
+            </article>
+            <article class="stat-card" data-card="inv-related">
+              <p class="stat-card__label">With Related Trace</p>
+              <p class="stat-card__value" id="investigation-kpi-related">&mdash;</p>
+              <p class="stat-card__meta" id="investigation-kpi-related-meta">trace within &plusmn;30 s</p>
+            </article>
+          </div>
+
+          <section class="info-card inv-card" id="investigation-overview" aria-labelledby="investigation-timeline-title" hidden>
+            <h3 class="info-card__title" id="investigation-timeline-title">Audit Activity Timeline</h3>
+            <p class="info-card__hint">The latest 24 hours of the returned audit records, each at its own UTC timestamp, one lane per event. Select an event for details and related Command Center activity.</p>
+            <div class="inv-timeline-layout">
+              <div class="inv-timeline" id="investigation-timeline"></div>
+              <ul class="inv-legend" id="investigation-timeline-legend" aria-label="Events"></ul>
+            </div>
+          </section>
+
+          <section class="info-card inv-card" aria-labelledby="investigation-filters-title">
             <h3 class="info-card__title" id="investigation-filters-title">Filters</h3>
-            <p class="info-card__hint">All fields are optional. Leaving every field blank lists every audit record IRIS has retained. Results refresh automatically shortly after you stop typing, or press Search for an immediate refresh.</p>
-            <form class="filter-form" id="investigation-filter-form">
+            <form class="filter-form inv-filters" id="investigation-filter-form">
               <div class="filter-field">
-                <label for="investigation-filter-begin">Begin (YYYY-MM-DD HH:MM:SS)</label>
+                <label for="investigation-filter-begin">Begin (server time)</label>
                 <input type="text" id="investigation-filter-begin" placeholder="2026-09-19 00:00:00" autocomplete="off" />
               </div>
               <div class="filter-field">
-                <label for="investigation-filter-end">End (YYYY-MM-DD HH:MM:SS)</label>
+                <label for="investigation-filter-end">End (server time)</label>
                 <input type="text" id="investigation-filter-end" placeholder="2026-09-19 23:59:59" autocomplete="off" />
               </div>
+              <!-- Populated from the returned records; filter them in place (ALL = no filter). -->
               <div class="filter-field">
                 <label for="investigation-filter-event-types">Event Type</label>
-                <input type="text" id="investigation-filter-event-types" placeholder="%Security" autocomplete="off" />
+                <select id="investigation-filter-event-types"><option value="">ALL</option></select>
+              </div>
+              <div class="filter-field">
+                <label for="investigation-filter-event">Event</label>
+                <select id="investigation-filter-event"><option value="">ALL</option></select>
               </div>
               <div class="filter-field">
                 <label for="investigation-filter-username">Username</label>
-                <input type="text" id="investigation-filter-username" placeholder="_SYSTEM" autocomplete="off" />
+                <select id="investigation-filter-username"><option value="">ALL</option></select>
               </div>
               <div class="filter-field">
+                <label for="investigation-filter-namespace">Namespace</label>
+                <select id="investigation-filter-namespace"><option value="">ALL</option></select>
+              </div>
+              <div class="filter-field inv-filters__search">
                 <label for="investigation-filter-search">Search Text</label>
                 <input type="text" id="investigation-filter-search" placeholder="Search event data&hellip;" autocomplete="off" />
               </div>
@@ -2640,33 +2689,58 @@
                 </select>
               </div>
             </form>
+            <p class="info-card__hint inv-filters__hint">Begin, End, Search Text and Order query IRIS (results refresh shortly after you stop typing; Search refreshes immediately). The dropdowns list the values in those results and narrow them instantly.</p>
           </section>
 
-          <div class="view-overview" id="investigation-overview" hidden>
-            <p class="stat-card__label">Event Type Distribution</p>
-            <div id="investigation-overview-viz"></div>
-          </div>
+          <section class="info-card inv-card" aria-labelledby="investigation-table-title">
+            <h3 class="info-card__title" id="investigation-table-title">Audit Events</h3>
+            <p class="empty-state" id="investigation-empty" hidden></p>
+            <div class="table-wrapper" id="investigation-table-wrapper" hidden>
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">Event Type</th>
+                    <th scope="col">Event</th>
+                    <th scope="col">Username</th>
+                    <th scope="col">Namespace</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Related Trace</th>
+                  </tr>
+                </thead>
+                <tbody id="investigation-table-body"></tbody>
+              </table>
+            </div>
+            <div class="inv-pager" id="investigation-pager" hidden>
+              <p class="inv-pager__info" id="investigation-page-info"></p>
+              <div class="inv-pager__buttons">
+                <button class="btn" type="button" id="investigation-page-prev">&larr; Previous</button>
+                <button class="btn" type="button" id="investigation-page-next">Next &rarr;</button>
+              </div>
+            </div>
+          </section>
 
-          <p class="empty-state" id="investigation-empty" hidden></p>
-
-          <div class="table-wrapper" id="investigation-table-wrapper" hidden>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Time</th>
-                  <th scope="col">Event Type</th>
-                  <th scope="col">Event</th>
-                  <th scope="col">Username</th>
-                  <th scope="col">Namespace</th>
-                  <th scope="col">Authentication</th>
-                  <th scope="col">Client IP</th>
-                  <th scope="col">Description</th>
-                  <th scope="col"></th>
-                </tr>
-              </thead>
-              <tbody id="investigation-table-body"></tbody>
-            </table>
-          </div>
+          <div class="ns-drawer-backdrop" id="investigation-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="investigation-drawer" hidden aria-labelledby="investigation-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="investigation-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--neutral" id="investigation-drawer-type"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="investigation-drawer-close" aria-label="Close audit event details">&times;</button>
+            </div>
+            <p class="ns-hint">Native IRIS audit record &mdash; read-only evidence written by IRIS itself.</p>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Audit Event</h4>
+              <dl class="info-list" id="investigation-drawer-fields"></dl>
+            </div>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Related Command Center Activity</h4>
+              <p class="ns-hint">Command Center execution traces that started within &plusmn;30 seconds of this event (UTC). Time proximity only &mdash; IRIS audit records and Command Center traces share no ID.</p>
+              <div id="investigation-drawer-related"></div>
+              <button class="dash-panel__link" type="button" id="investigation-drawer-window">View all traces in this &plusmn;30 s window in Observability &rarr;</button>
+            </div>
+          </aside>
         </section>
 
         <section class="view" id="view-capabilities" data-view="capabilities" aria-labelledby="capabilities-title" hidden>

@@ -64,7 +64,8 @@ for the Security view:
     fs-access-purposes, wallet/collections) and no other IrisApi method.
 20. The Investigation nav item and view exist in the markup and the nav
     item is enabled (not `disabled`); investigation.js calls only
-    IrisApi.getAuditEnabled()/getAuditRecords() and no other IrisApi
+    IrisApi.getAuditEnabled()/getAuditRecords() (plus getExecutionTraces()
+    for the ±30 s related-trace correlation) and no other IrisApi
     method, and never references a mutating HTTP method (IRIS's own
     async-task POST for audit records happens entirely on the backend;
     this view only ever sends a GET).
@@ -78,8 +79,9 @@ for the Security view:
     nav.js exports navigateTo(); observability.js gained its own
     client-side Begin/End (UTC) time filter and exports setTimeWindow();
     investigation.js exports setTimeWindow() for the reverse direction;
-    app.js wires both cross-link callbacks. Neither view gained a new
-    endpoint call or a mutating HTTP method reference.
+    app.js wires both cross-link callbacks. Neither view gained a
+    mutating HTTP method reference; investigation.js's only addition is
+    the read-only getExecutionTraces() used for the same time window.
 23. The Dashboard (the contest/demo landing screen) surfaces Recent
     Activity (dashboard.js additionally calls IrisApi.getExecutionTraces())
     and Explore quicklinks that navigate (via nav.js's navigateTo()) to
@@ -1246,10 +1248,13 @@ def test_investigation_nav_and_view_exist_and_are_enabled() -> None:
 
 
 def test_investigation_view_uses_only_expected_endpoints() -> None:
-    print("Checking investigation.js calls only its two expected endpoints and nothing else...")
+    print("Checking investigation.js calls only its expected read-only endpoints and nothing else...")
     investigation_js = (FRONTEND_DIR / "js" / "investigation.js").read_text(encoding="utf-8")
 
-    required_methods = ["IrisApi.getAuditEnabled", "IrisApi.getAuditRecords"]
+    # getExecutionTraces reads the Command Center's own trace store (not
+    # IRIS), only for the existing ±30 s related-trace correlation shown in
+    # the audit event detail.
+    required_methods = ["IrisApi.getAuditEnabled", "IrisApi.getAuditRecords", "IrisApi.getExecutionTraces"]
     for method in required_methods:
         check(method in investigation_js, f"investigation.js calls {method}()")
 
@@ -1257,7 +1262,7 @@ def test_investigation_view_uses_only_expected_endpoints() -> None:
         "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
         "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
         "getJournalSettings", "getOperations", "queryAssistant", "executeJournalPurgeArchived",
-        "getExecutionTraces", "getExtLangServers", "getFsAccessPurposes", "getWalletCollections",
+        "getExtLangServers", "getFsAccessPurposes", "getWalletCollections",
     ]
     for method in other_methods:
         check(method not in investigation_js, f"investigation.js does NOT call IrisApi.{method}()")

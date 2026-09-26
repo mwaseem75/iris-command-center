@@ -93,6 +93,7 @@ function init() {
       setObservabilityTimeWindow(begin, end);
       navigateTo("observability");
     },
+    onOpenTrace: openTrace,
   });
   initCapabilitiesControls();
 
