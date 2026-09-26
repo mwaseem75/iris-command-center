@@ -5114,3 +5114,310 @@ html.detail-workspace-open {
 .db-issue__why .info-list {
   margin-top: 6px;
 }
+
+/* --- Extensions & Integrations page ---
+   Scoped to #view-extensions. KPI cards reuse the Dashboard's .dash-kpi
+   icon cards; the detail panel is the shared .ns-drawer. */
+
+.ext-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.ext-heading__icon,
+.ext-panel__icon,
+.ext-empty__icon,
+.ext-type-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--ext-tone, var(--color-accent));
+  background: color-mix(in srgb, var(--ext-tone, var(--color-accent)) 16%, transparent);
+}
+
+.ext-heading__icon {
+  width: 44px;
+  height: 44px;
+  margin-top: 2px;
+}
+
+.ext-heading__icon svg,
+.ext-panel__icon svg,
+.ext-empty__icon svg,
+.ext-type-icon svg {
+  width: 60%;
+  height: 60%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#view-extensions .info-panel {
+  margin-bottom: 16px;
+}
+
+#view-extensions .ext-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+#view-extensions .ext-kpis .stat-card {
+  border-radius: 12px;
+  height: auto;
+  min-height: 92px;
+}
+
+#view-extensions .ext-kpis .stat-card::before {
+  display: none;
+}
+
+#view-extensions .ext-kpis .stat-card__label {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+#view-extensions .ext-kpis .stat-card__value {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+#view-extensions .ext-kpis .stat-card__meta {
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-card[data-card="ext-servers"] { --stat-card-accent: var(--color-chart-1); }
+.stat-card[data-card="ext-fs"] { --stat-card-accent: var(--color-success); }
+.stat-card[data-card="ext-wallet"] { --stat-card-accent: var(--color-warning); }
+.stat-card[data-card="ext-total"] { --stat-card-accent: var(--color-chart-5); }
+
+.ext-panel {
+  margin-bottom: 16px;
+  border-radius: 12px;
+}
+
+.ext-panel__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ext-panel__head .info-card__title {
+  margin-bottom: 2px;
+}
+
+.ext-panel__head .info-card__hint {
+  margin: 0;
+}
+
+.ext-panel__icon {
+  width: 36px;
+  height: 36px;
+}
+
+.ext-panel__icon[data-tone="servers"] { --ext-tone: var(--color-chart-1); }
+.ext-panel__icon[data-tone="fs"] { --ext-tone: var(--color-success); }
+.ext-panel__icon[data-tone="wallet"] { --ext-tone: var(--color-warning); }
+
+.ext-table .data-table__cell {
+  vertical-align: middle;
+}
+
+.ext-table tbody tr:hover .data-table__cell {
+  background: var(--color-surface-hover);
+}
+
+.ext-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.ext-type-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.ext-type-icon--sm {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.ext-view-btn {
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-accent-soft);
+}
+
+.ext-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ext-pair .ext-panel {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.ext-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 22px 16px;
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-surface-raised) 50%, transparent);
+}
+
+.ext-empty[hidden] {
+  display: none;
+}
+
+.ext-empty__icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  --ext-tone: var(--color-text-muted);
+}
+
+.ext-empty[data-state="error"] .ext-empty__icon {
+  --ext-tone: var(--color-error);
+}
+
+.ext-empty__title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ext-empty__text {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.ext-panel__footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.ext-status-note {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+}
+
+.ext-drawer__related {
+  margin-top: 4px;
+}
+
+.ext-related {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ext-related:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-hover);
+}
+
+.ext-related__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ext-related__title {
+  font-weight: 600;
+}
+
+.ext-related__text {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.ext-related__chevron {
+  font-size: 22px;
+  color: var(--color-text-muted);
+}
+
+.ext-json {
+  margin-top: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+}
+
+.ext-json summary {
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ext-json__body {
+  margin: 0;
+  padding: 0 14px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 1100px) {
+  #view-extensions .ext-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .ext-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  #view-extensions .ext-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ext-heading__icon {
+    display: none;
+  }
+}

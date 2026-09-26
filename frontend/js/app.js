@@ -19,7 +19,7 @@ import { initSecurityWalletControls, refreshSecurityWalletIfLoaded } from "./sec
 import { initSecurityX509Controls, refreshSecurityX509IfLoaded } from "./security-x509.js";
 import { loadJournal, initJournalControls } from "./journal.js";
 import { loadOperations, initOperationsControls } from "./operations.js";
-import { initAiAssistantControls, loadAssistantContext } from "./ai-assistant.js";
+import { askAssistant, initAiAssistantControls, loadAssistantContext } from "./ai-assistant.js";
 import {
   loadExecutionTraces,
   initObservabilityControls,
@@ -77,7 +77,18 @@ function init() {
       navigateTo("investigation");
     },
   });
-  initExtensionsControls();
+  // Extensions links to the Security Wallet tab and to Embedded Python in
+  // the AI Assistant instead of duplicating either.
+  initExtensionsControls({
+    onOpenWallet: () => {
+      navigateTo("security");
+      document.getElementById("security-tab-wallet").click();
+    },
+    onOpenEmbeddedPython: () => {
+      navigateTo("ai-assistant");
+      askAssistant("Show Embedded Python host diagnostics");
+    },
+  });
   initInvestigationControls({
     onInvestigateTraces: ({ begin, end }) => {
       setObservabilityTimeWindow(begin, end);

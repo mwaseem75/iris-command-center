@@ -2516,9 +2516,12 @@
 
         <section class="view" id="view-extensions" data-view="extensions" aria-labelledby="extensions-title" hidden>
           <div class="view__header">
-            <div>
-              <h2 class="view__title" id="extensions-title">Extensions</h2>
-              <p class="view__subtitle">External language servers, file system access purposes, and wallet collections configured on the connected IRIS instance.</p>
+            <div class="ext-heading">
+              <span class="ext-heading__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0V7zM12 17v5"/></svg></span>
+              <div>
+                <h2 class="view__title" id="extensions-title">Extensions &amp; Integrations</h2>
+                <p class="view__subtitle view__subtitle--wide">External language servers, file system access purposes, and wallet collections configured on this IRIS instance.</p>
+              </div>
             </div>
             <button class="btn btn--primary" type="button" id="extensions-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -2544,47 +2547,143 @@
             <p class="info-panel__meta" id="extensions-connection-detail"></p>
           </div>
 
-          <div class="info-grid">
-            <section class="info-card info-card--wide" aria-labelledby="extensions-ext-lang-servers-title">
-              <h3 class="info-card__title" id="extensions-ext-lang-servers-title">External Language Servers</h3>
-              <p class="info-card__hint">Embedded gateways for external languages (.NET, Java, Python, R, ML, ODBC, JDBC, XSLT).</p>
-              <div class="table-wrapper" id="extensions-ext-lang-servers-table-wrapper" hidden>
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Name</th>
-                      <th scope="col">Port</th>
-                      <th scope="col">Type</th>
-                    </tr>
-                  </thead>
-                  <tbody id="extensions-ext-lang-servers-table-body"></tbody>
-                </table>
+          <!-- Counts from the three lists below. -->
+          <div class="stat-grid ext-kpis" aria-label="Extensions summary">
+            <article class="stat-card dash-kpi" data-card="ext-servers">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7L12 2.5zM3.5 7 12 11.5 20.5 7M12 11.5v10"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Language Servers</h3>
+                <p class="stat-card__value" id="extensions-kpi-servers">&mdash;</p>
+                <p class="stat-card__meta" id="extensions-kpi-servers-meta"></p>
               </div>
-              <p class="empty-state" id="extensions-ext-lang-servers-empty" hidden>No external language servers reported.</p>
-            </section>
+            </article>
+            <article class="stat-card dash-kpi" data-card="ext-fs">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12z"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">File Access Purposes</h3>
+                <p class="stat-card__value" id="extensions-kpi-fs">&mdash;</p>
+                <p class="stat-card__meta" id="extensions-kpi-fs-meta"></p>
+              </div>
+            </article>
+            <article class="stat-card dash-kpi" data-card="ext-wallet">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3M4 7.5v10A2.5 2.5 0 0 0 6.5 20H20V8H6.5A2.5 2.5 0 0 1 4 7.5zM16 14h.01"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Wallet Collections</h3>
+                <p class="stat-card__value" id="extensions-kpi-wallet">&mdash;</p>
+                <p class="stat-card__meta" id="extensions-kpi-wallet-meta"></p>
+              </div>
+            </article>
+            <article class="stat-card dash-kpi" data-card="ext-total">
+              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 3.5h4v3a1.5 1.5 0 1 0 3 0v-.5h3.5v4.5h-.5a1.5 1.5 0 1 0 0 3h.5v4.5H16v-.5a1.5 1.5 0 1 0-3 0v.5H3.5V14H4a1.5 1.5 0 1 0 0-3h-.5V6.5H7v.5a1.5 1.5 0 1 0 3 0v-3.5z"/></svg></span>
+              <div class="dash-kpi__body">
+                <h3 class="stat-card__label">Active Extensions</h3>
+                <p class="stat-card__value" id="extensions-kpi-total">&mdash;</p>
+                <p class="stat-card__meta" id="extensions-kpi-total-meta"></p>
+              </div>
+            </article>
+          </div>
 
-            <section class="info-card info-card--wide" aria-labelledby="extensions-fs-access-purposes-title">
-              <h3 class="info-card__title" id="extensions-fs-access-purposes-title">File System Access Purposes</h3>
+          <section class="info-card ext-panel" aria-labelledby="extensions-ext-lang-servers-title">
+            <div class="ext-panel__head">
+              <span class="ext-panel__icon" data-tone="servers" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7L12 2.5zM3.5 7 12 11.5 20.5 7M12 11.5v10"/></svg></span>
+              <div>
+                <h3 class="info-card__title" id="extensions-ext-lang-servers-title">External Language Servers</h3>
+                <p class="info-card__hint">Gateways IRIS uses to run external languages (.NET, Java, Python, R, ML, ODBC, JDBC, XSLT). Click a server for details.</p>
+              </div>
+            </div>
+            <div class="table-wrapper" id="extensions-ext-lang-servers-table-wrapper" hidden>
+              <table class="data-table ext-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Port</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="extensions-ext-lang-servers-table-body"></tbody>
+              </table>
+            </div>
+            <p class="empty-state" id="extensions-ext-lang-servers-empty" hidden>No external language servers reported.</p>
+          </section>
+
+          <div class="ext-pair">
+            <section class="info-card ext-panel" aria-labelledby="extensions-fs-access-purposes-title">
+              <div class="ext-panel__head">
+                <span class="ext-panel__icon" data-tone="fs" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12z"/></svg></span>
+                <div>
+                  <h3 class="info-card__title" id="extensions-fs-access-purposes-title">File System Access Purposes</h3>
+                  <p class="info-card__hint">Named purposes IRIS uses to control file system access.</p>
+                </div>
+              </div>
               <div class="table-wrapper" id="extensions-fs-access-purposes-table-wrapper" hidden>
-                <table class="data-table">
+                <table class="data-table data-table--compact">
                   <thead id="extensions-fs-access-purposes-thead"></thead>
                   <tbody id="extensions-fs-access-purposes-table-body"></tbody>
                 </table>
               </div>
-              <p class="empty-state" id="extensions-fs-access-purposes-empty" hidden>No file system access purposes reported.</p>
+              <div class="ext-empty" id="extensions-fs-access-purposes-empty" hidden>
+                <span class="ext-empty__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12zM8 13.5h8"/></svg></span>
+                <p class="ext-empty__title" id="extensions-fs-access-purposes-empty-title">No file system access purposes configured</p>
+                <p class="ext-empty__text" id="extensions-fs-access-purposes-empty-text">IRIS reports none on this instance.</p>
+              </div>
             </section>
 
-            <section class="info-card info-card--wide" aria-labelledby="extensions-wallet-collections-title">
-              <h3 class="info-card__title" id="extensions-wallet-collections-title">Wallet Collections</h3>
+            <section class="info-card ext-panel" aria-labelledby="extensions-wallet-collections-title">
+              <div class="ext-panel__head">
+                <span class="ext-panel__icon" data-tone="wallet" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3M4 7.5v10A2.5 2.5 0 0 0 6.5 20H20V8H6.5A2.5 2.5 0 0 1 4 7.5zM16 14h.01"/></svg></span>
+                <div>
+                  <h3 class="info-card__title" id="extensions-wallet-collections-title">Wallet Collections</h3>
+                  <p class="info-card__hint">Secret collections for external integrations. Managed on the Security page.</p>
+                </div>
+              </div>
               <div class="table-wrapper" id="extensions-wallet-collections-table-wrapper" hidden>
-                <table class="data-table">
+                <table class="data-table data-table--compact">
                   <thead id="extensions-wallet-collections-thead"></thead>
                   <tbody id="extensions-wallet-collections-table-body"></tbody>
                 </table>
               </div>
-              <p class="empty-state" id="extensions-wallet-collections-empty" hidden>No wallet collections reported.</p>
+              <div class="ext-empty" id="extensions-wallet-collections-empty" hidden>
+                <span class="ext-empty__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3M4 7.5v10A2.5 2.5 0 0 0 6.5 20H20V8H6.5A2.5 2.5 0 0 1 4 7.5zM16 14h.01"/></svg></span>
+                <p class="ext-empty__title" id="extensions-wallet-collections-empty-title">No wallet collections configured</p>
+                <p class="ext-empty__text" id="extensions-wallet-collections-empty-text">IRIS reports none on this instance.</p>
+              </div>
+              <div class="ext-panel__footer">
+                <button class="btn" type="button" id="extensions-open-wallet">Open Wallet in Security &rarr;</button>
+              </div>
             </section>
           </div>
+
+          <div class="ns-drawer-backdrop" id="extensions-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="extensions-drawer" hidden aria-labelledby="extensions-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <span class="ext-type-icon" id="extensions-drawer-icon" aria-hidden="true"></span>
+                <h3 class="ns-drawer__title" id="extensions-drawer-title">&mdash;</h3>
+                <span class="status-badge status-badge--accent" id="extensions-drawer-type"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="extensions-drawer-close" aria-label="Close language server details">&times;</button>
+            </div>
+            <p class="ns-hint">What IRIS reported for this external language server in the last refresh. Read-only.</p>
+            <h4 class="ns-drawer__section-title">Basic Information</h4>
+            <dl class="info-list" id="extensions-drawer-fields"></dl>
+            <div class="ext-drawer__related" id="extensions-drawer-related" hidden>
+              <h4 class="ns-drawer__section-title">Related</h4>
+              <button class="ext-related" type="button" id="extensions-drawer-python">
+                <span class="ext-type-icon" aria-hidden="true"></span>
+                <span class="ext-related__body">
+                  <span class="ext-related__title">Embedded Python</span>
+                  <span class="ext-related__text">Python and host diagnostics from inside IRIS, in the AI Assistant</span>
+                </span>
+                <span class="ext-related__chevron" aria-hidden="true">&rsaquo;</span>
+              </button>
+            </div>
+            <details class="ext-json">
+              <summary>API Response</summary>
+              <pre class="ext-json__body" id="extensions-drawer-json"></pre>
+            </details>
+          </aside>
         </section>
 
         <section class="view" id="view-investigation" data-view="investigation" aria-labelledby="investigation-title" hidden>

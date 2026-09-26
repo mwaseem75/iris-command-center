@@ -752,6 +752,11 @@ export async function loadAssistantContext() {
 }
 
 /** `onOpenTrace(traceId)` opens a trace in Observability (wired by app.js). */
+/** Ask a question as if the user typed it (used by links from other pages). */
+export function askAssistant(text) {
+  sendMessage(text);
+}
+
 export function initAiAssistantControls({ onOpenTrace: openTrace } = {}) {
   onOpenTrace = typeof openTrace === "function" ? openTrace : null;
 
