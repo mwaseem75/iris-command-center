@@ -2102,8 +2102,8 @@
         <section class="view" id="view-journal" data-view="journal" aria-labelledby="journal-title" hidden>
           <div class="view__header">
             <div>
-              <h2 class="view__title" id="journal-title">Journal</h2>
-              <p class="view__subtitle">Journal configuration for the connected IRIS instance.</p>
+              <h2 class="view__title" id="journal-title">Journal Health &amp; Configuration</h2>
+              <p class="view__subtitle">Live journal settings of the connected IRIS instance &mdash; read-only.</p>
             </div>
             <button class="btn btn--primary" type="button" id="journal-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -2129,15 +2129,63 @@
             <p class="info-panel__meta" id="journal-connection-detail"></p>
           </div>
 
-          <div class="info-grid">
-            <section class="info-card info-card--wide" aria-labelledby="journal-settings-title">
-              <h3 class="info-card__title" id="journal-settings-title">Journal Settings</h3>
+          <!-- Key settings at a glance: each value is a live JournalSettings
+               field (same response as the table below) — no derived metrics. -->
+          <div class="stat-grid journal-kpis" id="journal-kpis" aria-label="Key journal settings">
+            <article class="stat-card" data-card="journal-purge-archived">
+              <p class="stat-card__label">Purge Archived</p>
+              <p class="stat-card__value" id="journal-kpi-purge-archived">&mdash;</p>
+              <p class="stat-card__meta">protected operation</p>
+            </article>
+            <article class="stat-card" data-card="journal-retention">
+              <p class="stat-card__label">Days Before Purge</p>
+              <p class="stat-card__value" id="journal-kpi-days-before-purge">&mdash;</p>
+              <p class="stat-card__meta" id="journal-kpi-backups-before-purge"></p>
+            </article>
+            <article class="stat-card" data-card="journal-file-size">
+              <p class="stat-card__label">File Size Limit</p>
+              <p class="stat-card__value" id="journal-kpi-file-size-limit">&mdash;</p>
+              <p class="stat-card__meta">per journal file</p>
+            </article>
+            <article class="stat-card" data-card="journal-compress">
+              <p class="stat-card__label">Compress Files</p>
+              <p class="stat-card__value" id="journal-kpi-compress-files">&mdash;</p>
+              <p class="stat-card__meta">journal file compression</p>
+            </article>
+            <article class="stat-card" data-card="journal-freeze">
+              <p class="stat-card__label">Freeze On Error</p>
+              <p class="stat-card__value" id="journal-kpi-freeze-on-error">&mdash;</p>
+              <p class="stat-card__meta">on journal I/O errors</p>
+            </article>
+          </div>
+
+          <div class="journal-layout">
+            <section class="info-card" aria-labelledby="journal-settings-title">
+              <h3 class="info-card__title" id="journal-settings-title">Journal Configuration</h3>
               <p class="info-card__hint">
-                <strong>Purge Archived</strong> (below) is the setting read and updated by the existing, protected PurgeArchived operation &mdash; no mutation control is included in this view.
+                Every setting IRIS reports for the journal. <strong>Purge Archived</strong> is the setting read and updated by the existing, protected PurgeArchived operation &mdash; no mutation control is included in this view.
               </p>
               <dl class="info-list" id="journal-settings-list"></dl>
               <p class="info-card__empty" id="journal-settings-empty" hidden>No journal settings reported.</p>
             </section>
+
+            <div class="journal-side">
+              <section class="info-card journal-panel" aria-labelledby="journal-actions-title">
+                <h3 class="info-card__title" id="journal-actions-title">Safe Actions</h3>
+                <p class="info-card__hint">
+                  This page never changes IRIS. To change <strong>Purge Archived</strong>, use Operations &rarr; Update Journal Settings: your privileges are checked, an explicit confirmation is required, and the result is verified afterwards.
+                </p>
+                <button class="btn btn--primary" type="button" id="journal-open-operations-button">Open Operations</button>
+              </section>
+
+              <section class="info-card journal-panel" aria-labelledby="journal-audit-title">
+                <h3 class="info-card__title" id="journal-audit-title">Audit Trail</h3>
+                <p class="info-card__hint">
+                  Review IRIS audit records for journal configuration changes in Investigation &mdash; filter by time, event type or search text.
+                </p>
+                <button class="dash-panel__link" type="button" id="journal-open-investigation-button">Open Investigation &rarr;</button>
+              </section>
+            </div>
           </div>
         </section>
 

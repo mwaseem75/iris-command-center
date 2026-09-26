@@ -11,8 +11,14 @@
 // JournalSettings actually defines — nothing invented. FileSizeLimit and
 // targwijsz are documented (docs/first-mutation-selection.md) as MB
 // integers; every other field is rendered as IRIS returns it.
+//
+// Layout: a row of KPI cards (five of those same live fields, from the same
+// single response — no derived or invented metric), the full configuration
+// list, and two navigation-only panels: Operations (where the protected
+// PurgeArchived change is made) and Investigation (IRIS audit records).
 
 import { IrisApi, ApiError } from "./api.js";
+import { navigateTo } from "./nav.js";
 
 const PLACEHOLDER = "—"; // em dash — matches the app's existing empty-value convention
 
@@ -26,6 +32,14 @@ const dom = {
   connectionDetail: document.getElementById("journal-connection-detail"),
   settingsList: document.getElementById("journal-settings-list"),
   settingsEmpty: document.getElementById("journal-settings-empty"),
+  kpiPurgeArchived: document.getElementById("journal-kpi-purge-archived"),
+  kpiDaysBeforePurge: document.getElementById("journal-kpi-days-before-purge"),
+  kpiBackupsBeforePurge: document.getElementById("journal-kpi-backups-before-purge"),
+  kpiFileSizeLimit: document.getElementById("journal-kpi-file-size-limit"),
+  kpiCompressFiles: document.getElementById("journal-kpi-compress-files"),
+  kpiFreezeOnError: document.getElementById("journal-kpi-freeze-on-error"),
+  openOperationsButton: document.getElementById("journal-open-operations-button"),
+  openInvestigationButton: document.getElementById("journal-open-investigation-button"),
 };
 
 function setLoading(isLoading) {
@@ -101,7 +115,23 @@ const SETTINGS_FIELDS = [
   ["WIJ Size Target", "targwijsz", formatMegabytes],
 ];
 
+// KPI cards: the same fields and formatters as the table below. `settings`
+// null (error / no data) resets every card to the placeholder.
+function renderKpis(settings) {
+  const s = settings && typeof settings === "object" ? settings : {};
+  dom.kpiPurgeArchived.textContent = formatBoolean(s.PurgeArchived);
+  dom.kpiDaysBeforePurge.textContent = textOrPlaceholder(s.DaysBeforePurge);
+  dom.kpiBackupsBeforePurge.textContent =
+    s.BackupsBeforePurge === undefined || s.BackupsBeforePurge === null
+      ? ""
+      : `backups before purge: ${textOrPlaceholder(s.BackupsBeforePurge)}`;
+  dom.kpiFileSizeLimit.textContent = formatMegabytes(s.FileSizeLimit);
+  dom.kpiCompressFiles.textContent = formatBoolean(s.CompressFiles);
+  dom.kpiFreezeOnError.textContent = formatBoolean(s.FreezeOnError);
+}
+
 function renderSettings(settings) {
+  renderKpis(settings);
   dom.settingsList.replaceChildren();
 
   if (!settings || typeof settings !== "object" || Object.keys(settings).length === 0) {
@@ -194,4 +224,7 @@ export function initJournalControls() {
   dom.refreshButton.addEventListener("click", () => {
     loadJournal();
   });
+  // Navigation only — neither button sends a request from this view.
+  dom.openOperationsButton.addEventListener("click", () => navigateTo("operations"));
+  dom.openInvestigationButton.addEventListener("click", () => navigateTo("investigation"));
 }
