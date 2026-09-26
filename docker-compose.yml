@@ -1,15 +1,85 @@
 # -----------------------------------------------------------------------------
-# IRIS Command Center — docker-compose placeholder
+# IRIS Command Center — one-command startup: `docker compose up`
 #
-# Phase 0 (project foundation): this file intentionally defines no services.
-# The application is NOT runnable yet.
+#   iris      InterSystems IRIS 2026.2 (Community), with a persistent USER
+#             database (named volume) holding CommandCenter.Knowledge and
+#             ^CommandCenterTrace.
+#   backend   FastAPI Command Center API — starts once IRIS is healthy and
+#             reaches it over the Compose network (iris:52773 / iris:1972).
+#   frontend  The static frontend, served read-only by nginx.
 #
-# Service definitions (backend API, and any minimal supporting services) will
-# be added in a later implementation phase. This project will not bundle an
-# IRIS instance itself — it connects to an existing IRIS server via the
-# SysAdmin REST APIs.
+# Host ports match the local dev setup: IRIS 52773 / 1973 (superserver) /
+# 53773, backend 8000, frontend 5500 (the frontend calls the backend at
+# http://localhost:8000, and the backend's CORS allows http://localhost:5500).
+#
+# Credentials come from `.env` (copy .env.example). They must match the IRIS
+# instance's own login.
 # -----------------------------------------------------------------------------
 
-version: "3.9"
+services:
+  iris:
+    image: intersystemsdc/iris-community:2026.2
+    # Start IRIS through its own launcher, bypassing the image wrapper's
+    # first-start hook (it crashes a brand-new container at its irissqlcli
+    # namespace step). Nothing in that hook is needed here: USER already
+    # exists and there are no init scripts. The --after session un-expires
+    # the predefined accounts' passwords (IRIS marks them expired on first
+    # start); that state lives outside the persisted USER database, so it
+    # runs on every start — it is idempotent.
+    entrypoint: ["/tini", "--", "/iris-main"]
+    command:
+      - "--ISCAgent"
+      - "false"
+      - "--after"
+      - "iris session IRIS -U %SYS '##class(Security.Users).UnExpireUserPasswords(\"*\")'"
+    ports:
+      - "52773:52773"
+      - "1973:1972"
+      - "53773:53773"
+    volumes:
+      # A new, empty named volume is initialized by Docker from the image's
+      # own USER database (IRIS.DAT, owned by irisowner), then persists across
+      # container recreation.
+      - iris-user:/usr/irissys/mgr/user
+    healthcheck:
+      # The image's own check, on a shorter interval than its 60 s default.
+      test: ["CMD", "/irisHealth.sh"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    # Give IRIS time for a clean shutdown (only the USER database persists).
+    stop_grace_period: 60s
 
-services: {}
+  backend:
+    build: .
+    depends_on:
+      iris:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      IRIS_BASE_URL: http://iris:52773
+      IRIS_USERNAME: ${IRIS_USERNAME:?set IRIS_USERNAME in .env (see .env.example)}
+      IRIS_PASSWORD: ${IRIS_PASSWORD:?set IRIS_PASSWORD in .env (see .env.example)}
+      IRIS_NAMESPACE: USER
+      # The superserver port inside the Compose network (the host-side 1973
+      # mapping applies only to clients outside Docker).
+      IRIS_SUPERSERVER_PORT: "1972"
+      ENABLE_KNOWLEDGE_SEARCH: "true"
+      PERSIST_TRACES_TO_IRIS: "true"
+
+  frontend:
+    image: nginx:alpine
+    depends_on:
+      - backend
+    ports:
+      - "5500:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      # Stock server config + Cache-Control: no-cache for .js/.css, so
+      # browsers never keep running stale frontend code after an update.
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  iris-user:
