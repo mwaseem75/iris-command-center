@@ -5,6 +5,7 @@ authentication/session logic it wraps."""
 
 from fastapi import Depends, HTTPException, Request
 
+from app.embedded_python.diagnostics import EmbeddedPythonDiagnostics
 from app.iris_client.client import IRISClient
 from app.iris_client.exceptions import (
     IRISAuthError,
@@ -17,6 +18,10 @@ from app.models.iris import InfoResult, IRISEnvelope
 
 def get_iris_client(request: Request) -> IRISClient:
     return request.app.state.iris_client
+
+
+def get_python_diagnostics(request: Request) -> EmbeddedPythonDiagnostics:
+    return request.app.state.python_diagnostics
 
 
 async def get_caller_privileges(

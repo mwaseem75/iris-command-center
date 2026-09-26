@@ -1062,6 +1062,7 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
     allowed_reads = {
         "queryAssistant", "getInfo", "getProcesses", "getDatabases", "getDatabaseStorage",
         "getWebApps", "getTaskOverview", "getExecutionTraces", "getJournalSettings", "getMonitorDashboard",
+        "getPythonDiagnostics",
     }
     called = set(re.findall(r"IrisApi\.([A-Za-z]+)\(", ai_js))
     check(called <= allowed_reads, f"ai-assistant.js calls only read-only IrisApi methods (found: {sorted(called)})")

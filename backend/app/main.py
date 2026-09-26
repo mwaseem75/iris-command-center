@@ -18,6 +18,11 @@ unreachable IRIS just means starting empty), then registered with
 app/observability/store.py, which then best-effort, additionally persists
 every trace it records in-memory. Disabled,
 this app behaves exactly as it did before this feature existed.
+
+Embedded Python diagnostics (app/embedded_python/diagnostics.py): one
+EmbeddedPythonDiagnostics is created here; like IRISClient, constructing it
+makes no connection — the Native API connection opens on the first
+GET /api/iris/python/diagnostics call and is closed at shutdown.
 """
 
 import asyncio
@@ -28,6 +33,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.embedded_python.diagnostics import EmbeddedPythonDiagnostics
 from app.iris_client.client import IRISClient
 from app.observability import store as observability_store
 from app.observability.iris_trace_writer import IRISTraceWriter
@@ -44,6 +50,7 @@ from app.routes.journal import router as journal_router
 from app.routes.namespaces import router as namespaces_router
 from app.routes.observability import router as observability_router
 from app.routes.operations import router as operations_router
+from app.routes.python import router as python_router
 from app.routes.web_apps import router as web_apps_router
 
 
@@ -51,6 +58,7 @@ from app.routes.web_apps import router as web_apps_router
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.iris_client = IRISClient(settings)
+    app.state.python_diagnostics = EmbeddedPythonDiagnostics(settings)
 
     trace_writer: IRISTraceWriter | None = None
     if settings.persist_traces_to_iris:
@@ -69,6 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await app.state.iris_client.aclose()
+        app.state.python_diagnostics.close()
         if trace_writer is not None:
             trace_writer.close()
             observability_store.set_trace_persister(None)
@@ -98,3 +107,4 @@ app.include_router(operations_router)
 app.include_router(assistant_router)
 app.include_router(observability_router)
 app.include_router(capabilities_router)
+app.include_router(python_router)

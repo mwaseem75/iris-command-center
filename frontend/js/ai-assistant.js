@@ -74,6 +74,18 @@ function fmtMB(mb) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${fmtNumber(mb)} MB`;
 }
 
+function fmtBytes(bytes) {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes)) return PLACEHOLDER;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit ? value.toFixed(1) : value} ${units[unit]}`;
+}
+
 function fmtDuration(ms) {
   if (typeof ms !== "number") return PLACEHOLDER;
   return ms < 1000 ? `${ms.toFixed(2)} ms` : `${(ms / 1000).toFixed(2)} s`;
@@ -491,10 +503,55 @@ async function answerJournal() {
   };
 }
 
+// Host values computed by Embedded Python inside IRIS (backend
+// app/embedded_python/diagnostics.py). Unavailable fields are null.
+async function answerPython() {
+  const d = await IrisApi.getPythonDiagnostics();
+  const load = Array.isArray(d.load_average) ? d.load_average.map((v) => v.toFixed(2)) : null;
+  const memory = d.memory || {};
+  const disk = d.manager_disk || {};
+  const parts = [
+    `Embedded Python ${d.python_version || PLACEHOLDER} is running inside IRIS on ${d.hostname || PLACEHOLDER}.`,
+    `The host has ${fmtNumber(d.cpu_count)} CPUs${load ? ` (load ${load.join(" / ")})` : ""}`,
+    `, ${fmtBytes(memory.available_bytes)} of ${fmtBytes(memory.total_bytes)} memory available`,
+    ` and ${fmtBytes(disk.free_bytes)} free on the manager directory's disk.`,
+  ];
+  return {
+    text: parts.join(""),
+    card: card(
+      "Embedded Python Host Diagnostics",
+      kpiRow([
+        ["Python", d.python_version || PLACEHOLDER, "inside IRIS"],
+        ["CPUs", fmtNumber(d.cpu_count), load ? `load ${load[0]}` : null],
+        ["Memory Free", fmtBytes(memory.available_bytes), `of ${fmtBytes(memory.total_bytes)}`],
+        ["Disk Free", fmtBytes(disk.free_bytes), `of ${fmtBytes(disk.total_bytes)}`],
+      ]),
+      table(
+        ["Diagnostic", "Value"],
+        [
+          ["Platform", d.platform],
+          ["Hostname", d.hostname],
+          ["IRIS process ID", d.iris_pid],
+          ["Load average (1 / 5 / 15 min)", load ? load.join(" / ") : null],
+          ["Manager directory", d.manager_directory],
+          ["Manager disk used", fmtBytes(disk.used_bytes)],
+          ["Installed Python packages", fmtNumber(d.package_count)],
+          ["Collected in", fmtDuration(d.duration_ms)],
+        ],
+      ),
+      d.unavailable && d.unavailable.length
+        ? el("p", "ai-card__note", `Not available: ${d.unavailable.join(", ")}.`)
+        : null,
+    ),
+    actions: [openButton("Open System", "system")],
+  };
+}
+
 const HELP_TEXT =
   "I can answer from live, read-only data about: system status and version, health indicators, namespaces, " +
   "processes (count, top by CPU time, by namespace), databases (status, largest), web applications (all, disabled), " +
-  "tasks (all, suspended), your session privileges, recent operations and failures, and journal settings.";
+  "tasks (all, suspended), your session privileges, recent operations and failures, journal settings, and " +
+  "Embedded Python host diagnostics (CPU, load, memory, disk, Python packages).";
 
 // Ordered, deterministic keyword routing (most specific first).
 const INTENTS = [
@@ -502,6 +559,9 @@ const INTENTS = [
   [/recent operation|operations|operation attempt|trace|observability|\bfail|failed/, answerTraces],
   [/privilege|permission|my access|security|\broles?\b/, answerPrivileges],
   [/process/, answerProcesses],
+  // Host/Python questions — but never ones about databases (their disk
+  // usage stays with answerDatabases).
+  [/^(?!.*database)(?=.*(\bpython\b|\bhost\b|load average|memory|\bram\b|cpu count|\bcores\b|disk usage|disk space|free disk|packages))/, answerPython],
   [/database|storage|largest|disk/, answerDatabases],
   [/web ?app|web application|applications/, answerWebApps],
   [/\btasks?\b|schedule/, answerTasks],

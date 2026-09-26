@@ -423,6 +423,11 @@ export const IrisApi = {
   },
   getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
   getOperations: () => fetchIris("/api/iris/operations"),
+  // The Command Center's own PythonDiagnostics shape (backend/app/
+  // embedded_python/diagnostics.py), not an IRISEnvelope: host values
+  // computed by Embedded Python inside IRIS. Unavailable fields are null
+  // and listed in `unavailable`.
+  getPythonDiagnostics: () => fetchIris("/api/iris/python/diagnostics"),
   // Unlike every other IrisApi method, the response here is the Command
   // Center's own { reply, intent } shape (backend/app/models/schemas.py's
   // AssistantQueryResponse) — not an IRISEnvelope — because this endpoint
