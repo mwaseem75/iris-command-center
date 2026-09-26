@@ -5178,3 +5178,26 @@ html.detail-workspace-open {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* Dashboard: Command Center Issues (separate from IRIS alert counters) */
+.dash-cc-issues {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border-subtle);
+}
+
+.dash-cc-issues__title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.dash-cc-issues__note {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-faint);
+}

@@ -310,6 +310,11 @@
               <p class="info-card__empty" id="dashboard-alerts-empty" hidden>Could not load IRIS&rsquo;s alert counters.</p>
               <div class="dash-alert-counts" id="dashboard-alert-counts"></div>
               <ul class="dash-alert-list" id="dashboard-alert-list" aria-label="Findings"></ul>
+              <!-- Detected by the Command Center (GET /api/iris/issues) — not IRIS alerts. -->
+              <div class="dash-cc-issues" id="dashboard-cc-issues" hidden>
+                <p class="dash-cc-issues__title">Command Center Issues <span class="dash-cc-issues__note">detected by the Command Center &mdash; not IRIS alerts</span></p>
+                <ul class="dash-alert-list" id="dashboard-cc-issue-list" aria-label="Command Center issues"></ul>
+              </div>
             </section>
 
             <section class="info-card dash-panel dash-panel--process" aria-labelledby="dashboard-process-title">
