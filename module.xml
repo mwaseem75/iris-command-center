@@ -20,6 +20,7 @@
         DeployPath="${cspdir}iris-command-center"
         ServeFiles="1"
         Recurse="1"
+        ServeFilesTimeout="0"
         CookiePath="/iris-command-center/"
         PasswordAuthEnabled="1"
         UnauthenticatedEnabled="0"

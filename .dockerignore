@@ -1,6 +1,6 @@
 # Allowlist: the backend image needs only its requirements and the app
 # package. Everything else — virtualenvs, every .env file, tests, docs,
-# the frontend (served by nginx from a bind mount) — stays out of the
+# the frontend (served by IRIS from a bind mount) — stays out of the
 # build context.
 *
 !backend/requirements.txt

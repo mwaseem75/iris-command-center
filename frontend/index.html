@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IRIS Command Center</title>
-  <meta name="description" content="Observe. Investigate. Act—safely. A permission-aware operations console for InterSystems IRIS." />
+  <meta name="description" content="Observe. Investigate. Act&mdash;safely. A permission-aware operations console for InterSystems IRIS." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -310,7 +310,7 @@
               <p class="info-card__empty" id="dashboard-alerts-empty" hidden>Could not load IRIS&rsquo;s alert counters.</p>
               <div class="dash-alert-counts" id="dashboard-alert-counts"></div>
               <ul class="dash-alert-list" id="dashboard-alert-list" aria-label="Findings"></ul>
-              <!-- Detected by the Command Center (GET /api/iris/issues) — not IRIS alerts. -->
+              <!-- Detected by the Command Center (GET /api/iris/issues) &mdash; not IRIS alerts. -->
               <div class="dash-cc-issues" id="dashboard-cc-issues" hidden>
                 <p class="dash-cc-issues__title">Command Center Issues <span class="dash-cc-issues__note">detected by the Command Center &mdash; not IRIS alerts</span></p>
                 <ul class="dash-alert-list" id="dashboard-cc-issue-list" aria-label="Command Center issues"></ul>
@@ -751,8 +751,8 @@
             <p class="info-panel__meta" id="databases-count"></p>
           </div>
 
-          <!-- Fix Issues (MVP): issues detected from live data (GET /api/iris/issues); the fix
-               always runs through the existing database.mount flow in the database drawer. -->
+          <!-- Fix Issues: detected via GET /api/iris/issues; fixing goes through the normal
+               database.mount flow in the database drawer. -->
           <section class="info-card db-issues" aria-labelledby="databases-issues-title">
             <h3 class="info-card__title" id="databases-issues-title">Fix Issues</h3>
             <div id="databases-issues-body"><p class="ns-hint">Checking for actionable issues&hellip;</p></div>
@@ -832,7 +832,7 @@
                   <button class="btn" type="button" id="databases-drawer-integrity-button">Run Integrity Check</button>
                 </div>
               </div>
-              <p class="ns-hint">Runs IRIS's own integrity check against this database and reports exactly what it returns. Read-only — verifies existing data, changes nothing. May take a few seconds.</p>
+              <p class="ns-hint">Runs IRIS's own integrity check against this database and reports exactly what it returns. Read-only &mdash; verifies existing data, changes nothing. May take a few seconds.</p>
               <div class="loading-state" id="databases-drawer-integrity-loading" hidden>
                 <span class="spinner" aria-hidden="true"></span>
                 <span>Running integrity check&hellip;</span>
@@ -2145,8 +2145,7 @@
             <p class="info-panel__meta" id="journal-connection-detail"></p>
           </div>
 
-          <!-- Key settings at a glance: each value is a live JournalSettings
-               field (same response as the table below) — no derived metrics. -->
+          <!-- Key settings at a glance, from the same JournalSettings response as the table. -->
           <div class="stat-grid journal-kpis" id="journal-kpis" aria-label="Key journal settings">
             <article class="stat-card" data-card="journal-purge-archived">
               <p class="stat-card__label">Purge Archived</p>
@@ -2676,7 +2675,7 @@
                 <label for="investigation-filter-end">End (server time)</label>
                 <input type="text" id="investigation-filter-end" placeholder="2026-09-19 23:59:59" autocomplete="off" />
               </div>
-              <!-- Populated from the returned records; filter them in place (ALL = no filter). -->
+              <!-- Filled from the returned records; filters them locally (ALL = no filter). -->
               <div class="filter-field">
                 <label for="investigation-filter-event-types">Event Type</label>
                 <select id="investigation-filter-event-types"><option value="">ALL</option></select>

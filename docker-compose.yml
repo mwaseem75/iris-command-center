@@ -6,11 +6,15 @@
 #             ^CommandCenterTrace.
 #   backend   FastAPI Command Center API — starts once IRIS is healthy and
 #             reaches it over the Compose network (iris:52773 / iris:1972).
-#   frontend  The static frontend, served read-only by nginx.
 #
-# Host ports match the local dev setup: IRIS 52773 / 1973 (superserver) /
-# 53773, backend 8000, frontend 5500 (the frontend calls the backend at
-# http://localhost:8000, and the backend's CORS allows http://localhost:5500).
+# The web console is served by IRIS itself: on every start IRIS installs the
+# iris-command-center IPM package (module.xml + frontend/, mounted read-only),
+# so the application runs at
+#   http://localhost:52773/iris-command-center/index.html
+# The console calls the backend at http://localhost:8000 (its CORS allows the
+# IRIS origin, http://localhost:52773).
+#
+# Host ports: IRIS 52773 / 1973 (superserver) / 53773, backend 8000.
 #
 # Credentials come from `.env` (copy .env.example). They must match the IRIS
 # instance's own login.
@@ -19,19 +23,17 @@
 services:
   iris:
     image: intersystemsdc/iris-community:2026.2
-    # Start IRIS through its own launcher, bypassing the image wrapper's
-    # first-start hook (it crashes a brand-new container at its irissqlcli
-    # namespace step). Nothing in that hook is needed here: USER already
-    # exists and there are no init scripts. The --after session un-expires
-    # the predefined accounts' passwords (IRIS marks them expired on first
-    # start); that state lives outside the persisted USER database, so it
-    # runs on every start — it is idempotent.
+    # Call /iris-main directly: the image's first-start hook crashes a new
+    # container (at its irissqlcli step), and we don't need anything it does.
+    # The --after script runs on every start: it un-expires the default
+    # passwords and (re)installs the web console package. Both are safe to
+    # repeat.
     entrypoint: ["/tini", "--", "/iris-main"]
     command:
       - "--ISCAgent"
       - "false"
       - "--after"
-      - "iris session IRIS -U %SYS '##class(Security.Users).UnExpireUserPasswords(\"*\")'"
+      - "sh /home/irisowner/iris-after-start.sh"
     ports:
       - "52773:52773"
       - "1973:1972"
@@ -41,6 +43,10 @@ services:
       # own USER database (IRIS.DAT, owned by irisowner), then persists across
       # container recreation.
       - iris-user:/usr/irissys/mgr/user
+      # The IPM package the after-start script installs (read-only).
+      - ./module.xml:/home/irisowner/dev/module.xml:ro
+      - ./frontend:/home/irisowner/dev/frontend:ro
+      - ./docker/iris-after-start.sh:/home/irisowner/iris-after-start.sh:ro
     healthcheck:
       # The image's own check, on a shorter interval than its 60 s default.
       test: ["CMD", "/irisHealth.sh"]
@@ -68,21 +74,9 @@ services:
       IRIS_SUPERSERVER_PORT: "1972"
       ENABLE_KNOWLEDGE_SEARCH: "true"
       PERSIST_TRACES_TO_IRIS: "true"
-      # Run the existing Demo Activity rehearsal once, on the first successful
-      # startup (marked done in the USER database; never repeats after that).
+      # Run the Demo Activity once on the first successful start (a marker in
+      # USER stops it from running again).
       AUTO_RUN_DEMO_ACTIVITY: "true"
-
-  frontend:
-    image: nginx:alpine
-    depends_on:
-      - backend
-    ports:
-      - "5500:80"
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
-      # Stock server config + Cache-Control: no-cache for .js/.css, so
-      # browsers never keep running stale frontend code after an update.
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   iris-user:
