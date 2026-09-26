@@ -512,7 +512,7 @@ async function answerPython() {
   const disk = d.manager_disk || {};
   const parts = [
     `Embedded Python ${d.python_version || PLACEHOLDER} is running inside IRIS on ${d.hostname || PLACEHOLDER}.`,
-    `The host has ${fmtNumber(d.cpu_count)} CPUs${load ? ` (load ${load.join(" / ")})` : ""}`,
+    ` The host has ${fmtNumber(d.cpu_count)} CPUs${load ? ` (load ${load.join(" / ")})` : ""}`,
     `, ${fmtBytes(memory.available_bytes)} of ${fmtBytes(memory.total_bytes)} memory available`,
     ` and ${fmtBytes(disk.free_bytes)} free on the manager directory's disk.`,
   ];
