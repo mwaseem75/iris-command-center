@@ -38,6 +38,8 @@ const dom = {
   privilegedError: $("security-privileged-error"),
   privilegedWrapper: $("security-privileged-table-wrapper"),
   privilegedBody: $("security-privileged-table-body"),
+  privilegedDetails: $("security-privileged-details"),
+  privilegedToggle: $("security-privileged-toggle"),
   adminSecureList: $("security-admin-secure-list"),
   tabs: $("security-access-tabs"),
   panels: {
@@ -385,7 +387,10 @@ function renderSummary() {
     { label: "%All Holders", value: holders ? holders.users : "Unavailable", accent: "var(--color-warning)",
       meta: holders ? `${holders.direct} direct · ${holders.escalation} via escalation` : null,
       title: "Distinct users IRIS reports as holding %All (role/owners)",
-      action: () => document.getElementById("security-privileged-section").scrollIntoView({ behavior: "smooth", block: "start" }) },
+      action: () => {
+        setPrivilegedExpanded(true);
+        document.getElementById("security-privileged-section").scrollIntoView({ behavior: "smooth", block: "start" });
+      } },
   ];
 
   dom.summaryGrid.replaceChildren(
@@ -428,6 +433,14 @@ function showFilteredTab(tab, filters) {
 }
 
 // --- Privileged Access ---
+
+// The holders table and %Admin_Secure list start collapsed to keep the page
+// short; renderPrivileged() fills them exactly as before either way.
+function setPrivilegedExpanded(expanded) {
+  dom.privilegedDetails.hidden = !expanded;
+  dom.privilegedToggle.setAttribute("aria-expanded", String(expanded));
+  dom.privilegedToggle.textContent = expanded ? "Hide details" : "View details →";
+}
 
 function renderPrivileged() {
   dom.privilegedBody.replaceChildren();
@@ -1150,6 +1163,10 @@ export function initSecurityAccessControls() {
     if (!card) return;
     event.preventDefault();
     summaryActions[Number(card.dataset.cardIndex)]?.();
+  });
+
+  dom.privilegedToggle.addEventListener("click", () => {
+    setPrivilegedExpanded(dom.privilegedDetails.hidden);
   });
 
   dom.tabs.addEventListener("click", (event) => {

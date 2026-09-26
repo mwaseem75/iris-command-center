@@ -1460,7 +1460,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="security-title">Security</h2>
-              <p class="view__subtitle">Identity &amp; access, authentication, wallet, certificates and OAuth 2.0 on the connected IRIS instance.</p>
+              <p class="view__subtitle view__subtitle--wide">Identity &amp; access, authentication, wallet, certificates and OAuth 2.0 on the connected IRIS instance.</p>
             </div>
             <button class="btn btn--primary" type="button" id="security-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -1478,7 +1478,7 @@
             <span>Loading security data&hellip;</span>
           </div>
 
-          <div class="info-panel">
+          <div class="info-panel" hidden>
             <div class="connection-status" id="security-connection-status" data-state="checking">
               <span class="connection-status__dot" aria-hidden="true"></span>
               <span class="connection-status__label" id="security-connection-status-label">Checking connection&hellip;</span>
@@ -1508,9 +1508,12 @@
               <div class="ns-section" id="security-privileged-section">
                 <div class="ns-section__header">
                   <h4 class="section-heading section-heading--secondary">Privileged Access</h4>
+                  <button class="dash-panel__link" type="button" id="security-privileged-toggle" aria-expanded="false" aria-controls="security-privileged-details">View details &rarr;</button>
                 </div>
                 <p class="ns-hint" id="security-privileged-hint">Holders of <code>%All</code> (&ldquo;The Super-User Role&rdquo;), with each row&rsquo;s Type exactly as IRIS&rsquo;s role owners report it, and the roles that grant <code>%Admin_Secure</code>.</p>
                 <p class="empty-state" id="security-privileged-error" hidden></p>
+                <!-- Collapsed initially; the %All Holders card above and the toggle expand it. -->
+                <div id="security-privileged-details" hidden>
                 <div class="table-wrapper" id="security-privileged-table-wrapper" hidden>
                   <table class="data-table data-table--compact">
                     <thead>
@@ -1524,6 +1527,7 @@
                   </table>
                 </div>
                 <dl class="info-list" id="security-admin-secure-list"></dl>
+                </div>
               </div>
 
               <div class="drawer-tabs" id="security-access-tabs" role="tablist" aria-label="Identity and access">
