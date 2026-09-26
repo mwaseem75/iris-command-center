@@ -547,11 +547,75 @@ async function answerPython() {
   };
 }
 
+// Documentation-style questions ("how do I…", "which privilege is needed…",
+// "…need confirmation?") are answered from the knowledge base: stored
+// Command Center documents ranked by IRIS Vector Search (VECTOR_COSINE).
+// Nothing is generated — every line shown is a stored document.
+const KNOWLEDGE_QUERY =
+  /\bhow (do|can|should) i\b|\bhow to\b|\b(privileges?|permissions?)\b.*\b(needed|required|need|needs|require|requires)\b|\bwhich privileges?\b|\bconfirmation\b|\bendpoints?\b|\bcapabilit|\bknowledge\b|\bdocs?\b|\bdocumentation\b|\bexplain\b/;
+const MIN_KNOWLEDGE_SCORE = 0.1;
+const SNIPPET_CHARS = 180;
+
+function snippet(text) {
+  const value = String(text || "");
+  return value.length > SNIPPET_CHARS ? `${value.slice(0, SNIPPET_CHARS - 1)}…` : value;
+}
+
+async function answerKnowledge(message, text) {
+  let response;
+  try {
+    response = await IrisApi.searchKnowledge(message);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 503) {
+      return { text: "Knowledge search isn't enabled on this Command Center (set ENABLE_KNOWLEDGE_SEARCH=true on the backend)." };
+    }
+    throw err;
+  }
+  const hits = (response && Array.isArray(response.results) ? response.results : []).filter(
+    (h) => typeof h.score === "number" && h.score >= MIN_KNOWLEDGE_SCORE,
+  );
+  const actions = [];
+  const readOnlyNote = isMutationRequest(text)
+    ? " I'm read-only — any change goes through the Operations flow (privilege check, explicit confirmation, verification)."
+    : "";
+  if (isMutationRequest(text)) actions.push(openButton("Open Operations", "operations"));
+  if (!hits.length) {
+    return { text: `I couldn't find a relevant document in the knowledge base.${readOnlyNote}`, actions };
+  }
+
+  const [top] = hits;
+  const kind = (source) => (String(source).startsWith("operation:") ? "Operation" : "IRIS API");
+  if (!actions.length) {
+    actions.push(
+      String(top.source).startsWith("operation:")
+        ? openButton("Open Operations", "operations")
+        : openButton("Open Capabilities", "capabilities"),
+    );
+  }
+  return {
+    text: `Best match: ${top.title} (cosine ${top.score.toFixed(3)}). ${top.body}${readOnlyNote}`,
+    card: card(
+      "Knowledge Base — IRIS Vector Search",
+      table(
+        ["Document", "Type", "Cosine"],
+        hits.map((h) => {
+          const cell = el("div");
+          cell.append(el("strong", "", h.title), el("p", "ai-card__note", snippet(h.body)));
+          return [cell, badge(kind(h.source), kind(h.source) === "Operation" ? "ok" : "neutral"), h.score.toFixed(3)];
+        }),
+      ),
+      el("p", "ai-card__note", "Stored Command Center documents ranked by VECTOR_COSINE inside IRIS — not generated text."),
+    ),
+    actions,
+  };
+}
+
 const HELP_TEXT =
   "I can answer from live, read-only data about: system status and version, health indicators, namespaces, " +
   "processes (count, top by CPU time, by namespace), databases (status, largest), web applications (all, disabled), " +
   "tasks (all, suspended), your session privileges, recent operations and failures, journal settings, and " +
-  "Embedded Python host diagnostics (CPU, load, memory, disk, Python packages).";
+  "Embedded Python host diagnostics (CPU, load, memory, disk, Python packages). Ask how-to questions " +
+  '(e.g. "Which operations need confirmation?") and I\'ll search the knowledge base with IRIS Vector Search.';
 
 // Ordered, deterministic keyword routing (most specific first).
 const INTENTS = [
@@ -572,6 +636,11 @@ const INTENTS = [
 
 async function answer(message) {
   const text = message.toLowerCase();
+  // Knowledge search first: it is a read-only GET that executes nothing,
+  // and a how-to question ("how do I dismount…") would otherwise be caught
+  // by the mutation guard. answerKnowledge keeps the read-only pointer to
+  // Operations whenever the question also names a change.
+  if (KNOWLEDGE_QUERY.test(text) && !/purge/.test(text)) return answerKnowledge(message, text);
   if (isMutationRequest(text)) return answerMutation(text);
   if (/\b(help|what can you)\b/.test(text)) return { text: HELP_TEXT };
   const intent = INTENTS.find(([pattern]) => pattern.test(text));

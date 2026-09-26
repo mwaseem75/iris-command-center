@@ -428,6 +428,11 @@ export const IrisApi = {
   // computed by Embedded Python inside IRIS. Unavailable fields are null
   // and listed in `unavailable`.
   getPythonDiagnostics: () => fetchIris("/api/iris/python/diagnostics"),
+  // The Command Center's own KnowledgeSearchResponse shape (backend/app/
+  // knowledge/store.py): { query, results: [{ source, title, body, score }] }
+  // — stored corpus documents ranked by IRIS Vector Search. 503 while the
+  // feature is disabled (ENABLE_KNOWLEDGE_SEARCH).
+  searchKnowledge: (query) => fetchIris(`/api/iris/knowledge/search?q=${encodeURIComponent(query)}`),
   // Unlike every other IrisApi method, the response here is the Command
   // Center's own { reply, intent } shape (backend/app/models/schemas.py's
   // AssistantQueryResponse) — not an IRISEnvelope — because this endpoint
