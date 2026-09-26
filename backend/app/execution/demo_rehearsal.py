@@ -20,6 +20,15 @@ Sequence (stops at the first failure):
      dry_run=True — the executor only ever calls the handler's dry_run()),
      each on a valid candidate if one exists, otherwise skipped.
 
+Issue Resolution Rehearsal (separate, manual only — run_issue_resolution_
+rehearsal(); never part of the automatic startup run): uses the IPM
+database to rehearse the Fix Issues flow end to end — dismount IPM with
+database.dismount (dry run first, so its safety rules apply), detect the
+issue through the existing issue detection (GET /api/iris/issues), fix it
+with database.mount using the detected issue's own parameters, then verify
+IPM is mounted and the issue is gone. If anything fails after the dismount,
+IPM is mounted again (a failed remount is reported as "restore_failed").
+
 Restoration: after a change step whose mutation may have been applied
 (success, verification failure or an execution failure), the current value
 is re-read; if it differs from the original — or cannot be read — the
@@ -36,6 +45,7 @@ from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel
 
+from app.execution.database_dismount_handler import DatabaseDismountHandler
 from app.execution.database_mount_handler import DatabaseMountHandler
 from app.execution.executor import OperationExecutor
 from app.execution.journal_purge_archived_handler import JournalUpdatePurgeArchivedHandler
@@ -48,16 +58,20 @@ from app.execution.web_app_update_description_handler import (
 )
 from app.iris_client.client import IRISClient
 from app.observability.store import list_traces
+from app.routes.issues import get_issues
 
 JOURNAL_OPERATION = "journal.update_purge_archived"
 WEB_APP_DESCRIPTION_OPERATION = "web_app.update_description"
 MOUNT_OPERATION = "database.mount"
 TASK_RUN_OPERATION = "task.run_now"
+DISMOUNT_OPERATION = "database.dismount"
+ISSUE_DATABASE = "IPM"  # the one database the Issue Resolution Rehearsal uses
 
 _JOURNAL_SETTINGS_PATH = "/v2/journal/settings"
 _WEB_APPS_PATH = "/v2/web-apps"
 _WEB_APP_PATH = "/v2/web-app"
 _DATABASE_DIRS_PATH = "/v2/database-dirs"
+_DATABASES_PATH = "/v2/databases"
 _TASKS_PATH = "/v2/tasks"
 
 REHEARSAL_MARKER = "[IRIS Command Center rehearsal]"
@@ -78,7 +92,7 @@ RehearsalStatus = Literal["completed", "stopped", "restore_failed"]
 class RehearsalStep(BaseModel):
     step: str
     operation_name: str | None = None
-    action: Literal["read", "select", "change", "restore", "dry_run"]
+    action: Literal["read", "select", "change", "restore", "dry_run", "detect", "fix", "verify"]
     status: StepStatus
     operation_status: str | None = None  # the executor's own OperationResult.status
     target: str | None = None
@@ -111,6 +125,7 @@ def build_rehearsal_executor(client: IRISClient) -> OperationExecutor:
             ),
             MOUNT_OPERATION: DatabaseMountHandler(client),
             TASK_RUN_OPERATION: TaskRunNowHandler(client),
+            DISMOUNT_OPERATION: DatabaseDismountHandler(client),
         }
     )
 
@@ -370,6 +385,117 @@ class _Rehearsal:
     async def _list(self, path: str) -> list[dict[str, Any]]:
         return _result_list(await self.client.get(path))
 
+    # --- Issue Resolution Rehearsal (manual only) ---
+
+    async def _ipm_state(self) -> tuple[str, bool] | None:
+        """(directory, mounted) for IPM from the existing read-only lists,
+        or None when IPM is not a configured database."""
+        entry = next((e for e in await self._list(_DATABASES_PATH)
+                      if isinstance(e.get("Name"), str) and e["Name"].upper() == ISSUE_DATABASE), None)
+        if entry is None or not isinstance(entry.get("Directory"), str):
+            return None
+        directory = entry["Directory"]
+        status = next((d.get("Status") for d in await self._list(_DATABASE_DIRS_PATH)
+                       if isinstance(d.get("Directory"), str) and d["Directory"].rstrip("/") == directory.rstrip("/")),
+                      None)
+        return directory, isinstance(status, str) and status.lower().startswith("mounted")
+
+    async def _ipm_issue(self) -> dict[str, Any] | None:
+        """IPM's entry in the existing issue detection (GET /api/iris/issues), if any."""
+        issues = (await get_issues(self.client)).issues
+        return next((i.model_dump() for i in issues if i.database.upper() == ISSUE_DATABASE), None)
+
+    async def ensure_ipm_mounted(self, directory: str) -> None:
+        """Restore path: mount IPM again (through database.mount) unless it
+        is already mounted. A failed remount is reported explicitly."""
+        try:
+            state = await self._ipm_state()
+        except Exception:  # noqa: BLE001 - unknown state: try the mount anyway
+            state = None
+        if state is not None and state[1]:
+            self.add(step="issue.restore", operation_name=MOUNT_OPERATION, action="restore", status="not_needed",
+                     target=ISSUE_DATABASE, detail="IPM is mounted; nothing to restore.")
+            return
+        result, trace_id, error = await self.run_operation(
+            MOUNT_OPERATION, {"Directory": directory, "ReadOnly": False}, dry_run=False)
+        restored = result is not None and result.status is OperationResultStatus.SUCCESS
+        if not restored:
+            self.restore_failed = True
+        detail = error or (result.detail if result else "")
+        self.add(step="issue.restore", operation_name=MOUNT_OPERATION, action="restore",
+                 status="success" if restored else "failed",
+                 operation_status=result.status.value if result else "error", target=ISSUE_DATABASE,
+                 detail=detail if restored else (
+                     f"RESTORATION FAILED — IPM ({directory}) may still be dismounted; mount it from the "
+                     f"Databases page. {detail}"),
+                 trace_id=trace_id)
+
+    async def issue_resolution_phase(self) -> None:
+        directory, mounted = await self.read("issue.read", ISSUE_DATABASE, self._ipm_state, "the IPM database")
+        if not mounted:
+            self.add(step="issue.read", action="read", status="failed", target=ISSUE_DATABASE,
+                     detail="IPM is not mounted, so there is nothing to rehearse. Mount it from the Databases page first.")
+            raise _Stop
+        self.add(step="issue.read", action="read", status="success", target=ISSUE_DATABASE,
+                 detail=f"IPM ({directory}) is mounted.")
+
+        # Eligibility: database.dismount's own safety rules, dry run only.
+        await self.dry_run("issue", DISMOUNT_OPERATION, ISSUE_DATABASE, {"Directory": directory})
+
+        result, trace_id, error = await self.run_operation(DISMOUNT_OPERATION, {"Directory": directory}, dry_run=False)
+        status = result.status if result else None
+        dismounted = status is OperationResultStatus.SUCCESS
+        self.add(step="issue.dismount", operation_name=DISMOUNT_OPERATION, action="change",
+                 status="success" if dismounted else "failed", operation_status=status.value if status else "error",
+                 target=ISSUE_DATABASE, detail=error or result.detail, trace_id=trace_id)
+        try:
+            if not dismounted:
+                raise _Stop
+
+            issue = await self._ipm_issue()
+            if issue is None:
+                self.add(step="issue.detect", action="detect", status="failed", target=ISSUE_DATABASE,
+                         detail="The Command Center issue detection did not report IPM.")
+                raise _Stop
+            self.add(step="issue.detect", action="detect", status="success", target=ISSUE_DATABASE,
+                     detail=f"Command Center Issue: {issue['explanation']}")
+
+            # The Fix Issues flow: the recommended operation with the issue's own parameters.
+            result, trace_id, error = await self.run_operation(
+                issue["recommended_operation"], issue["parameters"], dry_run=False)
+            fixed = result is not None and result.status is OperationResultStatus.SUCCESS
+            self.add(step="issue.fix", operation_name=issue["recommended_operation"], action="fix",
+                     status="success" if fixed else "failed",
+                     operation_status=result.status.value if result else "error",
+                     target=ISSUE_DATABASE, detail=error or result.detail, trace_id=trace_id)
+            if not fixed:
+                raise _Stop
+
+            state = await self._ipm_state()
+            still_listed = await self._ipm_issue()
+            if state is None or not state[1] or still_listed is not None:
+                self.add(step="issue.verify", action="verify", status="failed", target=ISSUE_DATABASE,
+                         detail="After the fix, IPM is not reported as mounted or the issue is still listed.")
+                raise _Stop
+            self.add(step="issue.verify", action="verify", status="success", target=ISSUE_DATABASE,
+                     detail="IPM is mounted again and the Command Center issue is gone.")
+        except BaseException:
+            # Any failure after the dismount — including unexpected errors
+            # and cancellation (asyncio.CancelledError is a BaseException) —
+            # first makes sure IPM ends up mounted, then re-raises.
+            await self.ensure_ipm_mounted(directory)
+            raise
+
+    async def run_issue_resolution(self) -> RehearsalResult:
+        try:
+            await self.issue_resolution_phase()
+        except _Stop:
+            pass
+        except Exception as exc:  # noqa: BLE001 - reported as a failed step, never raised
+            self.add(step="issue.error", action="read", status="failed", target=ISSUE_DATABASE,
+                     detail=f"The rehearsal raised an unexpected error ({exc.__class__.__name__}).")
+        return self._summary()
+
     async def run(self) -> RehearsalResult:
         try:
             await self.journal_phase()
@@ -377,7 +503,9 @@ class _Rehearsal:
             await self.dry_run_phase()
         except _Stop:
             pass
+        return self._summary()
 
+    def _summary(self) -> RehearsalResult:
         failed = next((s for s in self.steps if s.status == "failed"), None)
         if self.restore_failed:
             status: RehearsalStatus = "restore_failed"
@@ -405,3 +533,20 @@ async def run_rehearsal(
     async with _rehearsal_lock:
         rehearsal = _Rehearsal(client, privileges, confirmed, executor or build_rehearsal_executor(client))
         return await rehearsal.run()
+
+
+async def run_issue_resolution_rehearsal(
+    client: IRISClient,
+    privileges: frozenset[str],
+    confirmed: bool,
+    *,
+    executor: OperationExecutor | None = None,
+) -> RehearsalResult:
+    """The manual Issue Resolution Rehearsal (IPM). Shares the rehearsal
+    lock, so it never overlaps any other rehearsal; raises
+    RehearsalInProgressError if one is already running."""
+    if _rehearsal_lock.locked():
+        raise RehearsalInProgressError
+    async with _rehearsal_lock:
+        rehearsal = _Rehearsal(client, privileges, confirmed, executor or build_rehearsal_executor(client))
+        return await rehearsal.run_issue_resolution()

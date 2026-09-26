@@ -25,6 +25,7 @@ const dom = {
   close: document.getElementById("demo-activity-close"),
   intro: document.getElementById("demo-activity-intro"),
   confirmButton: document.getElementById("demo-activity-confirm-button"),
+  issueButton: document.getElementById("demo-activity-issue-button"),
   cancelButton: document.getElementById("demo-activity-cancel-button"),
   running: document.getElementById("demo-activity-running"),
   result: document.getElementById("demo-activity-result"),
@@ -63,6 +64,14 @@ const STEP_LABEL = {
   "database.dry_run": "Mount database (dry run)",
   "task.select": "Read tasks",
   "task.dry_run": "Run task now (dry run)",
+  "issue.read": "Check IPM is mounted",
+  "issue.dry_run": "Dismount IPM (dry run — eligibility)",
+  "issue.dismount": "Dismount IPM (create the issue)",
+  "issue.detect": "Detect Command Center Issue",
+  "issue.fix": "Fix Issue: mount IPM",
+  "issue.verify": "Verify IPM mounted and issue gone",
+  "issue.restore": "Restore IPM (mount)",
+  "issue.error": "Unexpected error",
 };
 
 let running = false;
@@ -165,14 +174,15 @@ function renderResult(result) {
 
 /**
  * The ONLY place that calls IrisApi.runDemoRehearsal — reachable only via
- * the Confirm & Run button's click handler below, never on load.
+ * the two Confirm & Run buttons' click handlers below, never on load.
+ * `scenario` picks the standard rehearsal or the Issue Resolution Rehearsal.
  */
-async function runConfirmed() {
+async function runConfirmed(scenario = "standard") {
   if (running) return;
   running = true;
   showStage("running");
   try {
-    const result = await IrisApi.runDemoRehearsal(true);
+    const result = await IrisApi.runDemoRehearsal(true, scenario);
     running = false;
     renderResult(result);
   } catch (err) {
@@ -212,5 +222,8 @@ export function initDemoActivity({ onCompleted: completed, onOpenTrace: openTrac
   });
   dom.confirmButton.addEventListener("click", () => {
     runConfirmed();
+  });
+  dom.issueButton.addEventListener("click", () => {
+    runConfirmed("issue_resolution");
   });
 }

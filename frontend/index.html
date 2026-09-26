@@ -2872,6 +2872,17 @@
               <button class="btn btn--warning" type="button" id="demo-activity-confirm-button">Confirm &amp; Run Rehearsal</button>
               <button class="btn" type="button" id="demo-activity-cancel-button">Cancel</button>
             </div>
+
+            <h4 class="ns-drawer__section-title">Issue Resolution Rehearsal (separate, manual)</h4>
+            <ol class="demo-plan">
+              <li><strong>Create a real issue:</strong> the <code>IPM</code> database is checked (Dismount dry run and safety rules), then dismounted.</li>
+              <li><strong>Detect:</strong> the Command Center issue detection reports it as a Command Center Issue.</li>
+              <li><strong>Fix:</strong> the Fix Issues operation (Mount Database) mounts IPM again, then IPM being mounted and the issue being gone are verified.</li>
+            </ol>
+            <p class="info-card__hint">Only IPM is touched. If any step fails after the dismount, IPM is mounted again. Never part of the automatic startup rehearsal.</p>
+            <div class="btn-row">
+              <button class="btn btn--warning" type="button" id="demo-activity-issue-button">Confirm &amp; Run Issue Resolution Rehearsal</button>
+            </div>
           </div>
 
           <div class="loading-state" id="demo-activity-running" hidden>

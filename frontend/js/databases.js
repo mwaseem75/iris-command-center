@@ -228,7 +228,7 @@ let reviewIsValid = false;
 // authorization logic and does not replace it: every Review step still
 // re-validates for real against live IRIS data via a dry-run call below,
 // and the backend re-validates again, independently, on the real
-// (non-dry-run) request — see CLAUDE.md's "Do not duplicate backend
+// (non-dry-run) request — per the project rule "Do not duplicate backend
 // authorization logic in JavaScript".
 const DIRECTORY_PATTERN = /^\/[^\0]{0,499}$/;
 
@@ -1173,6 +1173,43 @@ function hint(text) {
   return p;
 }
 
+// "Why this fix?": the issue's own fields plus the detection rules it met
+// (backend/app/routes/issues.py reports only configured, not-mounted,
+// non-system, non-mirrored databases) — nothing inferred beyond that.
+function whyThisFix(issue) {
+  const details = document.createElement("details");
+  details.className = "db-issue__why";
+  const summary = document.createElement("summary");
+  summary.textContent = "Why this fix?";
+  const list = document.createElement("dl");
+  list.className = "info-list";
+  const yesNo = (value) => (value === true ? "Yes" : value === false ? "No" : PLACEHOLDER);
+  for (const [label, value] of [
+    ["Database", textOrPlaceholder(issue.database)],
+    ["Mounted status", textOrPlaceholder(issue.status)],
+    ["Mount Required", yesNo(issue.mount_required)],
+    ["Mirrored", "No (mirrored databases are never reported)"],
+    [
+      "Why database.mount",
+      `IRIS reports it "${textOrPlaceholder(issue.status)}"; it is a configured database, not an IRIS system ` +
+        "database and not mirrored — so mounting it read-write through database.mount (with its own dry run, " +
+        "confirmation and verification) restores access to its data.",
+    ],
+  ]) {
+    const row = document.createElement("div");
+    row.className = "info-list__row";
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.className = "info-list__value";
+    dd.textContent = value;
+    row.append(dt, dd);
+    list.append(row);
+  }
+  details.append(summary, list);
+  return details;
+}
+
 async function loadIssues() {
   let issues;
   try {
@@ -1200,7 +1237,7 @@ async function loadIssues() {
       const recommended = document.createElement("p");
       recommended.className = "db-issue__fix";
       recommended.textContent = `Recommended: ${issue.recommended_operation} (read-write)`;
-      text.append(title, hint(issue.explanation), recommended);
+      text.append(title, hint(issue.explanation), recommended, whyThisFix(issue));
       item.append(text);
       if (allDatabases.some((db) => db.Name === issue.database)) {
         const button = document.createElement("button");

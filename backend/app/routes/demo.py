@@ -6,10 +6,17 @@ and nothing changes.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, StrictBool
 
 from app.dependencies import get_caller_privileges, get_iris_client
-from app.execution.demo_rehearsal import RehearsalInProgressError, RehearsalResult, run_rehearsal
+from app.execution.demo_rehearsal import (
+    RehearsalInProgressError,
+    RehearsalResult,
+    run_issue_resolution_rehearsal,
+    run_rehearsal,
+)
 from app.iris_client.client import IRISClient
 
 router = APIRouter(prefix="/api/iris", tags=["iris-operations"])
@@ -23,6 +30,9 @@ class DemoRehearsalRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     confirmed: StrictBool = False
+    # "issue_resolution" = the manual IPM Issue Resolution Rehearsal; the
+    # automatic startup run always uses the standard rehearsal.
+    scenario: Literal["standard", "issue_resolution"] = "standard"
 
 
 @router.post("/demo/rehearsal", response_model=RehearsalResult)
@@ -34,6 +44,7 @@ async def demo_rehearsal(
     """HTTP 200 with a structured result (the outcome is in `status` and each
     step), or 409 while another rehearsal is still running."""
     try:
-        return await run_rehearsal(client, privileges, body.confirmed)
+        runner = run_issue_resolution_rehearsal if body.scenario == "issue_resolution" else run_rehearsal
+        return await runner(client, privileges, body.confirmed)
     except RehearsalInProgressError as exc:
         raise HTTPException(status_code=409, detail="A demo rehearsal is already running.") from exc

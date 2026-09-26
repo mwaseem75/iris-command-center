@@ -55,3 +55,14 @@ logs/
 .ruff_cache/
 coverage/
 htmlcov/
+
+# ---- Private / internal (not part of the public project) ----
+# Internal engineering notes and assistant/IDE instruction files.
+docs/
+CLAUDE.md
+.claude/
+.github/copilot-instructions.md
+
+# ---- Temporary files ----
+*.tmp
+*.bak

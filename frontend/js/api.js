@@ -244,14 +244,14 @@ async function postTaskRunNow(fields, confirmed, dryRun = false) {
  * response is the backend's RehearsalResult ({ status, confirmed, detail,
  * steps }). HTTP 409 means another rehearsal is already running.
  */
-async function postDemoRehearsal(confirmed) {
+async function postDemoRehearsal(confirmed, scenario = "standard") {
   const path = "/api/iris/demo/rehearsal";
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ confirmed: confirmed === true }),
+      body: JSON.stringify({ confirmed: confirmed === true, scenario }),
     });
   } catch {
     setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
@@ -474,7 +474,8 @@ export const IrisApi = {
   // The Demo Activity rehearsal — existing operations run by the backend's
   // own framework; never called on page load, only from demo-activity.js's
   // Confirm button.
-  runDemoRehearsal: (confirmed) => postDemoRehearsal(confirmed),
+  // scenario: "standard" (default) or "issue_resolution" (the manual IPM rehearsal).
+  runDemoRehearsal: (confirmed, scenario = "standard") => postDemoRehearsal(confirmed, scenario),
   // Read-only — this endpoint makes no IRIS call itself; it only reads the
   // backend's in-memory execution trace store (backend/app/observability/).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),

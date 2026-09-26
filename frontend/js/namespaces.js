@@ -37,7 +37,7 @@
 // /v2/namespaces" entry). There is no "interoperability enabled" or
 // similar field anywhere in this response, so no such summary card exists
 // here — inventing one would violate this project's "no fabricated data"
-// rule (see CLAUDE.md). Every derived number below (distinct Globals/
+// rule. Every derived number below (distinct Globals/
 // Routines database counts, the database-color grouping) is computed
 // client-side from these same seven real fields, never fetched or
 // guessed separately.
@@ -139,7 +139,7 @@ let reviewIsValid = false;
 // authorization logic and does not replace it: every Review step still
 // re-validates for real against live IRIS data via a dry-run call below,
 // and the backend re-validates again, independently, on the real
-// (non-dry-run) request — see CLAUDE.md's "Do not duplicate backend
+// (non-dry-run) request — per the project rule "Do not duplicate backend
 // authorization logic in JavaScript".
 const NAMESPACE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,30}$/;
 

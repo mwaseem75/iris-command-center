@@ -5201,3 +5201,17 @@ html.detail-workspace-open {
   letter-spacing: 0;
   color: var(--color-text-faint);
 }
+
+.db-issue__why {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+.db-issue__why summary {
+  cursor: pointer;
+  color: var(--color-accent);
+}
+
+.db-issue__why .info-list {
+  margin-top: 6px;
+}

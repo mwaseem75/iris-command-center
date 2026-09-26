@@ -1710,14 +1710,21 @@ def test_demo_activity_is_confirmed_and_uses_only_real_traces() -> None:
     code_only = re.sub(r"//.*", "", demo_js)
     code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
     check(
-        code_only.count("IrisApi.runDemoRehearsal(") == 1 and "IrisApi.runDemoRehearsal(true)" in code_only,
-        "demo-activity.js calls IrisApi.runDemoRehearsal(true) in exactly one place",
+        code_only.count("IrisApi.runDemoRehearsal(") == 1
+        and re.search(r"IrisApi\.runDemoRehearsal\(true[,)]", code_only) is not None,
+        "demo-activity.js calls IrisApi.runDemoRehearsal(true, ...) in exactly one place (confirmed always a literal true)",
     )
     check(
         re.search(r'confirmButton\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*runConfirmed\(\);', demo_js)
         is not None
         and len(re.findall(r"(?<!function )runConfirmed\(\)", code_only)) == 1,
         "the rehearsal only runs from the Confirm & Run button's own click handler",
+    )
+    check(
+        re.search(r'issueButton\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*runConfirmed\("issue_resolution"\);', demo_js)
+        is not None
+        and len(re.findall(r'runConfirmed\("issue_resolution"\)', code_only)) == 1,
+        "the Issue Resolution Rehearsal only runs from its own Confirm & Run button's click handler",
     )
     for bypass_word in ("force", "bypass", "skip_confirmation", "skipConfirmation"):
         check(
