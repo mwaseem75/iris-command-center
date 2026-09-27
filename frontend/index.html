@@ -2493,35 +2493,40 @@
             <div class="ir-rehearsal__head">
               <span class="ir-rehearsal__icon" aria-hidden="true">&#9654;</span>
               <div class="ir-rehearsal__intro">
-                <h3 class="info-card__title" id="issue-resolver-rehearsal-title">Issue Resolution Rehearsal</h3>
-                <p class="info-card__hint">Creates a real, reversible issue by dismounting the IPM database, then runs the whole lifecycle with the existing operations. Every change is authorized, confirmed, verified and traced. Only IPM is touched, and if anything fails after the dismount, IPM is mounted again.</p>
+                <h3 class="info-card__title" id="issue-resolver-rehearsal-title">Create Demo Issue</h3>
+                <p class="ir-rehearsal__flow">Create &rarr; Detect &rarr; Explain &rarr; Resolve &rarr; Verify &rarr; Restore &rarr; Observe</p>
+                <p class="info-card__hint">This intentionally creates a real, reversible IRIS issue for demonstration. The issue is then detected and resolved through the normal Issue Resolver workflow, and the environment is restored afterward. Every change uses the existing operations and is authorized, confirmed, verified and traced.</p>
+                <dl class="ir-rehearsal__scenario">
+                  <div><dt>Scenario</dt><dd id="issue-resolver-demo-scenario">Dismounted database &mdash; IPM</dd></div>
+                  <div><dt>What changes</dt><dd>IPM is temporarily dismounted (<code>database.dismount</code>), then mounted again by the resolution (<code>database.mount</code>). Only IPM is touched; if anything fails after the dismount, IPM is mounted again.</dd></div>
+                </dl>
               </div>
               <button class="btn btn--primary" type="button" id="issue-resolver-rehearsal-start">
                 <span class="btn__icon" aria-hidden="true">&#9654;</span>
-                Run Rehearsal
+                Create Demo Issue
               </button>
             </div>
 
             <div class="ir-rehearsal__confirm" id="issue-resolver-rehearsal-confirm" hidden>
               <div class="banner banner--warning" role="alert">
                 <span class="banner__icon" aria-hidden="true">&#9888;</span>
-                <span>This dismounts the IPM database on the connected IRIS instance for a few seconds and then mounts it again.</span>
+                <span>This intentionally creates a real issue: the IPM database on the connected IRIS instance is dismounted for a few seconds, then mounted again when the issue is resolved.</span>
               </div>
               <label class="ns-form-checkbox">
                 <input type="checkbox" id="issue-resolver-rehearsal-ack" />
                 I understand IPM will be dismounted and mounted again.
               </label>
               <div class="btn-row">
-                <button class="btn btn--warning" type="button" id="issue-resolver-rehearsal-run" disabled>Confirm &amp; Run</button>
+                <button class="btn btn--warning" type="button" id="issue-resolver-rehearsal-run" disabled>Confirm &amp; Create Demo Issue</button>
                 <button class="btn" type="button" id="issue-resolver-rehearsal-cancel">Cancel</button>
               </div>
             </div>
 
-            <ol class="ir-lifecycle" id="issue-resolver-lifecycle" aria-label="Rehearsal lifecycle"></ol>
+            <ol class="ir-lifecycle" id="issue-resolver-lifecycle" aria-label="Demo issue lifecycle"></ol>
 
             <div class="loading-state" id="issue-resolver-rehearsal-running" hidden>
               <span class="spinner" aria-hidden="true"></span>
-              <span>Running the rehearsal&hellip; results appear when it finishes (usually a few seconds).</span>
+              <span>Creating and resolving the demo issue&hellip; results appear when it finishes (usually a few seconds).</span>
             </div>
             <div class="banner banner--error" id="issue-resolver-rehearsal-error" hidden role="alert">
               <span class="banner__icon" aria-hidden="true">&#9888;</span>
@@ -2529,13 +2534,13 @@
             </div>
             <div class="ir-rehearsal__summary" id="issue-resolver-rehearsal-summary" hidden></div>
             <div class="ir-rehearsal__results" id="issue-resolver-rehearsal-results" hidden>
+              <h4 class="ns-drawer__section-title">Evidence</h4>
+              <ol class="ir-evidence" id="issue-resolver-rehearsal-evidence" aria-label="Evidence chain"></ol>
               <h4 class="ns-drawer__section-title">Step results</h4>
               <ol class="ir-stage-list" id="issue-resolver-rehearsal-stages"></ol>
             </div>
           </section>
 
-              <h4 class="ns-drawer__section-title">Evidence</h4>
-              <ol class="ir-evidence" id="issue-resolver-rehearsal-evidence" aria-label="Evidence chain"></ol>
           <section class="info-card ir-panel" aria-labelledby="issue-resolver-catalog-title">
             <h3 class="info-card__title" id="issue-resolver-catalog-title">Issue Types the Resolver Knows</h3>
             <p class="info-card__hint">Every entry in the resolution catalog, whether or not it's active right now.</p>
@@ -3111,15 +3116,16 @@
               <button class="btn" type="button" id="demo-activity-cancel-button">Cancel</button>
             </div>
 
-            <h4 class="ns-drawer__section-title">Issue Resolution Rehearsal (separate, manual)</h4>
+            <h4 class="ns-drawer__section-title">Create Demo Issue (separate, manual)</h4>
+            <p class="info-card__hint">Intentionally creates a real, reversible IRIS issue for demonstration purposes &mdash; scenario: <strong>Dismounted database &mdash; IPM</strong>. The issue is then detected and resolved through the normal Issue Resolver workflow, and the environment is restored afterward.</p>
             <ol class="demo-plan">
-              <li><strong>Create a real issue:</strong> the <code>IPM</code> database is checked (Dismount dry run and safety rules), then dismounted.</li>
+              <li><strong>Create the demo issue:</strong> the <code>IPM</code> database is checked (Dismount dry run and safety rules), then temporarily dismounted.</li>
               <li><strong>Detect:</strong> the Command Center issue detection reports it as a Command Center Issue.</li>
               <li><strong>Fix:</strong> the Resolve Issues operation (Mount Database) mounts IPM again, then IPM being mounted and the issue being gone are verified.</li>
             </ol>
-            <p class="info-card__hint">Only IPM is touched. If any step fails after the dismount, IPM is mounted again. Never part of the automatic startup rehearsal.</p>
+            <p class="info-card__hint">Only IPM is touched. If any step fails after the dismount, IPM is mounted again. Never part of the automatic startup rehearsal. Same as Create Demo Issue on the Issue Resolver page.</p>
             <div class="btn-row">
-              <button class="btn btn--warning" type="button" id="demo-activity-issue-button">Confirm &amp; Run Issue Resolution Rehearsal</button>
+              <button class="btn btn--warning" type="button" id="demo-activity-issue-button">Confirm &amp; Create Demo Issue</button>
             </div>
           </div>
 

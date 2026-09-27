@@ -3,11 +3,11 @@
 // response's `resolutions`, keyed by issue kind).
 //
 // The page itself never changes IRIS: resolving happens through Resolve
-// Issues on the Databases page. The one exception is the Issue Resolution
-// Rehearsal panel, which runs the existing IPM rehearsal
+// Issues on the Databases page. The one exception is the Create Demo Issue
+// panel, which runs the existing IPM Issue Resolution Rehearsal
 // (POST /api/iris/demo/rehearsal, scenario "issue_resolution") only after an
-// explicit Confirm & Run, and shows its real step results as a lifecycle:
-// Create -> Detect -> Explain -> Resolve -> Verify -> Restore -> Observe.
+// explicit acknowledgement and Confirm, and shows its real step results as a
+// lifecycle: Create -> Detect -> Explain -> Resolve -> Verify -> Restore -> Observe.
 
 import { ApiError, IrisApi } from "./api.js";
 
@@ -370,9 +370,11 @@ function closeDrawer() {
   dom.drawer.hidden = true;
 }
 
-// --- Issue Resolution Rehearsal ---
+// --- Create Demo Issue (the existing IPM Issue Resolution Rehearsal) ---
 
 const DISMOUNTED = "database_dismounted";
+const DEMO_SCENARIO = "Dismounted database — IPM";
+const DEMO_LABEL = "Intentionally created for demonstration";
 
 // The lifecycle, and which of the rehearsal's own steps back each stage.
 const LIFECYCLE = [
@@ -394,9 +396,9 @@ const STAGE_BADGES = {
 };
 
 const SUMMARY = {
-  completed: ["banner--success", "Rehearsal completed",
-    "The issue was created, detected, resolved and verified, and IPM is back to its original state."],
-  stopped: ["banner--warning", "Rehearsal stopped", "A step didn't complete. See the step results below."],
+  completed: ["banner--success", "Demo issue resolved",
+    "The demo issue was created, detected, resolved and verified, and IPM is back to its original state."],
+  stopped: ["banner--warning", "Demo issue stopped", "A step didn't complete. See the step results below."],
   restore_failed: ["banner--error", "IPM could not be restored",
     "IPM may still be dismounted. Mount it from Resolve Issues on the Databases page."],
 };
@@ -459,7 +461,7 @@ function lifecycleStages(result) {
           detail = result.detail;
         } else if (verify?.status === "success" && steps.get("issue.read")?.status === "success") {
           state = "done";
-          detail = `${target} was mounted before the rehearsal and is mounted again, so nothing is left to restore.`;
+          detail = `${target} was mounted before the demo issue was created and is mounted again, so nothing is left to restore.`;
         }
         break;
       case "observe":
@@ -476,8 +478,6 @@ function lifecycleStages(result) {
   });
 }
 
-function renderLifecycle(stages) {
-  dom.lifecycle.replaceChildren();
 // --- Evidence chain: Detection -> Impact -> Resolution -> Verification -> Observability ---
 //
 // Only data the workflow already produced: the rehearsal's steps (the
@@ -571,6 +571,8 @@ function renderEvidence(result, fixTrace) {
   }
 }
 
+function renderLifecycle(stages) {
+  dom.lifecycle.replaceChildren();
   stages.forEach((stage, index) => {
     const item = el("li", "ir-lifecycle__stage");
     item.dataset.state = stage.state;
@@ -603,10 +605,12 @@ function renderRehearsal() {
   if (rehearsalRunning || !result) return;
 
   const [variant, title, text] = SUMMARY[result.status] ||
-    ["banner--warning", `Rehearsal ${textOrPlaceholder(result.status)}`, textOrPlaceholder(result.detail)];
+    ["banner--warning", `Demo issue ${textOrPlaceholder(result.status)}`, textOrPlaceholder(result.detail)];
   const summary = el("div", `banner ${variant} ir-rehearsal__banner`);
   const body = el("div", "ir-rehearsal__banner-body");
-  body.append(el("strong", null, title), el("span", null, text));
+  const heading = el("div", "ir-rehearsal__banner-title");
+  heading.append(el("strong", null, title), badge(DEMO_LABEL, "status-badge--warning"));
+  body.append(heading, el("span", null, `Scenario: ${DEMO_SCENARIO}.`), el("span", null, text));
   if (lastRehearsal.seconds !== null) {
     body.append(el("span", "ir-rehearsal__time", `Finished in ${lastRehearsal.seconds.toFixed(1)} s`));
   }
@@ -615,12 +619,12 @@ function renderRehearsal() {
   if (fixTrace && onOpenTrace) summary.append(traceButton(fixTrace, "View in Observability →"));
   dom.rehearsalSummary.replaceChildren(summary);
 
+  renderEvidence(result, lastRehearsal.fixTrace);
+
   dom.rehearsalStages.replaceChildren();
   stages.forEach((stage, index) => {
     const row = el("li", "ir-stage");
     row.dataset.state = stage.state;
-  renderEvidence(result, lastRehearsal.fixTrace);
-
     row.append(
       el("span", "ir-stage__number", String(index + 1)),
       el("span", "ir-stage__label", stage.label),
@@ -628,6 +632,9 @@ function renderRehearsal() {
     );
     const detail = el("div", "ir-stage__detail");
     detail.append(el("span", null, stage.detail || "—"));
+    if (stage.key === "create" && stage.state !== "pending") {
+      detail.append(el("span", "ir-stage__note", `${DEMO_LABEL} (${DEMO_SCENARIO}).`));
+    }
     if (stage.key === "explain" && stage.state === "done" && resolutions[DISMOUNTED]) {
       detail.append(el("span", "ir-stage__note", `Catalog: ${resolutions[DISMOUNTED].explanation}`));
     }
@@ -652,13 +659,6 @@ function showRehearsalConfirm(show) {
   if (show) dom.rehearsalAck.focus();
 }
 
-// Only called from the Confirm & Run button, after the checkbox.
-async function runRehearsal() {
-  if (rehearsalRunning || !dom.rehearsalAck.checked) return;
-  showRehearsalConfirm(false);
-  dom.rehearsalError.hidden = true;
-  rehearsalRunning = true;
-  renderRehearsal();
 // The recorded trace of the rehearsal's fix (read-only; null if unavailable).
 async function readFixTrace(result) {
   const traceId = stepsById(result).get("issue.fix")?.trace_id;
@@ -671,6 +671,13 @@ async function readFixTrace(result) {
   }
 }
 
+// Only called from the Confirm & Run button, after the checkbox.
+async function runRehearsal() {
+  if (rehearsalRunning || !dom.rehearsalAck.checked) return;
+  showRehearsalConfirm(false);
+  dom.rehearsalError.hidden = true;
+  rehearsalRunning = true;
+  renderRehearsal();
   const started = performance.now();
   try {
     const result = await IrisApi.runDemoRehearsal(true, "issue_resolution");
@@ -679,8 +686,8 @@ async function readFixTrace(result) {
   } catch (err) {
     dom.rehearsalErrorText.textContent =
       err instanceof ApiError && err.status === 409
-        ? "Another rehearsal is already running. Wait for it to finish, then try again."
-        : "Could not run the rehearsal. The Command Center backend may be unreachable.";
+        ? "Another rehearsal or demo issue is already running. Wait for it to finish, then try again."
+        : "Could not create the demo issue. The Command Center backend may be unreachable.";
     dom.rehearsalError.hidden = false;
   } finally {
     rehearsalRunning = false;

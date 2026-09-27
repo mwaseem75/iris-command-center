@@ -1152,6 +1152,40 @@ def test_issue_resolver_shows_the_rehearsal_evidence_chain() -> None:
           "Mounted=true is only claimed when the recorded verification says verified")
 
 
+def test_issue_resolver_presents_create_demo_issue() -> None:
+    print("Checking the rehearsal is presented as an explicit Create Demo Issue experience...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    panel = re.search(r'<section class="info-card ir-panel ir-rehearsal".*?</section>', html, re.S)
+    check(panel is not None, "the Create Demo Issue panel exists on the Issue Resolver page")
+    text = panel.group(0) if panel else ""
+    check('id="issue-resolver-rehearsal-title">Create Demo Issue</h3>' in text, "the panel is titled Create Demo Issue")
+    check("Create &rarr; Detect &rarr; Explain &rarr; Resolve &rarr; Verify &rarr; Restore &rarr; Observe" in text,
+          "the panel states the full Create -> Observe flow")
+    check("intentionally creates a real, reversible IRIS issue for demonstration" in text,
+          "the panel says the issue is real, reversible and intentional")
+    check("Dismounted database &mdash; IPM" in text, "the panel names the Dismounted database - IPM scenario")
+    check("IPM is temporarily dismounted" in text, "the panel says IPM is temporarily dismounted")
+    check("detected and resolved through the normal Issue Resolver workflow" in text
+          and "environment is restored afterward" in text,
+          "the panel says the issue is resolved normally and the environment restored")
+    check("<code>database.dismount</code>" in text and "<code>database.mount</code>" in text,
+          "the panel names the existing dismount/mount operations")
+    check('id="issue-resolver-rehearsal-ack"' in text and 'id="issue-resolver-rehearsal-run" disabled' in text
+          and "banner--warning" in text,
+          "the safety warning and acknowledgement checkbox still gate the run")
+    check(re.search(r'id="issue-resolver-rehearsal-start">.*?Create Demo Issue\s*</button>', text, re.S) is not None,
+          "the start button reads Create Demo Issue")
+
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    check('const DEMO_LABEL = "Intentionally created for demonstration";' in code
+          and code.count("DEMO_LABEL") >= 3, "results are labelled Intentionally created for demonstration")
+    check('const DEMO_SCENARIO = "Dismounted database — IPM";' in code, "results name the scenario")
+    check(code.count("IrisApi.runDemoRehearsal(") == 1, "the existing rehearsal is still the only thing run")
+    for word in ("demo/issue", "createDemoIssue", "localStorage", "sessionStorage"):
+        check(word not in code, f"no new API or persistence ({word!r})")
+
+
 def test_traces_show_issue_resolution_context() -> None:
     print("Checking Observability labels traces started from an Issue Resolution workflow...")
     obs_js = (FRONTEND_DIR / "js" / "observability.js").read_text(encoding="utf-8")
@@ -1684,6 +1718,15 @@ def test_demo_activity_is_confirmed_and_uses_only_real_traces() -> None:
         check(f'id="{element_id}"' in html, f"the {element_id!r} Demo Activity element exists")
     check(html.count("data-demo-activity-open") >= 2, "Demo Activity opens from the Dashboard and the Operations page")
     check('id="dashboard-quicklinks"' not in html, "the old Quick Access section was not reintroduced")
+    drawer = re.search(r'id="demo-activity-intro".*?id="demo-activity-issue-button"[^<]*</button>', html, re.S)
+    drawer_text = drawer.group(0) if drawer else ""
+    check("Create Demo Issue (separate, manual)</h4>" in drawer_text
+          and ">Confirm &amp; Create Demo Issue</button>" in drawer_text
+          and "Issue Resolution Rehearsal" not in drawer_text,
+          "the drawer uses the Issue Resolver's Create Demo Issue terminology")
+    check("Intentionally creates a real, reversible IRIS issue for demonstration purposes" in drawer_text
+          and "Dismounted database &mdash; IPM" in drawer_text,
+          "the drawer says the demo issue is intentional, real and reversible")
 
     demo_js = (js_dir / "demo-activity.js").read_text(encoding="utf-8")
     check("fetch(" not in demo_js, "demo-activity.js makes no raw fetch() call (goes through IrisApi)")
@@ -1795,6 +1838,7 @@ def main() -> None:
         test_issue_resolver_page_exists_and_is_read_only,
         test_issue_resolver_presents_the_rehearsal_lifecycle,
         test_issue_resolver_shows_the_rehearsal_evidence_chain,
+        test_issue_resolver_presents_create_demo_issue,
         test_traces_show_issue_resolution_context,
         test_investigation_nav_and_view_exist_and_are_enabled,
         test_investigation_view_uses_only_expected_endpoints,

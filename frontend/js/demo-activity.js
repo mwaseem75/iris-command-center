@@ -59,7 +59,7 @@ const STEP_LABEL = {
   "task.dry_run": "Run task now (dry run)",
   "issue.read": "Check IPM is mounted",
   "issue.dry_run": "Dismount IPM (dry run — eligibility)",
-  "issue.dismount": "Dismount IPM (create the issue)",
+  "issue.dismount": "Dismount IPM (create the demo issue)",
   "issue.detect": "Detect Command Center Issue",
   "issue.fix": "Resolve Issue: mount IPM",
   "issue.verify": "Verify IPM mounted and issue gone",

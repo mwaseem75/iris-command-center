@@ -5829,6 +5829,54 @@ html.detail-workspace-open {
   margin-bottom: 0;
 }
 
+.ir-rehearsal__flow {
+  margin: 2px 0 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+
+.ir-rehearsal__scenario {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.ir-rehearsal__scenario div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.ir-rehearsal__scenario dt {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.ir-rehearsal__scenario dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+@media (max-width: 560px) {
+  .ir-rehearsal__scenario div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+.ir-rehearsal__banner-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
 .ir-rehearsal__confirm {
   margin-top: 14px;
 }
@@ -5922,7 +5970,7 @@ html.detail-workspace-open {
   gap: 2px;
 }
 
-.ir-rehearsal__banner-body span {
+.ir-rehearsal__banner-body > span {
   font-weight: 400;
   color: var(--color-text);
 }
