@@ -5,8 +5,7 @@
 A modern operational console for **InterSystems IRIS** that brings monitoring, administration, investigation, security visibility, issue resolution, and operational tracing into one place.
 It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and a deterministic AI Assistant.
 <p align="center">
-  <img width="2507"  alt="image" src="https://github.com/user-attachments/assets/11287960-6cfe-4402-9429-6a2af1a55e96" />
-
+<img width="2048"  alt="image" src="https://github.com/user-attachments/assets/be3beb83-ba53-41a1-8e78-53ff8e5c5a26" />
 </p>
 <p align="center">
   <a href="https://www.intersystems.com/"><img src="https://img.shields.io/badge/Platform-InterSystems%20IRIS-009688?style=flat-square" alt="InterSystems IRIS"></a>
