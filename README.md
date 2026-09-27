@@ -221,11 +221,9 @@ Changes are validated before execution and verified against the live IRIS config
 
 ### 🩺 Deterministic Issue Resolver
 The **Issue Resolver** provides a controlled operational path from a detected issue to a verified resolution. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
-
+<img width="1827" height="637" alt="image" src="https://github.com/user-attachments/assets/9b2de03f-cda5-4e54-b073-3a24eca312b2" />
 The resolver currently supports two curated issue types:
-
 #### `database_dismounted` — Dismounted Database
-
 - **Detection:** live evidence from IRIS (`GET /v2/databases`, `GET /v2/database-dirs`) shows the database reported as `Dismounted`.
 - **Impact:** the namespaces that use the database for **Globals** or **Routines** are identified using `GET /v2/namespaces`.
 - **Recommendation:** the catalog-defined solution is to mount the database read-write with **`database.mount`**, with the required **Operate** privilege and its defined risk level.
@@ -234,7 +232,6 @@ The resolver currently supports two curated issue types:
 - **Observe:** the resolution is recorded as an execution trace, labelled with the issue it resolved, and can be opened in Observability.
 
 #### `web_app_namespace_missing` — Enabled Web Application with Missing Namespace
-
 - **Detection:** live IRIS data compares enabled web applications from `GET /v2/web-apps` with the namespaces returned by `GET /v2/namespaces`. An issue is reported when an enabled web application references a namespace that does not exist.
 - **Impact:** the affected web application, its configured namespace, and enabled state are shown as live evidence.
 - **Recommendation:** the catalog-defined solution is to disable the affected web application with **`web_app.set_enabled`**. This prevents a broken endpoint from remaining enabled; it does not recreate the missing namespace.
@@ -243,9 +240,7 @@ The resolver currently supports two curated issue types:
 - **Observe:** the resolution is recorded as an execution trace and associated with the issue that initiated the resolution.
 
 #### Evidence-driven Resolution
-
 Every resolution is backed by a chain of real evidence:
-
 ```text
 Detection Evidence → Impact Evidence → Resolution Operation → Verification Evidence → Execution Trace
 
@@ -254,7 +249,7 @@ Command Center can persist its execution traces **inside the connected InterSyst
 This makes observability more than a browser-only feature.
 <img width="1753"  alt="image" src="https://github.com/user-attachments/assets/02c0089a-2f1d-4ade-8b19-c39682775e3a" />
 <img width="1749" alt="image" src="https://github.com/user-attachments/assets/154dfd30-10f5-40d9-8dc7-bf1a2c1b9a91" />
-
+```
 ---
 
 ### 🔍 IRIS Vector Search
