@@ -309,19 +309,17 @@
               </div>
             </section>
 
-            <section class="info-card dash-panel dash-panel--alerts" aria-labelledby="dashboard-alerts-title">
+            <!-- Issues from GET /api/iris/issues, explained with the Issue Resolution Catalog. -->
+            <section class="info-card dash-panel dash-panel--alerts" aria-labelledby="dashboard-issues-title">
               <header class="dash-panel__head">
-                <h3 class="info-card__title" id="dashboard-alerts-title"><span class="dash-panel__icon" aria-hidden="true">&#9888;</span>Recent Alerts</h3>
-                <span class="dash-panel__meta" title="IRIS&rsquo;s own alert counters and any indicator that is not Normal. IRIS&rsquo;s REST API reports alert counts, not the alert log itself.">IRIS alert counters</span>
+                <h3 class="info-card__title" id="dashboard-issues-title"><span class="dash-panel__icon" aria-hidden="true">&#9888;</span>Issues &amp; Recommendations</h3>
+                <span class="dash-panel__meta" title="Detected in live IRIS data by the Command Center&rsquo;s issue check (GET /api/iris/issues).">Issue Resolver</span>
               </header>
-              <p class="info-card__empty" id="dashboard-alerts-empty" hidden>Could not load IRIS&rsquo;s alert counters.</p>
-              <div class="dash-alert-counts" id="dashboard-alert-counts"></div>
-              <ul class="dash-alert-list" id="dashboard-alert-list" aria-label="Findings"></ul>
-              <!-- Detected by the Command Center (GET /api/iris/issues) &mdash; not IRIS alerts. -->
-              <div class="dash-cc-issues" id="dashboard-cc-issues" hidden>
-                <p class="dash-cc-issues__title">Command Center Issues <span class="dash-cc-issues__note">detected by the Command Center &mdash; not IRIS alerts</span></p>
-                <ul class="dash-alert-list" id="dashboard-cc-issue-list" aria-label="Command Center issues"></ul>
+              <div class="dash-issues__summary" id="dashboard-issues-summary">
+                <span class="dash-issues__count" id="dashboard-issues-count">&mdash;</span>
+                <span class="dash-issues__label" id="dashboard-issues-label">Checking for issues&hellip;</span>
               </div>
+              <ul class="dash-alert-list" id="dashboard-issue-list" aria-label="Issues and recommendations"></ul>
             </section>
 
             <section class="info-card dash-panel dash-panel--process" aria-labelledby="dashboard-process-title">

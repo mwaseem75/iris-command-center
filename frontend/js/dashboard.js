@@ -1,6 +1,7 @@
 // Dashboard: the landing page, a live overview of the connected instance.
 // - KPI row: counts from the list routes, plus IRIS's own alert counters.
-// - System Health, Recent Alerts and Resources: GET /api/iris/monitor/dashboard.
+// - System Health and Resources: GET /api/iris/monitor/dashboard.
+// - Issues & Recommendations: GET /api/iris/issues with its catalog entries.
 // - Database Storage: GET /api/iris/databases/storage, with names from the
 //   database list.
 // - Process Distribution: GET /api/iris/processes.
@@ -58,11 +59,9 @@ const dom = {
   storageTotal: $("dashboard-storage-total"),
   storage: $("dashboard-storage"),
   storageHint: $("dashboard-storage-hint"),
-  alertsEmpty: $("dashboard-alerts-empty"),
-  alertCounts: $("dashboard-alert-counts"),
-  alertList: $("dashboard-alert-list"),
-  ccIssues: $("dashboard-cc-issues"),
-  ccIssueList: $("dashboard-cc-issue-list"),
+  issuesCount: $("dashboard-issues-count"),
+  issuesLabel: $("dashboard-issues-label"),
+  issueList: $("dashboard-issue-list"),
   processEmpty: $("dashboard-process-empty"),
   processState: $("dashboard-process-state"),
   processNamespace: $("dashboard-process-namespace"),
@@ -296,7 +295,7 @@ function renderInfo(result) {
   }
 }
 
-// --- System Health + Recent Alerts ---
+// --- System Health ---
 
 function statusVariant(value) {
   if (typeof value !== "string") return "status-badge--neutral";
@@ -398,98 +397,92 @@ function renderHealth(monitor, sysMon) {
   );
 }
 
-function renderAlerts(monitor, sysMon) {
-  dom.alertCounts.replaceChildren();
-  dom.alertList.replaceChildren();
-  dom.alertsEmpty.hidden = Boolean(monitor);
-  if (!monitor) return;
+// --- Issues & Recommendations ---
+//
+// Active issues from GET /api/iris/issues, each explained with its Issue
+// Resolution Catalog entry (the response's `resolutions`). "Review &
+// Resolve" opens the Issue Resolver page; nothing is run from here.
 
-  const stale = sysMon === null;
-  for (const [label, value] of [
-    ["Serious alerts", monitor.Alerts.SeriousAlerts],
-    ["Application errors", monitor.Alerts.ApplicationErrors],
-  ]) {
-    const card = document.createElement("div");
-    card.className = "dash-alert-count";
-    card.dataset.level = value > 0 ? "alert" : "ok";
-    const number = document.createElement("span");
-    number.className = "dash-alert-count__value";
-    number.textContent = formatNumber(value);
-    const text = document.createElement("span");
-    text.className = "dash-alert-count__label";
-    text.textContent = stale ? `${label} (may not be current)` : label;
-    card.append(number, text);
-    dom.alertCounts.append(card);
-  }
+const SEVERITY_ORDER = ["low", "medium", "high", "critical"];
+const SEVERITY_BADGE = {
+  critical: "status-badge--error",
+  high: "status-badge--error",
+  medium: "status-badge--warning",
+  low: "status-badge--neutral",
+};
 
-  // Findings, each based on a value IRIS reported.
-  const findings = [];
-  if (stale) findings.push(["warning", "IRIS System Monitor is not running — status indicators and alert counts are not being updated."]);
-  for (const [label, section, field] of HEALTH_INDICATORS) {
-    const value = monitor[section][field];
-    if (typeof value === "string" && value.trim().toLowerCase() !== "normal") {
-      findings.push(["warning", `${label}: ${value}`]);
-    }
-  }
-  if (monitor.Status.LastBackup === "Never") findings.push(["info", "IRIS reports no full system backup (Last Backup: Never)."]);
-  if (typeof monitor.Licensing.LicenseUse === "number" && monitor.Licensing.LicenseUse >= 90) {
-    findings.push(["warning", `License use is at ${monitor.Licensing.LicenseUse}% of the limit.`]);
-  }
-
-  if (findings.length === 0) findings.push(["ok", "No indicator reports a non-Normal status."]);
-  for (const [level, message] of findings) {
-    const item = document.createElement("li");
-    item.className = "dash-alert-list__item";
-    item.dataset.level = level;
-    const text = document.createElement("span");
-    text.className = "dash-alert-list__text";
-    text.textContent = message;
-    item.append(makeBadge(ALERT_LEVEL_LABEL[level], ALERT_LEVEL_BADGE[level]), text);
-    dom.alertList.append(item);
-  }
+function issueStatusItem(badgeText, badgeClass, message, level) {
+  const item = document.createElement("li");
+  item.className = "dash-alert-list__item";
+  item.dataset.level = level;
+  const text = document.createElement("span");
+  text.className = "dash-alert-list__text";
+  text.textContent = message;
+  item.append(makeBadge(badgeText, badgeClass), text);
+  return item;
 }
 
-// Command Center Issues come from our own issue check (GET /api/iris/issues)
-// and are shown separately from IRIS's alerts. "Review & Resolve" goes to
-// the Resolve Issues panel on the Databases page, which uses database.mount.
-function renderCcIssues(settled) {
+function renderIssues(settled) {
   if (!settled) return;  // not refreshed this time, keep what's shown
-  const issues = settled.status === "fulfilled" && Array.isArray(settled.value?.issues) ? settled.value.issues : null;
-  dom.ccIssueList.replaceChildren();
-  dom.ccIssues.hidden = false;
-  if (issues === null || issues.length === 0) {
-    const item = document.createElement("li");
-    item.className = "dash-alert-list__item";
-    item.dataset.level = issues === null ? "info" : "ok";
-    const text = document.createElement("span");
-    text.className = "dash-alert-list__text";
-    text.textContent = issues === null ? "Could not check for Command Center issues." : "No actionable issues detected.";
-    item.append(makeBadge(issues === null ? "Info" : "OK", issues === null ? "status-badge--neutral" : "status-badge--ok"), text);
-    dom.ccIssueList.append(item);
+  const body = settled.status === "fulfilled" ? settled.value : null;
+  const issues = Array.isArray(body?.issues) ? body.issues : null;
+  const resolutions = body?.resolutions && typeof body.resolutions === "object" ? body.resolutions : {};
+  dom.issueList.replaceChildren();
+
+  if (issues === null) {
+    dom.issuesCount.textContent = PLACEHOLDER;
+    dom.issuesLabel.textContent = "Could not check for issues right now.";
+    dom.issueList.append(issueStatusItem("Info", "status-badge--neutral", "The issue check didn't respond. Try Refresh.", "info"));
     return;
   }
+
+  dom.issuesCount.textContent = String(issues.length);
+  if (issues.length === 0) {
+    dom.issuesLabel.textContent = "active issues";
+    dom.issueList.append(issueStatusItem("OK", "status-badge--ok", "No actionable issues detected.", "ok"));
+    return;
+  }
+
+  const severities = issues.map((issue) => resolutions[issue.kind]?.severity).filter((s) => SEVERITY_ORDER.includes(s));
+  const highest = severities.sort((a, b) => SEVERITY_ORDER.indexOf(b) - SEVERITY_ORDER.indexOf(a))[0];
+  dom.issuesLabel.textContent =
+    `active ${issues.length === 1 ? "issue" : "issues"}` + (highest ? ` · highest severity ${highest}` : "");
+
   for (const issue of issues) {
+    const resolution = resolutions[issue.kind];
+    const severity = resolution?.severity;
     const item = document.createElement("li");
-    item.className = "dash-alert-list__item";
-    item.dataset.level = "warning";
-    const text = document.createElement("span");
-    text.className = "dash-alert-list__text";
-    text.textContent = `${issue.explanation} Recommended action: ${issue.recommended_operation}.`;
-    const fix = document.createElement("button");
-    fix.className = "dash-panel__link";
-    fix.type = "button";
-    fix.textContent = "Review & Resolve →";
-    fix.addEventListener("click", () => {
-      navigateTo("databases");
-      document.getElementById("databases-issues-title")?.scrollIntoView({ block: "start" });
-    });
-    item.append(makeBadge("Issue", "status-badge--warning"), text, fix);
-    dom.ccIssueList.append(item);
+    item.className = "dash-issue";
+
+    const badge = makeBadge(
+      severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : "Issue",
+      SEVERITY_BADGE[severity] || "status-badge--warning",
+    );
+    const body_ = document.createElement("div");
+    body_.className = "dash-issue__body";
+    const title = document.createElement("p");
+    title.className = "dash-issue__title";
+    title.textContent = `${resolution ? resolution.title : textOrPlaceholder(issue.kind)}: ${textOrPlaceholder(issue.database)}`;
+    const resource = document.createElement("p");
+    resource.className = "dash-issue__resource";
+    resource.textContent = `${textOrPlaceholder(issue.directory)} · ${textOrPlaceholder(issue.status)}`;
+    const explanation = document.createElement("p");
+    explanation.className = "dash-issue__text";
+    explanation.textContent = resolution
+      ? `${resolution.explanation} Recommended: ${resolution.recommended_solution}`
+      : issue.explanation;
+    body_.append(title, resource, explanation);
+
+    const review = document.createElement("button");
+    review.className = "dash-panel__link dash-issue__action";
+    review.type = "button";
+    review.textContent = "Review & Resolve →";
+    review.addEventListener("click", () => navigateTo("issue-resolver"));
+
+    item.append(badge, body_, review);
+    dom.issueList.append(item);
   }
 }
-
-const ALERT_LEVEL_LABEL = { warning: "Warning", info: "Info", ok: "OK" };
-const ALERT_LEVEL_BADGE = { warning: "status-badge--warning", info: "status-badge--neutral", ok: "status-badge--ok" };
 
 // --- Resources (sampled trends) ---
 
@@ -876,8 +869,7 @@ async function refresh({ includeSlow }) {
   const sysMon = findSystemMonitorProcess(r.processes);
   renderMonitorKpis(monitor, sysMon);
   renderHealth(monitor, sysMon);
-  renderAlerts(monitor, sysMon);
-  renderCcIssues(r.issues);
+  renderIssues(r.issues);
   renderResources(Boolean(monitor));
   renderProcesses(r.processes);
   renderCountCard("processes", r.processes, (body) => body.result.length);

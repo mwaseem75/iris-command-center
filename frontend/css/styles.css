@@ -2853,42 +2853,6 @@ input:focus-visible {
   padding: 5px 10px;
 }
 
-.dash-alert-counts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.dash-alert-count {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
-  min-width: 0;
-}
-
-.dash-alert-count__value {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 20px;
-  color: var(--color-text);
-}
-
-.dash-alert-count[data-level="alert"] .dash-alert-count__value {
-  color: var(--color-error-text);
-}
-
-.dash-alert-count__label {
-  line-height: 1.4;
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .dash-alert-list {
   list-style: none;
   margin: 0;
@@ -5110,29 +5074,6 @@ html.detail-workspace-open {
   color: var(--color-text-muted);
 }
 
-/* Dashboard: Command Center Issues (separate from IRIS alert counters) */
-.dash-cc-issues {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--color-border-subtle);
-}
-
-.dash-cc-issues__title {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-}
-
-.dash-cc-issues__note {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--color-text-faint);
-}
-
 .db-issue__why {
   margin-top: 6px;
   font-size: 12.5px;
@@ -5783,4 +5724,71 @@ html.detail-workspace-open {
 
 .obs-resolution__timeline {
   color: var(--color-warning);
+}
+
+/* --- Dashboard: Issues & Recommendations --- */
+
+.dash-issues__summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dash-issues__count {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.dash-issues__label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.dash-issue {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: start;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.dash-issue:last-child {
+  border-bottom: none;
+}
+
+.dash-issue .status-badge {
+  justify-self: start;
+}
+
+.dash-issue__body {
+  min-width: 0;
+}
+
+.dash-issue__title {
+  margin: 0;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.dash-issue__resource {
+  margin: 1px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.dash-issue__text {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+}
+
+.dash-issue__action {
+  grid-column: 2;
+  justify-self: start;
 }

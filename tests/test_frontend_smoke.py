@@ -1427,8 +1427,8 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
         "dashboard-health-indicators",
         "dashboard-resources",
         "dashboard-storage",
-        "dashboard-alert-counts",
-        "dashboard-alert-list",
+        "dashboard-issues-summary",
+        "dashboard-issue-list",
         "dashboard-process-state",
         "dashboard-process-namespace",
     ):
@@ -1465,6 +1465,21 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
         "dashboard.js detects the System Monitor from its %SYS.Monitor.Control process in %SYS",
     )
     check("Unknown (process list unavailable)" in dashboard_js, "System Monitor state is Unknown when process data fails")
+
+
+def test_dashboard_shows_issues_and_recommendations() -> None:
+    print("Checking the Dashboard's Issues & Recommendations panel uses the live issue check...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    check("Issues &amp; Recommendations" in html, "the Dashboard has an Issues & Recommendations panel")
+    check("Recent Alerts" not in html, "the old Recent Alerts panel is gone")
+    dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+    check("IrisApi.getIssues()" in dashboard_js, "dashboard.js reads GET /api/iris/issues")
+    check("resolutions" in dashboard_js, "dashboard.js explains issues with the catalog entries")
+    check("No actionable issues detected." in dashboard_js, "dashboard.js has a clear no-issues state")
+    check('navigateTo("issue-resolver")' in dashboard_js and "Review & Resolve" in dashboard_js,
+          "Review & Resolve opens the Issue Resolver page")
+    for word in ("mountDatabase", "dismountDatabase"):
+        check(word not in dashboard_js, f"dashboard.js never calls {word} (nothing is run from the Dashboard)")
 
 
 def test_theme_selector_offers_four_persisted_themes() -> None:
@@ -1741,6 +1756,7 @@ def main() -> None:
         test_dashboard_live_monitoring_uses_real_read_only_sources,
         test_demo_activity_is_confirmed_and_uses_only_real_traces,
         test_detail_views_use_one_centered_workspace_pattern,
+        test_dashboard_shows_issues_and_recommendations,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
