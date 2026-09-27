@@ -243,13 +243,18 @@ The resolver currently supports two curated issue types:
 Every resolution is backed by a chain of real evidence:
 ```text
 Detection Evidence → Impact Evidence → Resolution Operation → Verification Evidence → Execution Trace
+```
 
 ### 💾 Persisting traces in IRIS
 Command Center can persist its execution traces **inside the connected InterSystems IRIS instance**.
 This makes observability more than a browser-only feature.
 <img width="1753"  alt="image" src="https://github.com/user-attachments/assets/02c0089a-2f1d-4ade-8b19-c39682775e3a" />
 <img width="1749" alt="image" src="https://github.com/user-attachments/assets/154dfd30-10f5-40d9-8dc7-bf1a2c1b9a91" />
-```
+Execution traces can optionally be persisted directly in the connected IRIS instance. This allows operational history to survive Command Center restarts rather than existing only in application memory.
+When trace persistence is enabled, Command Center stores each completed execution trace in the IRIS `USER` namespace using the native IRIS API:
+<img width="2508" height="540" alt="image" src="https://github.com/user-attachments/assets/21b0023f-a73d-41f9-8ea5-67483248154d" />
+
+
 ---
 
 ### 🔍 IRIS Vector Search
@@ -258,6 +263,8 @@ Command Center demonstrates **InterSystems IRIS Vector Search** as an operationa
 Vector Search provides supporting operational knowledge only; it does not detect issues, select mutations, or execute remediation.
 
 <img width="1754"  alt="image" src="https://github.com/user-attachments/assets/0d1df68b-6c57-4185-9d23-adfe1f765fc4" />
+Operational knowledge chunks and their generated embedding vectors stored directly in an IRIS SQL table.
+<img width="2508" height="996" alt="image" src="https://github.com/user-attachments/assets/285029f5-6ea1-482d-8f3a-6b78b57ac68b" />
 
 ---
 
@@ -268,9 +275,21 @@ Alongside the standard rehearsal, Demo Activity offers **Create Demo Issue**: af
 
 ---
 ### 🧪 Testing & Verification
-The project uses automated tests plus live IRIS verification.
-<img width="1749"  alt="image" src="https://github.com/user-attachments/assets/87883946-9eca-4eb6-9db3-5693854c4357" />
 
+<img width="1749"  alt="image" src="https://github.com/user-attachments/assets/87883946-9eca-4eb6-9db3-5693854c4357" />
+The project uses automated tests plus live IRIS verification to validate both the application logic and its behavior against a real InterSystems IRIS instance.
+The test suite covers:
+
+- **API and business logic** — issue detection, resolution catalogs, operation validation, authorization, and safety restrictions.
+- **Resolution workflows** — dry-run behavior, explicit confirmation, execution, post-action verification, and failure/restore paths.
+- **Security controls** — required IRIS privileges, protected resources, rejected operations, and prevention of unauthorized changes.
+- **Observability** — execution traces, resolution context, trace persistence, and hydration after application restart.
+- **Issue Resolver** — deterministic detection, evidence, affected-resource information, resolution parameters, and verification.
+- **Frontend smoke tests** — navigation, Issue Resolver flows, resource-specific resolution paths, and critical UI behavior.
+- **Live IRIS verification** — selected workflows are exercised against a real IRIS 2026.2 instance to confirm that API responses, privileges, operations, and resulting system state match expectations.
+
+The test suite is designed to verify not only that an operation succeeds, but also that **unsafe or invalid operations are refused and that successful changes are verified against the resulting IRIS state**.
+At the time of the current release, the backend test suite contains **802 automated tests**, with frontend smoke tests covering the critical browser workflows.
 
 # ⚙️ Configuration
 
