@@ -42,6 +42,17 @@ class Span(BaseModel):
     events: list[SpanEvent] = Field(default_factory=list)
 
 
+class ResolutionContext(BaseModel):
+    """Set when the operation was started from an Issue Resolution workflow.
+    The title and severity come from the Issue Resolution Catalog, never from
+    the client."""
+
+    issue_type: str
+    issue_title: str
+    severity: str
+    resource: str | None = None  # e.g. the database directory being fixed
+
+
 class ExecutionTrace(BaseModel):
     """Everything recorded for one OperationExecutor.execute() call. `trace_id`
     is random and not tied to any session.
@@ -57,4 +68,5 @@ class ExecutionTrace(BaseModel):
     confirmation_result: str | None = None
     execution_result: str | None = None
     verification_result: str | None = None
+    resolution: ResolutionContext | None = None  # None for normal operations
     spans: list[Span] = Field(default_factory=list)

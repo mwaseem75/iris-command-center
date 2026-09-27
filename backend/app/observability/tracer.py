@@ -8,7 +8,7 @@ only passing safe values.
 import time
 from typing import Any
 
-from app.observability.models import ExecutionTrace, Span, utc_now
+from app.observability.models import ExecutionTrace, ResolutionContext, Span, utc_now
 from app.observability.store import record_trace
 
 
@@ -21,8 +21,8 @@ class _SpanTimer:
 
 
 class TraceRecorder:
-    def __init__(self, operation_name: str):
-        self._trace = ExecutionTrace(operation_name=operation_name)
+    def __init__(self, operation_name: str, resolution: ResolutionContext | None = None):
+        self._trace = ExecutionTrace(operation_name=operation_name, resolution=resolution)
         self._perf_start = time.perf_counter()
 
     def timer(self) -> _SpanTimer:

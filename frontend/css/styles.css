@@ -5608,3 +5608,179 @@ html.detail-workspace-open {
 .resolve-steps--compact .resolve-step__state {
   display: none;
 }
+
+/* --- Issue Resolver page ---
+   Issue cards reuse the stat-card link and .db-chip; the workflow reuses
+   the Resolve Issues step list; details open in the shared .ns-drawer. */
+
+#view-issue-resolver .ir-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-card[data-card="ir-active"] { --stat-card-accent: var(--color-warning); }
+.stat-card[data-card="ir-severity"] { --stat-card-accent: var(--color-error); }
+.stat-card[data-card="ir-catalog"] { --stat-card-accent: var(--color-chart-1); }
+
+.ir-panel {
+  margin-bottom: 16px;
+}
+
+.ir-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ir-issue {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.ir-issue:hover,
+.ir-issue:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface-hover);
+}
+
+.ir-issue__head,
+.ir-issue__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ir-issue__title {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.ir-issue__resource {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.ir-issue__privilege {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.ir-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ir-section {
+  margin-top: 4px;
+}
+
+.ir-solution {
+  margin: 0 0 8px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ir-why {
+  margin-top: 16px;
+}
+
+.ir-why__text {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+}
+
+.ir-why__label {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.ir-bullets {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.ir-bullets li + li {
+  margin-top: 3px;
+}
+
+.ir-drawer__actions {
+  margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  #view-issue-resolver .ir-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- Observability: traces started from an Issue Resolution workflow --- */
+
+.obs-trace__tag {
+  justify-self: start;
+  align-self: flex-start;
+  width: fit-content;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  white-space: nowrap;
+}
+
+.obs-resolution {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.obs-resolution__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.obs-resolution__text {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.obs-resolution__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.obs-resolution__mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.obs-resolution__timeline {
+  color: var(--color-warning);
+}

@@ -9,12 +9,18 @@ from app.authorization.models import AuthorizationResult
 
 
 class OperationRequest(BaseModel):
-    """What the caller wants to run. `parameters` is handler-specific input."""
+    """What the caller wants to run. `parameters` is handler-specific input.
+
+    `resolution_issue_type` says the request comes from an Issue Resolution
+    workflow. It only labels the execution trace; it never changes
+    authorization, confirmation or what the handler does.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     operation_name: str
     parameters: dict[str, Any] = Field(default_factory=dict)
+    resolution_issue_type: str | None = None
 
 
 class ExecutionContext(BaseModel):

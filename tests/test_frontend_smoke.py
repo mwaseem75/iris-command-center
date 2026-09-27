@@ -64,6 +64,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "ai-assistant.js",
         FRONTEND_DIR / "js" / "observability.js",
         FRONTEND_DIR / "js" / "extensions.js",
+        FRONTEND_DIR / "js" / "issue-resolver.js",
         FRONTEND_DIR / "js" / "investigation.js",
         FRONTEND_DIR / "js" / "capabilities.js",
         FRONTEND_DIR / "js" / "theme.js",
@@ -1077,6 +1078,44 @@ def test_extensions_nav_and_view_exist_and_are_enabled() -> None:
     )
 
 
+def test_issue_resolver_page_exists_and_is_read_only() -> None:
+    print("Checking the Issue Resolver page exists and never changes IRIS...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    nav_match = re.search(r'<button class="nav-item[^"]*"[^>]*data-view="issue-resolver"[^>]*>', html)
+    check(nav_match is not None, 'a nav-item button with data-view="issue-resolver" exists')
+    check(nav_match is not None and "disabled" not in nav_match.group(0), "the Issue Resolver nav-item is NOT disabled")
+    check(
+        re.search(r'<section[^>]*id="view-issue-resolver"[^>]*data-view="issue-resolver"[^>]*>', html) is not None,
+        'a <section id="view-issue-resolver" data-view="issue-resolver"> exists',
+    )
+    check('id="issue-resolver-drawer"' in html, "the page has a detail workspace")
+
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    calls = set(re.findall(r"IrisApi\.(\w+)", js))
+    check(calls == {"getIssues"}, f"issue-resolver.js calls only IrisApi.getIssues() (found {sorted(calls)})")
+    check("fetch(" not in js, "issue-resolver.js makes no raw fetch() call")
+    for word in ("mountDatabase", "dismountDatabase", "confirmed", "dry_run", "dryRun"):
+        check(word not in js, f"issue-resolver.js never references {word!r}")
+    for key in ("resolutions", "detection_evidence", "workflow_steps", "required_privileges", "risk_level",
+                "recommended_solution", "Why this solution?"):
+        check(key in js, f"issue-resolver.js renders {key!r} from the catalog")
+
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    check('view === "issue-resolver"' in app_js and "loadIssueResolver()" in app_js,
+          "app.js loads the Issue Resolver when its page opens")
+
+
+def test_traces_show_issue_resolution_context() -> None:
+    print("Checking Observability labels traces started from an Issue Resolution workflow...")
+    obs_js = (FRONTEND_DIR / "js" / "observability.js").read_text(encoding="utf-8")
+    check("trace.resolution" in obs_js, "observability.js reads the trace's resolution context")
+    check("Issue Resolution" in obs_js and "Issue Resolver" in obs_js,
+          "observability.js shows the context in the detail and tags the trace in the list")
+    db_js = (FRONTEND_DIR / "js" / "databases.js").read_text(encoding="utf-8")
+    check("if (resolving) fields.resolution_issue_type = resolving.issue.kind;" in db_js,
+          "databases.js sends resolution_issue_type only while resolving an issue")
+
+
 def test_extensions_view_uses_only_expected_endpoints() -> None:
     print("Checking extensions.js calls only its three expected endpoints and nothing else...")
     extensions_js = (FRONTEND_DIR / "js" / "extensions.js").read_text(encoding="utf-8")
@@ -1691,6 +1730,8 @@ def main() -> None:
         test_observability_nav_and_view_exist_and_use_only_traces_endpoint,
         test_extensions_nav_and_view_exist_and_are_enabled,
         test_extensions_view_uses_only_expected_endpoints,
+        test_issue_resolver_page_exists_and_is_read_only,
+        test_traces_show_issue_resolution_context,
         test_investigation_nav_and_view_exist_and_are_enabled,
         test_investigation_view_uses_only_expected_endpoints,
         test_capabilities_nav_and_view_exist_and_are_enabled,

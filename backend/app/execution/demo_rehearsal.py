@@ -163,7 +163,8 @@ class _Rehearsal:
     # --- running one operation ---
 
     async def run_operation(
-        self, operation_name: str, parameters: dict[str, Any], *, dry_run: bool
+        self, operation_name: str, parameters: dict[str, Any], *, dry_run: bool,
+        resolution_issue_type: str | None = None,
     ) -> tuple[OperationResult | None, str | None, str | None]:
         """Returns (result, trace_id, error). trace_id is only set when exactly
         one new trace for this operation showed up during the call.
@@ -171,7 +172,11 @@ class _Rehearsal:
         before = {trace.trace_id for trace in list_traces()}
         try:
             result = await self.executor.execute(
-                OperationRequest(operation_name=operation_name, parameters=parameters),
+                OperationRequest(
+                    operation_name=operation_name,
+                    parameters=parameters,
+                    resolution_issue_type=resolution_issue_type,
+                ),
                 ExecutionContext(
                     available_privileges=self.privileges,
                     confirmation_received=self.confirmed,
@@ -449,7 +454,8 @@ class _Rehearsal:
 
             # Fix it the way Fix Issues would: the recommended operation and the issue's parameters.
             result, trace_id, error = await self.run_operation(
-                issue["recommended_operation"], issue["parameters"], dry_run=False)
+                issue["recommended_operation"], issue["parameters"], dry_run=False,
+                resolution_issue_type=issue["kind"])
             fixed = result is not None and result.status is OperationResultStatus.SUCCESS
             self.add(step="issue.fix", operation_name=issue["recommended_operation"], action="fix",
                      status="success" if fixed else "failed",

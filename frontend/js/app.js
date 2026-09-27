@@ -29,6 +29,7 @@ import {
 import { initDemoActivity } from "./demo-activity.js";
 import { initDetailWorkspaces } from "./detail-workspace.js";
 import { loadExtensions, initExtensionsControls } from "./extensions.js";
+import { loadIssueResolver, initIssueResolverControls } from "./issue-resolver.js";
 import {
   loadInvestigation,
   initInvestigationControls,
@@ -97,6 +98,7 @@ function init() {
     onOpenTrace: openTrace,
   });
   initCapabilitiesControls();
+  initIssueResolverControls({ onOpenDatabases: () => navigateTo("databases") });
 
   // Reload data each time a page is opened so it's never stale.
   initNavigation((view) => {
@@ -130,6 +132,8 @@ function init() {
       loadExecutionTraces();
     } else if (view === "extensions") {
       loadExtensions();
+    } else if (view === "issue-resolver") {
+      loadIssueResolver();
     } else if (view === "investigation") {
       loadInvestigation();
     } else if (view === "capabilities") {

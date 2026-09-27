@@ -5,7 +5,7 @@ Create needs %Admin_Manage:U, mount/dismount need %Admin_Operate:U. All of
 them go through the executor (authorization, confirmation, verification).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from app.dependencies import get_caller_privileges, get_iris_client
@@ -15,6 +15,7 @@ from app.execution.database_dismount_handler import DatabaseDismountHandler
 from app.execution.executor import OperationExecutor
 from app.execution.models import ExecutionContext, OperationRequest, OperationResult
 from app.iris_client.client import IRISClient
+from app.resolution.catalog import resolves_with
 
 router = APIRouter(prefix="/api/iris", tags=["iris-operations"])
 
@@ -67,7 +68,9 @@ _MOUNT_OPERATION_NAME = "database.mount"
 
 
 class DatabaseMountOperationRequest(BaseModel):
-    """Request body for mount (same rules as create)."""
+    """Request body for mount (same rules as create). `resolution_issue_type`
+    is set when the mount is part of an Issue Resolution workflow; it only
+    labels the trace."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -75,6 +78,7 @@ class DatabaseMountOperationRequest(BaseModel):
     ReadOnly: bool = False
     confirmed: bool = False
     dry_run: bool = False
+    resolution_issue_type: str | None = None
 
 
 @router.post("/databases/mount", response_model=OperationResult)
@@ -84,10 +88,17 @@ async def mount_database(
     privileges: frozenset[str] = Depends(get_caller_privileges),
 ) -> OperationResult:
     """database.mount. Always returns 200 with an OperationResult; the outcome is in `status`."""
+    issue_type = body.resolution_issue_type
+    if issue_type is not None and not resolves_with(issue_type, _MOUNT_OPERATION_NAME):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{issue_type!r} is not an issue type resolved by {_MOUNT_OPERATION_NAME}.",
+        )
     executor = OperationExecutor({_MOUNT_OPERATION_NAME: DatabaseMountHandler(client)})
     request = OperationRequest(
         operation_name=_MOUNT_OPERATION_NAME,
         parameters={"Directory": body.Directory, "ReadOnly": body.ReadOnly},
+        resolution_issue_type=issue_type,
     )
     context = ExecutionContext(
         available_privileges=privileges,

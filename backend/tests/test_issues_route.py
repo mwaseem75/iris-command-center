@@ -41,6 +41,7 @@ def test_reports_a_dismounted_non_system_database_with_the_mount_fix(
     assert issue["status"] == "Dismounted"
     assert issue["recommended_operation"] == "database.mount"
     assert issue["parameters"] == {"Directory": "/usr/irissys/mgr/demo/", "ReadOnly": False}
+    assert issue["mirrored"] is False
     assert "DEMO" in issue["explanation"] and "Dismounted" in issue["explanation"]
     mock_iris_client.post.assert_not_called()
     mock_iris_client.put.assert_not_called()
@@ -51,13 +52,13 @@ def test_system_and_mirrored_databases_are_never_reported(client: TestClient, mo
           [_db("IRISTEMP", "/usr/irissys/mgr/iristemp/"), _db("MIR", "/data/mir/")],
           [_dir("/usr/irissys/mgr/iristemp/", "Dismounted"), _dir("/data/mir/", "Dismounted", mirrored=True)])
 
-    assert client.get("/api/iris/issues").json() == {"issues": []}
+    assert client.get("/api/iris/issues").json()["issues"] == []
 
 
 def test_no_issue_when_everything_is_mounted(client: TestClient, mock_iris_client: AsyncMock) -> None:
     _mock(mock_iris_client, [_db("USER", "/usr/irissys/mgr/user/")], [_dir("/usr/irissys/mgr/user", "Mounted/RW")])
 
-    assert client.get("/api/iris/issues").json() == {"issues": []}
+    assert client.get("/api/iris/issues").json()["issues"] == []
 
 
 def test_unreachable_iris_is_a_safe_502(client: TestClient, mock_iris_client: AsyncMock) -> None:
@@ -67,3 +68,19 @@ def test_unreachable_iris_is_a_safe_502(client: TestClient, mock_iris_client: As
 
     assert response.status_code == 502
     assert "test-password-not-real" not in response.text
+
+
+def test_response_includes_the_resolution_catalog(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock(mock_iris_client, [_db("USER", "/usr/irissys/mgr/user/")], [_dir("/usr/irissys/mgr/user", "Mounted/RW")])
+
+    resolutions = client.get("/api/iris/issues").json()["resolutions"]
+
+    entry = resolutions["database_dismounted"]
+    assert entry["operation"] == "database.mount"
+    assert entry["severity"] == "high"
+    assert entry["risk_level"] == "medium"
+    assert entry["required_privileges"] == ["Operate"]
+    assert entry["confirmation_required"] is True
+    assert [step["kind"] for step in entry["workflow_steps"]] == [
+        "detected", "recommended", "check", "confirm", "execute", "verify", "trace",
+    ]

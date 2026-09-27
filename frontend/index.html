@@ -113,6 +113,12 @@
             </button>
           </li>
           <li>
+            <button class="nav-item" type="button" data-view="issue-resolver">
+              <span class="nav-item__icon" aria-hidden="true">&#10010;</span>
+              <span>Issue Resolver</span>
+            </button>
+          </li>
+          <li>
             <button class="nav-item" type="button" data-view="ai-assistant">
               <span class="nav-item__icon" aria-hidden="true">&#10022;</span>
               <span>AI Assistant</span>
@@ -2436,6 +2442,90 @@
               </section>
             </aside>
           </div>
+        </section>
+
+        <section class="view" id="view-issue-resolver" data-view="issue-resolver" aria-labelledby="issue-resolver-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="issue-resolver-title">Issue Resolver</h2>
+              <p class="view__subtitle view__subtitle--wide">Issues detected in live IRIS data, each with the catalog's deterministic solution. Read-only: nothing on this page changes IRIS.</p>
+            </div>
+            <button class="btn btn--primary" type="button" id="issue-resolver-refresh-button">
+              <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              Refresh
+            </button>
+          </div>
+
+          <div class="banner banner--error" id="issue-resolver-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="issue-resolver-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="issue-resolver-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Checking for issues&hellip;</span>
+          </div>
+
+          <div class="stat-grid ir-kpis" aria-label="Issue summary">
+            <article class="stat-card" data-card="ir-active">
+              <p class="stat-card__label">Active Issues</p>
+              <p class="stat-card__value" id="issue-resolver-kpi-active">&mdash;</p>
+              <p class="stat-card__meta">from GET /api/iris/issues</p>
+            </article>
+            <article class="stat-card" data-card="ir-severity">
+              <p class="stat-card__label">Highest Severity</p>
+              <p class="stat-card__value" id="issue-resolver-kpi-severity">&mdash;</p>
+              <p class="stat-card__meta">across active issues</p>
+            </article>
+            <article class="stat-card" data-card="ir-catalog">
+              <p class="stat-card__label">Known Issue Types</p>
+              <p class="stat-card__value" id="issue-resolver-kpi-catalog">&mdash;</p>
+              <p class="stat-card__meta">in the resolution catalog</p>
+            </article>
+          </div>
+
+          <section class="info-card ir-panel" aria-labelledby="issue-resolver-active-title">
+            <h3 class="info-card__title" id="issue-resolver-active-title">Active Issues</h3>
+            <p class="info-card__hint">Click an issue for its evidence, solution, workflow and reasoning.</p>
+            <div class="ir-list" id="issue-resolver-list"></div>
+            <p class="empty-state" id="issue-resolver-empty" hidden>No active issues detected.</p>
+          </section>
+
+          <section class="info-card ir-panel" aria-labelledby="issue-resolver-catalog-title">
+            <h3 class="info-card__title" id="issue-resolver-catalog-title">Issue Types the Resolver Knows</h3>
+            <p class="info-card__hint">Every entry in the resolution catalog, whether or not it's active right now.</p>
+            <div class="table-wrapper" id="issue-resolver-catalog-wrapper" hidden>
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">Issue Type</th>
+                    <th scope="col">Severity</th>
+                    <th scope="col">Solution</th>
+                    <th scope="col">Operation</th>
+                    <th scope="col">Privilege</th>
+                    <th scope="col">Risk</th>
+                  </tr>
+                </thead>
+                <tbody id="issue-resolver-catalog-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="ns-drawer-backdrop" id="issue-resolver-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="issue-resolver-drawer" hidden aria-labelledby="issue-resolver-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="issue-resolver-drawer-title">&mdash;</h3>
+                <span class="status-badge" id="issue-resolver-drawer-severity"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="issue-resolver-drawer-close" aria-label="Close issue details">&times;</button>
+            </div>
+            <p class="ns-hint">Read-only. Resolving runs through Resolve Issues on the Databases page.</p>
+            <div id="issue-resolver-drawer-body"></div>
+            <div class="btn-row ir-drawer__actions">
+              <button class="btn btn--primary" type="button" id="issue-resolver-open-databases">Go to Resolve Issues &rarr;</button>
+            </div>
+          </aside>
         </section>
 
         <section class="view" id="view-observability" data-view="observability" aria-labelledby="observability-title" hidden>

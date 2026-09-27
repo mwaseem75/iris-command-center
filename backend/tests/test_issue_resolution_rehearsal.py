@@ -116,6 +116,20 @@ def test_full_issue_resolution_flow(fake: FakeIris) -> None:
         assert recorded[steps[name]["trace_id"]] == op
 
 
+def test_only_the_fix_trace_is_labelled_as_an_issue_resolution(fake: FakeIris) -> None:
+    steps = _steps(_post(fake, {"confirmed": True, "scenario": "issue_resolution"}).json())
+    traces = {t.trace_id: t for t in store.list_traces()}
+
+    fix = traces[steps["issue.fix"]["trace_id"]]
+    assert fix.resolution is not None
+    assert fix.resolution.issue_type == "database_dismounted"
+    assert fix.resolution.issue_title == "Dismounted database"
+    assert fix.resolution.resource == IPM_DIR
+    # Creating the issue (the dismount) is not part of a resolution.
+    for name in ("issue.dry_run", "issue.dismount"):
+        assert traces[steps[name]["trace_id"]].resolution is None
+
+
 def test_standard_scenario_is_still_the_default(fake: FakeIris, monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[str] = []
 

@@ -20,6 +20,7 @@ from app.execution.models import (
     PostActionVerificationStatus,
 )
 from app.observability.tracer import TraceRecorder
+from app.resolution.catalog import trace_context
 
 
 class OperationExecutor:
@@ -34,7 +35,10 @@ class OperationExecutor:
     async def execute(
         self, request: OperationRequest, context: ExecutionContext
     ) -> OperationResult:
-        recorder = TraceRecorder(request.operation_name)
+        recorder = TraceRecorder(
+            request.operation_name,
+            resolution=trace_context(request.resolution_issue_type, request.operation_name, request.parameters),
+        )
 
         operation = get_operation(request.operation_name)
         if operation is None:

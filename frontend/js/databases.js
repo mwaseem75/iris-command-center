@@ -744,6 +744,8 @@ async function handleMountCheckClick() {
   if (!directory) return;
 
   const fields = { Directory: directory, ReadOnly: dom.drawerMountReadOnly.checked };
+  // Label the traces as part of this resolution (Observability shows it).
+  if (resolving) fields.resolution_issue_type = resolving.issue.kind;
   clearMountPreview();
   dom.drawerMountError.hidden = true;
   dom.drawerMountResult.hidden = true;

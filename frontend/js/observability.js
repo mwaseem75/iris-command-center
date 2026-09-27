@@ -245,7 +245,35 @@ function matchesSearch(trace, query) {
   if (!query) return true;
   const name = typeof trace.operation_name === "string" ? trace.operation_name.toLowerCase() : "";
   const id = typeof trace.trace_id === "string" ? trace.trace_id.toLowerCase() : "";
-  return name.includes(query) || id.includes(query);
+  const resolution = resolutionOf(trace);
+  const issue = resolution ? `${resolution.issue_type} ${resolution.issue_title}`.toLowerCase() : "";
+  return name.includes(query) || id.includes(query) || issue.includes(query);
+}
+
+// The Issue Resolution context recorded on the trace, or null for normal
+// operations.
+function resolutionOf(trace) {
+  const r = trace && trace.resolution;
+  return r && typeof r === "object" && typeof r.issue_type === "string" ? r : null;
+}
+
+function buildResolutionContext(resolution) {
+  const box = el("div", "obs-resolution");
+  box.append(el("span", "obs-resolution__label", "Issue Resolution"));
+  const text = el("p", "obs-resolution__text");
+  text.append(
+    document.createTextNode("Started from the Resolve Issues workflow for "),
+    el("strong", "", textOrPlaceholder(resolution.issue_title)),
+    document.createTextNode(" "),
+    el("span", "obs-resolution__mono", `(${textOrPlaceholder(resolution.issue_type)})`),
+  );
+  const facts = el("div", "obs-resolution__facts");
+  facts.append(el("span", `status-badge ${resolution.severity === "high" || resolution.severity === "critical"
+    ? "status-badge--error" : resolution.severity === "medium" ? "status-badge--warning" : "status-badge--neutral"}`,
+  `${capitalize(textOrPlaceholder(resolution.severity))} severity`));
+  if (resolution.resource) facts.append(el("span", "obs-resolution__mono", resolution.resource));
+  box.append(text, facts);
+  return box;
 }
 
 function buildTraceItem(trace) {
@@ -258,6 +286,7 @@ function buildTraceItem(trace) {
 
   const top = el("span", "obs-trace__row");
   top.append(el("span", "obs-trace__name", textOrPlaceholder(trace.operation_name)), makeStatusBadge(trace.status));
+
   const bottom = el("span", "obs-trace__row obs-trace__meta");
   bottom.append(
     el("span", "obs-trace__time", formatUtcIso(trace.start_time)),
@@ -266,6 +295,13 @@ function buildTraceItem(trace) {
   const id = el("span", "obs-trace__id", shortId(trace.trace_id));
 
   button.append(top, bottom, id);
+  // On its own line so it never squeezes the operation name.
+  const resolution = resolutionOf(trace);
+  if (resolution) {
+    const tag = el("span", "obs-trace__tag", "Issue Resolver");
+    tag.title = `Resolving: ${textOrPlaceholder(resolution.issue_title)}`;
+    button.append(tag);
+  }
   button.addEventListener("click", () => selectTrace(trace.trace_id));
   item.append(button);
   return item;
@@ -373,6 +409,11 @@ function buildWaterfall(trace, spans) {
     el("h4", "obs-section__title", "Execution Timeline"),
     el("p", "obs-section__subtitle", "Time spent in each recorded stage of the execution pipeline."),
   );
+  const resolution = resolutionOf(trace);
+  if (resolution) {
+    titles.append(el("p", "obs-section__subtitle obs-resolution__timeline",
+      `Part of resolving: ${textOrPlaceholder(resolution.issue_title)}${resolution.resource ? ` · ${resolution.resource}` : ""}`));
+  }
   head.append(titles, el("span", "obs-section__meta", `Total ${formatDuration(trace.duration_ms)}`));
   section.append(head);
 
@@ -575,7 +616,8 @@ function renderDetail() {
     results.append(item);
   }
 
-  header.append(titleRow, meta, results);
+  const resolution = resolutionOf(trace);
+  header.append(titleRow, ...(resolution ? [buildResolutionContext(resolution)] : []), meta, results);
   dom.detailBody.append(header, buildWaterfall(trace, spans), buildStagesTable(spans), buildRawData(trace));
 }
 
