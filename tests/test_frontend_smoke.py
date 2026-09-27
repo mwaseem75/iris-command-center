@@ -118,6 +118,25 @@ def test_api_paths_match_real_backend_routes() -> None:
         check(path in registered_paths, f"{path} is a real registered backend route")
 
 
+def test_sidebar_navigation_order() -> None:
+    print("Checking the sidebar navigation order...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    nav = re.search(r'<nav class="sidebar".*?</nav>', html, re.S)
+    check(nav is not None, "the sidebar navigation exists")
+    items = re.findall(r'<button class="nav-item[^"]*"[^>]*data-view="([^"]+)"[^>]*>.*?<span>([^<]+)</span>',
+                       nav.group(0) if nav else "", re.S)
+    expected = [
+        ("dashboard", "Dashboard"), ("issue-resolver", "Issue Resolver"), ("system", "System"),
+        ("namespaces", "Namespaces"), ("databases", "Databases"), ("processes", "Processes"),
+        ("web-apps", "Web Apps"), ("tasks", "Tasks"), ("security", "Security"), ("journal", "Journal"),
+        ("operations", "Operations"), ("observability", "Observability"), ("investigation", "Investigation"),
+        ("ai-assistant", "AI Assistant"), ("extensions", "Extensions"), ("capabilities", "API Explorer"),
+    ]
+    check(items == expected, f"the sidebar lists its pages in the agreed order (found {[label for _, label in items]})")
+    check('data-view="dashboard" aria-current="page"' in (nav.group(0) if nav else ""),
+          "Dashboard is still the initially active page")
+
+
 def test_system_nav_and_view_exist_and_are_enabled() -> None:
     print("Checking the System nav item and view exist and are enabled...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
@@ -1811,6 +1830,7 @@ def main() -> None:
         test_expected_files_exist_and_are_non_empty,
         test_frontend_can_be_served,
         test_api_paths_match_real_backend_routes,
+        test_sidebar_navigation_order,
         test_system_nav_and_view_exist_and_are_enabled,
         test_system_view_uses_only_get_info,
         test_namespaces_nav_and_view_exist_and_are_enabled,
