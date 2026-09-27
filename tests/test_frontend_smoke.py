@@ -1582,6 +1582,34 @@ def test_dashboard_shows_issues_and_recommendations() -> None:
         check(word not in dashboard_js, f"dashboard.js never calls {word} (nothing is run from the Dashboard)")
 
 
+def test_dashboard_links_to_processes_and_issue_resolver() -> None:
+    print("Checking the Dashboard links to the Processes and Issue Resolver pages...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", dashboard_js)
+
+    check(re.search(r'<article class="stat-card stat-card--interactive[^"]*"[^>]*data-card="processes"', html)
+          is not None and "navigateTo(card.dataset.card)" in code,
+          "the Processes KPI card opens the Processes page")
+    processes = re.search(r'aria-labelledby="dashboard-process-title">\s*<header class="dash-panel__head">.*?</header>',
+                          html, re.S)
+    check(processes is not None and 'id="dashboard-view-processes-button"' in processes.group(0),
+          "the Active Processes panel header has a link button")
+    check(re.search(r'viewProcessesButton\.addEventListener\("click", \(\) => \{\s*navigateTo\("processes"\);', code)
+          is not None, "the Active Processes link opens the Processes page")
+
+    issues = re.search(r'aria-labelledby="dashboard-issues-title">\s*<header class="dash-panel__head">.*?</header>',
+                       html, re.S)
+    check(issues is not None and 'id="dashboard-open-issue-resolver-button"' in issues.group(0),
+          "the Issues & Recommendations header has an Issue Resolver link")
+    check(re.search(r'openIssueResolverButton\.addEventListener\("click", \(\) => \{\s*navigateTo\("issue-resolver"\);',
+                    code) is not None, "the Issues & Recommendations link opens the Issue Resolver")
+    check('review.addEventListener("click", () => navigateTo("issue-resolver"));' in code,
+          "each Review & Resolve action still opens the Issue Resolver")
+    check('titleLink.addEventListener("click", () => navigateTo("issue-resolver"));' in code,
+          "each issue title opens the Issue Resolver")
+
+
 def test_theme_selector_offers_four_persisted_themes() -> None:
     print("Checking the theme selector offers Midnight/Slate/Professional/Light and persists the choice...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
@@ -1870,6 +1898,7 @@ def main() -> None:
         test_demo_activity_is_confirmed_and_uses_only_real_traces,
         test_detail_views_use_one_centered_workspace_pattern,
         test_dashboard_shows_issues_and_recommendations,
+        test_dashboard_links_to_processes_and_issue_resolver,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

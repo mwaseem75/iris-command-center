@@ -70,6 +70,8 @@ const dom = {
   activityTableBody: $("dashboard-activity-table-body"),
   operationsSummary: $("dashboard-operations-summary"),
   viewObservabilityButton: $("dashboard-view-observability-button"),
+  openIssueResolverButton: $("dashboard-open-issue-resolver-button"),
+  viewProcessesButton: $("dashboard-view-processes-button"),
   databasesViz: $("stat-databases-viz"),
   processesViz: $("stat-processes-viz"),
   webAppsViz: $("stat-web-apps-viz"),
@@ -460,9 +462,16 @@ function renderIssues(settled) {
     );
     const body_ = document.createElement("div");
     body_.className = "dash-issue__body";
+    // The title also opens the Issue Resolver, like "Review & Resolve".
     const title = document.createElement("p");
     title.className = "dash-issue__title";
-    title.textContent = `${resolution ? resolution.title : textOrPlaceholder(issue.kind)}: ${textOrPlaceholder(issue.database)}`;
+    const titleLink = document.createElement("button");
+    titleLink.className = "dash-issue__title-link";
+    titleLink.type = "button";
+    titleLink.textContent = `${resolution ? resolution.title : textOrPlaceholder(issue.kind)}: ${textOrPlaceholder(issue.database)}`;
+    titleLink.title = "Open in the Issue Resolver";
+    titleLink.addEventListener("click", () => navigateTo("issue-resolver"));
+    title.append(titleLink);
     const resource = document.createElement("p");
     resource.className = "dash-issue__resource";
     resource.textContent = `${textOrPlaceholder(issue.directory)} · ${textOrPlaceholder(issue.status)}`;
@@ -977,6 +986,12 @@ export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
 
   dom.viewObservabilityButton.addEventListener("click", () => {
     navigateTo("observability");
+  });
+  dom.openIssueResolverButton.addEventListener("click", () => {
+    navigateTo("issue-resolver");
+  });
+  dom.viewProcessesButton.addEventListener("click", () => {
+    navigateTo("processes");
   });
 
   // The count cards also link to their pages.

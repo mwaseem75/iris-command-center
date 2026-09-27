@@ -313,7 +313,7 @@
             <section class="info-card dash-panel dash-panel--alerts" aria-labelledby="dashboard-issues-title">
               <header class="dash-panel__head">
                 <h3 class="info-card__title" id="dashboard-issues-title"><span class="dash-panel__icon" aria-hidden="true">&#9888;</span>Issues &amp; Recommendations</h3>
-                <span class="dash-panel__meta" title="Detected in live IRIS data by the Command Center&rsquo;s issue check (GET /api/iris/issues).">Issue Resolver</span>
+                <button class="dash-panel__link" type="button" id="dashboard-open-issue-resolver-button" title="Detected in live IRIS data by the Command Center&rsquo;s issue check (GET /api/iris/issues). Opens the Issue Resolver.">Issue Resolver &rarr;</button>
               </header>
               <div class="dash-issues__summary" id="dashboard-issues-summary">
                 <span class="dash-issues__count" id="dashboard-issues-count">&mdash;</span>
@@ -325,7 +325,7 @@
             <section class="info-card dash-panel dash-panel--process" aria-labelledby="dashboard-process-title">
               <header class="dash-panel__head">
                 <h3 class="info-card__title" id="dashboard-process-title"><span class="dash-panel__icon" aria-hidden="true">&#9881;</span>Active Processes</h3>
-                <span class="dash-panel__meta" title="Current IRIS processes by state and namespace (GET /v2/processes).">GET /v2/processes</span>
+                <button class="dash-panel__link" type="button" id="dashboard-view-processes-button" title="Current IRIS processes by state and namespace (GET /v2/processes). Opens the Processes page.">View all &rarr;</button>
               </header>
               <p class="info-card__empty" id="dashboard-process-empty" hidden>Could not load processes.</p>
               <div class="dash-process" id="dashboard-process-state"></div>
