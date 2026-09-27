@@ -1079,7 +1079,7 @@ def test_extensions_nav_and_view_exist_and_are_enabled() -> None:
 
 
 def test_issue_resolver_page_exists_and_is_read_only() -> None:
-    print("Checking the Issue Resolver page exists and never changes IRIS...")
+    print("Checking the Issue Resolver page exists and changes IRIS only through the rehearsal...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
     nav_match = re.search(r'<button class="nav-item[^"]*"[^>]*data-view="issue-resolver"[^>]*>', html)
     check(nav_match is not None, 'a nav-item button with data-view="issue-resolver" exists')
@@ -1092,10 +1092,11 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
 
     js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
     calls = set(re.findall(r"IrisApi\.(\w+)", js))
-    check(calls == {"getIssues"}, f"issue-resolver.js calls only IrisApi.getIssues() (found {sorted(calls)})")
+    check(calls == {"getIssues", "runDemoRehearsal"},
+          f"issue-resolver.js calls only IrisApi.getIssues() and the existing rehearsal (found {sorted(calls)})")
     check("fetch(" not in js, "issue-resolver.js makes no raw fetch() call")
-    for word in ("mountDatabase", "dismountDatabase", "confirmed", "dry_run", "dryRun"):
-        check(word not in js, f"issue-resolver.js never references {word!r}")
+    for word in ("mountDatabase", "dismountDatabase", "confirmed", "dry_run:", "dryRun"):
+        check(word not in js, f"issue-resolver.js never references {word!r}")  # never builds its own request
     for key in ("resolutions", "detection_evidence", "workflow_steps", "required_privileges", "risk_level",
                 "recommended_solution", "Why this solution?", "affected_namespaces", "impact_evidence"):
         check(key in js, f"issue-resolver.js renders {key!r} from the catalog")
@@ -1103,6 +1104,34 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
     check('view === "issue-resolver"' in app_js and "loadIssueResolver()" in app_js,
           "app.js loads the Issue Resolver when its page opens")
+
+
+def test_issue_resolver_presents_the_rehearsal_lifecycle() -> None:
+    print("Checking the Issue Resolver shows the Issue Resolution Rehearsal as a lifecycle...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    view = re.search(r'<section[^>]*id="view-issue-resolver".*?</section>\s*\n\s*<section class="view"', html, re.S)
+    check(view is not None and 'id="issue-resolver-lifecycle"' in view.group(0),
+          "the rehearsal lifecycle lives on the Issue Resolver page")
+    check(view is not None and 'id="issue-resolver-rehearsal-ack"' in view.group(0),
+          "the rehearsal needs an explicit acknowledgement before it runs")
+    check(re.search(r'data-view="[^"]*(rehearsal|demo)[^"]*"', html) is None,
+          "no separate Demo/Rehearsal page or nav tab was added")
+
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    check(code.count("IrisApi.runDemoRehearsal(") == 1
+          and 'IrisApi.runDemoRehearsal(true, "issue_resolution")' in code,
+          "the page runs only the existing IPM Issue Resolution Rehearsal, from one place")
+    check("if (rehearsalRunning || !dom.rehearsalAck.checked) return;" in code,
+          "the rehearsal only runs after the acknowledgement checkbox")
+    check(re.findall(r"\brunRehearsal\(\)", code).count("runRehearsal()") == 2,
+          "runRehearsal() is defined once and called only from the Confirm & Run button")
+    for label in ("Create", "Detect", "Explain", "Resolve", "Verify", "Restore", "Observe"):
+        check(f'label: "{label}"' in code, f"the lifecycle has a {label!r} stage")
+    for step in ("issue.dismount", "issue.detect", "issue.fix", "issue.verify", "issue.restore"):
+        check(f'"{step}"' in code, f"the lifecycle is built from the rehearsal's real {step!r} step")
+    check("trace_id" in code and "onOpenTrace" in code, "the lifecycle links to the real Observability traces")
+    check("Math.random" not in code and "setInterval(" not in code, "no simulated progress")
 
 
 def test_traces_show_issue_resolution_context() -> None:
@@ -1746,6 +1775,7 @@ def main() -> None:
         test_extensions_nav_and_view_exist_and_are_enabled,
         test_extensions_view_uses_only_expected_endpoints,
         test_issue_resolver_page_exists_and_is_read_only,
+        test_issue_resolver_presents_the_rehearsal_lifecycle,
         test_traces_show_issue_resolution_context,
         test_investigation_nav_and_view_exist_and_are_enabled,
         test_investigation_view_uses_only_expected_endpoints,

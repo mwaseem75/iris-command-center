@@ -2,11 +2,14 @@
 // explained with its entry from the Issue Resolution Catalog (the
 // response's `resolutions`, keyed by issue kind).
 //
-// Read-only. The page shows the evidence, the recommended solution and the
-// workflow, but never runs anything; resolving happens through Resolve
-// Issues on the Databases page.
+// The page itself never changes IRIS: resolving happens through Resolve
+// Issues on the Databases page. The one exception is the Issue Resolution
+// Rehearsal panel, which runs the existing IPM rehearsal
+// (POST /api/iris/demo/rehearsal, scenario "issue_resolution") only after an
+// explicit Confirm & Run, and shows its real step results as a lifecycle:
+// Create -> Detect -> Explain -> Resolve -> Verify -> Restore -> Observe.
 
-import { IrisApi } from "./api.js";
+import { ApiError, IrisApi } from "./api.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
 
@@ -43,12 +46,31 @@ const dom = {
   drawerSeverity: document.getElementById("issue-resolver-drawer-severity"),
   drawerBody: document.getElementById("issue-resolver-drawer-body"),
   openDatabasesButton: document.getElementById("issue-resolver-open-databases"),
+  rehearsalStart: document.getElementById("issue-resolver-rehearsal-start"),
+  rehearsalConfirm: document.getElementById("issue-resolver-rehearsal-confirm"),
+  rehearsalAck: document.getElementById("issue-resolver-rehearsal-ack"),
+  rehearsalRun: document.getElementById("issue-resolver-rehearsal-run"),
+  rehearsalCancel: document.getElementById("issue-resolver-rehearsal-cancel"),
+  lifecycle: document.getElementById("issue-resolver-lifecycle"),
+  rehearsalRunning: document.getElementById("issue-resolver-rehearsal-running"),
+  rehearsalError: document.getElementById("issue-resolver-rehearsal-error"),
+  rehearsalErrorText: document.getElementById("issue-resolver-rehearsal-error-text"),
+  rehearsalSummary: document.getElementById("issue-resolver-rehearsal-summary"),
+  rehearsalResults: document.getElementById("issue-resolver-rehearsal-results"),
+  rehearsalStages: document.getElementById("issue-resolver-rehearsal-stages"),
 };
 
 // The last response; the drawer reads from it.
 let activeIssues = [];
 let resolutions = {};
 let onOpenDatabases = null;
+let onOpenTrace = null;
+let onRehearsalFinished = null;
+
+// The last rehearsal: { result, seconds } or null. Kept across page reloads
+// of the issue list.
+let lastRehearsal = null;
+let rehearsalRunning = false;
 
 function textOrPlaceholder(value) {
   if (value === null || value === undefined) return PLACEHOLDER;
@@ -346,6 +368,219 @@ function closeDrawer() {
   dom.drawer.hidden = true;
 }
 
+// --- Issue Resolution Rehearsal ---
+
+const DISMOUNTED = "database_dismounted";
+
+// The lifecycle, and which of the rehearsal's own steps back each stage.
+const LIFECYCLE = [
+  { key: "create", label: "Create", sub: "Dismount IPM", steps: ["issue.read", "issue.dry_run", "issue.dismount"] },
+  { key: "detect", label: "Detect", sub: "Find the issue", steps: ["issue.detect"] },
+  { key: "explain", label: "Explain", sub: "Show impact", steps: ["issue.detect"] },
+  { key: "resolve", label: "Resolve", sub: "database.mount", steps: ["issue.fix"] },
+  { key: "verify", label: "Verify", sub: "Confirm the fix", steps: ["issue.verify"] },
+  { key: "restore", label: "Restore", sub: "Original state", steps: [] },
+  { key: "observe", label: "Observe", sub: "Traces", steps: [] },
+];
+
+const STAGE_LABELS = { done: "Completed", failed: "Failed", pending: "Not run", waiting: "Waiting" };
+const STAGE_BADGES = {
+  done: "status-badge--ok",
+  failed: "status-badge--error",
+  pending: "status-badge--neutral",
+  waiting: "status-badge--neutral",
+};
+
+const SUMMARY = {
+  completed: ["banner--success", "Rehearsal completed",
+    "The issue was created, detected, resolved and verified, and IPM is back to its original state."],
+  stopped: ["banner--warning", "Rehearsal stopped", "A step didn't complete. See the step results below."],
+  restore_failed: ["banner--error", "IPM could not be restored",
+    "IPM may still be dismounted. Mount it from Resolve Issues on the Databases page."],
+};
+
+function stepsById(result) {
+  const map = new Map();
+  for (const step of Array.isArray(result?.steps) ? result.steps : []) map.set(step.step, step);
+  return map;
+}
+
+function stageFromSteps(ids, steps) {
+  const found = ids.map((id) => steps.get(id)).filter(Boolean);
+  if (found.length === 0) return "pending";
+  if (found.some((step) => step.status === "failed")) return "failed";
+  return found.length === ids.length ? "done" : "pending";
+}
+
+// Each stage's state and detail, built only from the rehearsal's real steps
+// and the catalog entry.
+function lifecycleStages(result) {
+  const steps = stepsById(result);
+  const entry = resolutions[DISMOUNTED];
+  const detect = steps.get("issue.detect");
+  const fix = steps.get("issue.fix");
+  const verify = steps.get("issue.verify");
+  const restoreStep = steps.get("issue.restore");
+  const target = detect?.target || fix?.target || "IPM";
+  const traces = [...steps.values()].filter((step) => step.trace_id);
+
+  return LIFECYCLE.map((stage) => {
+    let state = stageFromSteps(stage.steps, steps);
+    let detail = "";
+    let traceId = null;
+    switch (stage.key) {
+      case "create":
+        detail = steps.get("issue.dismount")?.detail || steps.get("issue.dry_run")?.detail || steps.get("issue.read")?.detail || "";
+        break;
+      case "detect":
+        detail = detect
+          ? `GET /api/iris/issues reports ${entry ? entry.title.toLowerCase() : "an issue"}: ${target}.`
+          : "";
+        if (detect && detect.status !== "success") detail = detect.detail;
+        break;
+      case "explain":
+        detail = detect ? String(detect.detail || "").replace(/^Command Center Issue:\s*/, "") : "";
+        break;
+      case "resolve":
+        detail = fix ? `${textOrPlaceholder(fix.operation_name)} (${textOrPlaceholder(fix.operation_status)}): ${textOrPlaceholder(fix.detail)}` : "";
+        traceId = fix?.trace_id || null;
+        break;
+      case "verify":
+        detail = verify?.detail || "";
+        break;
+      case "restore":
+        if (restoreStep) {
+          state = restoreStep.status === "success" ? "done" : "failed";
+          detail = restoreStep.detail;
+        } else if (result?.status === "restore_failed") {
+          state = "failed";
+          detail = result.detail;
+        } else if (verify?.status === "success" && steps.get("issue.read")?.status === "success") {
+          state = "done";
+          detail = `${target} was mounted before the rehearsal and is mounted again, so nothing is left to restore.`;
+        }
+        break;
+      case "observe":
+        state = traces.length ? "done" : "pending";
+        detail = traces.length
+          ? `${traces.length} execution trace${traces.length === 1 ? "" : "s"} recorded; the resolution is labelled Issue Resolver.`
+          : "";
+        traceId = fix?.trace_id || traces[traces.length - 1]?.trace_id || null;
+        break;
+      default:
+        break;
+    }
+    return { ...stage, state, detail, traceId, traces: stage.key === "observe" ? traces : [] };
+  });
+}
+
+function renderLifecycle(stages) {
+  dom.lifecycle.replaceChildren();
+  stages.forEach((stage, index) => {
+    const item = el("li", "ir-lifecycle__stage");
+    item.dataset.state = stage.state;
+    const marker = el("span", "ir-lifecycle__marker", stage.state === "done" ? "✓" : stage.state === "failed" ? "!" : String(index + 1));
+    marker.setAttribute("aria-hidden", "true");
+    item.append(marker, el("span", "ir-lifecycle__label", stage.label), el("span", "ir-lifecycle__sub", stage.sub));
+    item.title = `${stage.label}: ${STAGE_LABELS[stage.state]}`;
+    dom.lifecycle.append(item);
+  });
+}
+
+function traceButton(traceId, text) {
+  const button = el("button", "dash-panel__link", text);
+  button.type = "button";
+  button.title = `Open trace ${traceId} in Observability`;
+  button.addEventListener("click", () => onOpenTrace && onOpenTrace(traceId));
+  return button;
+}
+
+function renderRehearsal() {
+  const result = lastRehearsal?.result || null;
+  const stages = lifecycleStages(result).map((stage) =>
+    rehearsalRunning ? { ...stage, state: "waiting" } : result ? stage : { ...stage, state: "pending" });
+  renderLifecycle(stages);
+
+  dom.rehearsalRunning.hidden = !rehearsalRunning;
+  dom.rehearsalStart.disabled = rehearsalRunning;
+  dom.rehearsalSummary.hidden = rehearsalRunning || !result;
+  dom.rehearsalResults.hidden = rehearsalRunning || !result;
+  if (rehearsalRunning || !result) return;
+
+  const [variant, title, text] = SUMMARY[result.status] ||
+    ["banner--warning", `Rehearsal ${textOrPlaceholder(result.status)}`, textOrPlaceholder(result.detail)];
+  const summary = el("div", `banner ${variant} ir-rehearsal__banner`);
+  const body = el("div", "ir-rehearsal__banner-body");
+  body.append(el("strong", null, title), el("span", null, text));
+  if (lastRehearsal.seconds !== null) {
+    body.append(el("span", "ir-rehearsal__time", `Finished in ${lastRehearsal.seconds.toFixed(1)} s`));
+  }
+  summary.append(body);
+  const fixTrace = stepsById(result).get("issue.fix")?.trace_id;
+  if (fixTrace && onOpenTrace) summary.append(traceButton(fixTrace, "View in Observability →"));
+  dom.rehearsalSummary.replaceChildren(summary);
+
+  dom.rehearsalStages.replaceChildren();
+  stages.forEach((stage, index) => {
+    const row = el("li", "ir-stage");
+    row.dataset.state = stage.state;
+    row.append(
+      el("span", "ir-stage__number", String(index + 1)),
+      el("span", "ir-stage__label", stage.label),
+      badge(STAGE_LABELS[stage.state], STAGE_BADGES[stage.state]),
+    );
+    const detail = el("div", "ir-stage__detail");
+    detail.append(el("span", null, stage.detail || "—"));
+    if (stage.key === "explain" && stage.state === "done" && resolutions[DISMOUNTED]) {
+      detail.append(el("span", "ir-stage__note", `Catalog: ${resolutions[DISMOUNTED].explanation}`));
+    }
+    if (stage.key === "observe" && onOpenTrace) {
+      const links = el("span", "ir-stage__links");
+      for (const step of stage.traces) {
+        links.append(traceButton(step.trace_id, `${textOrPlaceholder(step.operation_name)} ${String(step.trace_id).slice(0, 8)} →`));
+      }
+      if (links.childElementCount) detail.append(links);
+    } else if (stage.traceId && onOpenTrace) {
+      detail.append(traceButton(stage.traceId, "View trace →"));
+    }
+    row.append(detail);
+    dom.rehearsalStages.append(row);
+  });
+}
+
+function showRehearsalConfirm(show) {
+  dom.rehearsalConfirm.hidden = !show;
+  dom.rehearsalAck.checked = false;
+  dom.rehearsalRun.disabled = true;
+  if (show) dom.rehearsalAck.focus();
+}
+
+// Only called from the Confirm & Run button, after the checkbox.
+async function runRehearsal() {
+  if (rehearsalRunning || !dom.rehearsalAck.checked) return;
+  showRehearsalConfirm(false);
+  dom.rehearsalError.hidden = true;
+  rehearsalRunning = true;
+  renderRehearsal();
+  const started = performance.now();
+  try {
+    const result = await IrisApi.runDemoRehearsal(true, "issue_resolution");
+    lastRehearsal = { result, seconds: (performance.now() - started) / 1000 };
+  } catch (err) {
+    dom.rehearsalErrorText.textContent =
+      err instanceof ApiError && err.status === 409
+        ? "Another rehearsal is already running. Wait for it to finish, then try again."
+        : "Could not run the rehearsal. The Command Center backend may be unreachable.";
+    dom.rehearsalError.hidden = false;
+  } finally {
+    rehearsalRunning = false;
+    renderRehearsal();
+    // Issues and traces changed; refresh this page and the trace views.
+    loadIssueResolver();
+    if (onRehearsalFinished) onRehearsalFinished();
+  }
+}
+
 /** Load GET /api/iris/issues and render the page. */
 export async function loadIssueResolver() {
   setLoading(true);
@@ -363,13 +598,34 @@ export async function loadIssueResolver() {
   renderKpis();
   renderIssues();
   renderCatalog();
+  renderRehearsal();
   setLoading(false);
 }
 
-/** `onOpenDatabases()` goes to Resolve Issues on the Databases page (wired by app.js). */
-export function initIssueResolverControls({ onOpenDatabases: openDatabases } = {}) {
+/**
+ * Wired by app.js: `onOpenDatabases()` goes to Resolve Issues on the
+ * Databases page, `onOpenTrace(id)` opens a trace in Observability, and
+ * `onRehearsalFinished()` refreshes the other pages that show traces.
+ */
+export function initIssueResolverControls({
+  onOpenDatabases: openDatabases,
+  onOpenTrace: openTrace,
+  onRehearsalFinished: finished,
+} = {}) {
   onOpenDatabases = typeof openDatabases === "function" ? openDatabases : null;
+  onOpenTrace = typeof openTrace === "function" ? openTrace : null;
+  onRehearsalFinished = typeof finished === "function" ? finished : null;
   dom.openDatabasesButton.hidden = !onOpenDatabases;
+
+  dom.rehearsalStart.addEventListener("click", () => showRehearsalConfirm(true));
+  dom.rehearsalCancel.addEventListener("click", () => showRehearsalConfirm(false));
+  dom.rehearsalAck.addEventListener("change", () => {
+    dom.rehearsalRun.disabled = !dom.rehearsalAck.checked;
+  });
+  dom.rehearsalRun.addEventListener("click", () => {
+    runRehearsal();
+  });
+  renderRehearsal();
 
   dom.refreshButton.addEventListener("click", () => {
     loadIssueResolver();

@@ -690,6 +690,12 @@ input:focus-visible {
   color: var(--color-warning);
 }
 
+.banner--success {
+  background: var(--color-success-soft);
+  border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+  color: var(--color-success);
+}
+
 .banner__icon {
   font-size: 15px;
   flex-shrink: 0;
@@ -5791,4 +5797,226 @@ html.detail-workspace-open {
 .dash-issue__action {
   grid-column: 2;
   justify-self: start;
+}
+
+/* --- Issue Resolver: Issue Resolution Rehearsal --- */
+
+.ir-rehearsal__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 14px;
+}
+
+.ir-rehearsal__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--color-accent);
+  font-size: 14px;
+}
+
+.ir-rehearsal__intro {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.ir-rehearsal__intro .info-card__hint {
+  margin-bottom: 0;
+}
+
+.ir-rehearsal__confirm {
+  margin-top: 14px;
+}
+
+.ir-rehearsal__confirm .banner {
+  margin-bottom: 10px;
+}
+
+/* Lifecycle: numbered stages joined by a line, wrapping on narrow screens. */
+.ir-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px 4px;
+  margin: 18px 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.ir-lifecycle__stage {
+  --stage-color: var(--color-text-faint);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-align: center;
+  min-width: 0;
+}
+
+.ir-lifecycle__stage:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: calc(50% + 20px);
+  right: calc(-50% + 20px);
+  height: 2px;
+  background: var(--color-border);
+}
+
+.ir-lifecycle__stage[data-state="done"] { --stage-color: var(--color-success); }
+.ir-lifecycle__stage[data-state="failed"] { --stage-color: var(--color-error); }
+.ir-lifecycle__stage[data-state="waiting"] { --stage-color: var(--color-accent); }
+
+.ir-lifecycle__stage[data-state="done"]:not(:last-child)::after {
+  background: color-mix(in srgb, var(--color-success) 55%, var(--color-border));
+}
+
+.ir-lifecycle__marker {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--stage-color);
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--stage-color);
+  background: var(--color-surface);
+}
+
+.ir-lifecycle__stage[data-state="done"] .ir-lifecycle__marker,
+.ir-lifecycle__stage[data-state="failed"] .ir-lifecycle__marker {
+  color: var(--color-surface);
+  background: var(--stage-color);
+}
+
+.ir-lifecycle__stage[data-state="waiting"] .ir-lifecycle__marker {
+  border-style: dashed;
+}
+
+.ir-lifecycle__label {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+
+.ir-lifecycle__sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.ir-rehearsal__banner {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.ir-rehearsal__banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ir-rehearsal__banner-body span {
+  font-weight: 400;
+  color: var(--color-text);
+}
+
+.ir-rehearsal__time {
+  font-size: 12px;
+  color: var(--color-text-muted) !important;
+}
+
+.ir-stage-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.ir-stage {
+  display: grid;
+  grid-template-columns: 28px 90px 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.ir-stage:last-child {
+  border-bottom: none;
+}
+
+.ir-stage__number {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-surface);
+  background: var(--color-text-faint);
+}
+
+.ir-stage[data-state="done"] .ir-stage__number { background: var(--color-success); }
+.ir-stage[data-state="failed"] .ir-stage__number { background: var(--color-error); }
+
+.ir-stage__label {
+  font-weight: 700;
+  color: var(--color-text);
+  padding-top: 2px;
+}
+
+.ir-stage .status-badge {
+  justify-self: start;
+}
+
+.ir-stage__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ir-stage__note {
+  font-size: 12px;
+  color: var(--color-text-faint);
+}
+
+.ir-stage__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ir-stage__detail .dash-panel__link {
+  align-self: flex-start;
+}
+
+@media (max-width: 900px) {
+  .ir-lifecycle {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ir-lifecycle__stage::after {
+    display: none;
+  }
+
+  .ir-stage {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .ir-stage__detail {
+    grid-column: 2 / -1;
+  }
 }

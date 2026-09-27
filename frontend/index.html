@@ -2489,6 +2489,51 @@
             <p class="empty-state" id="issue-resolver-empty" hidden>No active issues detected.</p>
           </section>
 
+          <section class="info-card ir-panel ir-rehearsal" aria-labelledby="issue-resolver-rehearsal-title">
+            <div class="ir-rehearsal__head">
+              <span class="ir-rehearsal__icon" aria-hidden="true">&#9654;</span>
+              <div class="ir-rehearsal__intro">
+                <h3 class="info-card__title" id="issue-resolver-rehearsal-title">Issue Resolution Rehearsal</h3>
+                <p class="info-card__hint">Creates a real, reversible issue by dismounting the IPM database, then runs the whole lifecycle with the existing operations. Every change is authorized, confirmed, verified and traced. Only IPM is touched, and if anything fails after the dismount, IPM is mounted again.</p>
+              </div>
+              <button class="btn btn--primary" type="button" id="issue-resolver-rehearsal-start">
+                <span class="btn__icon" aria-hidden="true">&#9654;</span>
+                Run Rehearsal
+              </button>
+            </div>
+
+            <div class="ir-rehearsal__confirm" id="issue-resolver-rehearsal-confirm" hidden>
+              <div class="banner banner--warning" role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span>This dismounts the IPM database on the connected IRIS instance for a few seconds and then mounts it again.</span>
+              </div>
+              <label class="ns-form-checkbox">
+                <input type="checkbox" id="issue-resolver-rehearsal-ack" />
+                I understand IPM will be dismounted and mounted again.
+              </label>
+              <div class="btn-row">
+                <button class="btn btn--warning" type="button" id="issue-resolver-rehearsal-run" disabled>Confirm &amp; Run</button>
+                <button class="btn" type="button" id="issue-resolver-rehearsal-cancel">Cancel</button>
+              </div>
+            </div>
+
+            <ol class="ir-lifecycle" id="issue-resolver-lifecycle" aria-label="Rehearsal lifecycle"></ol>
+
+            <div class="loading-state" id="issue-resolver-rehearsal-running" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Running the rehearsal&hellip; results appear when it finishes (usually a few seconds).</span>
+            </div>
+            <div class="banner banner--error" id="issue-resolver-rehearsal-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="issue-resolver-rehearsal-error-text"></span>
+            </div>
+            <div class="ir-rehearsal__summary" id="issue-resolver-rehearsal-summary" hidden></div>
+            <div class="ir-rehearsal__results" id="issue-resolver-rehearsal-results" hidden>
+              <h4 class="ns-drawer__section-title">Step results</h4>
+              <ol class="ir-stage-list" id="issue-resolver-rehearsal-stages"></ol>
+            </div>
+          </section>
+
           <section class="info-card ir-panel" aria-labelledby="issue-resolver-catalog-title">
             <h3 class="info-card__title" id="issue-resolver-catalog-title">Issue Types the Resolver Knows</h3>
             <p class="info-card__hint">Every entry in the resolution catalog, whether or not it's active right now.</p>

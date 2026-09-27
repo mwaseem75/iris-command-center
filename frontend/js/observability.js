@@ -262,7 +262,7 @@ function buildResolutionContext(resolution) {
   box.append(el("span", "obs-resolution__label", "Issue Resolution"));
   const text = el("p", "obs-resolution__text");
   text.append(
-    document.createTextNode("Started from the Resolve Issues workflow for "),
+    document.createTextNode("Started from an Issue Resolution workflow for "),
     el("strong", "", textOrPlaceholder(resolution.issue_title)),
     document.createTextNode(" "),
     el("span", "obs-resolution__mono", `(${textOrPlaceholder(resolution.issue_type)})`),

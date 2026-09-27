@@ -98,7 +98,15 @@ function init() {
     onOpenTrace: openTrace,
   });
   initCapabilitiesControls();
-  initIssueResolverControls({ onOpenDatabases: () => navigateTo("databases") });
+  initIssueResolverControls({
+    onOpenDatabases: () => navigateTo("databases"),
+    onOpenTrace: openTrace,
+    // After the rehearsal, reload the traces wherever they're shown.
+    onRehearsalFinished: () => {
+      loadDashboard();
+      loadExecutionTraces();
+    },
+  });
 
   // Reload data each time a page is opened so it's never stale.
   initNavigation((view) => {
