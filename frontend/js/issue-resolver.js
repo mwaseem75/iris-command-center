@@ -58,6 +58,7 @@ const dom = {
   rehearsalSummary: document.getElementById("issue-resolver-rehearsal-summary"),
   rehearsalResults: document.getElementById("issue-resolver-rehearsal-results"),
   rehearsalStages: document.getElementById("issue-resolver-rehearsal-stages"),
+  rehearsalEvidence: document.getElementById("issue-resolver-rehearsal-evidence"),
 };
 
 // The last response; the drawer reads from it.
@@ -67,8 +68,9 @@ let onOpenDatabases = null;
 let onOpenTrace = null;
 let onRehearsalFinished = null;
 
-// The last rehearsal: { result, seconds } or null. Kept across page reloads
-// of the issue list.
+// The last rehearsal: { result, seconds, fixTrace } or null. Kept across
+// page reloads of the issue list. fixTrace is the recorded execution trace of
+// the database.mount fix (null if it couldn't be read).
 let lastRehearsal = null;
 let rehearsalRunning = false;
 
@@ -476,6 +478,99 @@ function lifecycleStages(result) {
 
 function renderLifecycle(stages) {
   dom.lifecycle.replaceChildren();
+// --- Evidence chain: Detection -> Impact -> Resolution -> Verification -> Observability ---
+//
+// Only data the workflow already produced: the rehearsal's steps (the
+// detected issue's explanation, the fix and the verification), the fix's
+// execution trace, and the catalog entry.
+
+// The detect step carries the issue's explanation, built by the issues route
+// from fixed sentences; pull out the status and the namespace impact.
+function parseDetection(detail) {
+  const text = String(detail || "");
+  const found = text.match(/Database (\S+) \((.+?)\) is reported by IRIS as "([^"]+)"/);
+  const impact = text.match(/(No namespace uses it for Globals or Routines\.|Namespaces that depend on it: [^.]+\.|Which namespaces use it couldn't be read\.)/);
+  return {
+    database: found ? found[1] : null,
+    directory: found ? found[2] : null,
+    status: found ? found[3] : null,
+    impact: impact ? impact[1] : null,
+  };
+}
+
+function evidenceChain(result, fixTrace) {
+  const steps = stepsById(result);
+  const entry = resolutions[DISMOUNTED];
+  const detect = steps.get("issue.detect");
+  const fix = steps.get("issue.fix");
+  const verify = steps.get("issue.verify");
+  const detection = parseDetection(detect?.detail);
+  const readOnly = entry?.parameters?.find((b) => b.name === "ReadOnly");
+  const operationRule = entry?.verification_rules?.find((r) => r.checked_by === "operation");
+  const directory = fixTrace?.resolution?.resource || detection.directory;
+  const verified = fixTrace ? fixTrace.verification_result === "verified" : fix?.status === "success";
+
+  return [
+    {
+      label: "Detection",
+      source: "GET /api/iris/issues · /v2/database-dirs Status",
+      value: detection.status
+        ? `${detection.database} (${detection.directory}) reported "${detection.status}"`
+        : textOrPlaceholder(detect?.detail),
+      ok: detect?.status === "success",
+    },
+    {
+      label: "Impact",
+      source: "GET /v2/namespaces · Globals, Routines",
+      value: detection.impact || PLACEHOLDER,
+      ok: detect?.status === "success" && Boolean(detection.impact),
+    },
+    {
+      label: "Resolution",
+      source: textOrPlaceholder(fix?.operation_name),
+      value: fix
+        ? `Directory=${textOrPlaceholder(directory)}, ReadOnly=${textOrPlaceholder(readOnly?.value)} · ${textOrPlaceholder(fix.operation_status)}`
+        : PLACEHOLDER,
+      ok: fix?.status === "success",
+    },
+    {
+      label: "Verification",
+      source: `${operationRule ? operationRule.source : "operation verification"} · GET /api/iris/issues`,
+      value: fix
+        ? [
+          verified ? "Mounted=true (operation verification: verified)" : `Operation verification: ${textOrPlaceholder(fixTrace?.verification_result)}`,
+          verify?.status === "success" ? "issue cleared" : textOrPlaceholder(verify?.detail),
+        ].join("; ")
+        : PLACEHOLDER,
+      ok: verified && verify?.status === "success",
+    },
+    {
+      label: "Observability",
+      source: "Execution trace",
+      value: fixTrace
+        ? `${String(fixTrace.trace_id).slice(0, 8)} · ${textOrPlaceholder(fixTrace.status)} · labelled ${textOrPlaceholder(fixTrace.resolution?.issue_title)}`
+        : fix?.trace_id ? `${String(fix.trace_id).slice(0, 8)} (details couldn't be loaded)` : PLACEHOLDER,
+      ok: Boolean(fixTrace?.resolution),
+      traceId: fix?.trace_id || null,
+    },
+  ];
+}
+
+function renderEvidence(result, fixTrace) {
+  dom.rehearsalEvidence.replaceChildren();
+  for (const item of evidenceChain(result, fixTrace)) {
+    const row = el("li", "ir-evidence__row");
+    row.dataset.ok = String(item.ok);
+    const mark = el("span", "ir-evidence__mark", item.ok ? "✓" : "–");
+    mark.setAttribute("aria-label", item.ok ? "evidence present" : "evidence missing");
+    const body = el("span", "ir-evidence__body");
+    body.append(el("span", "ir-evidence__value", item.value));
+    if (item.traceId && onOpenTrace) body.append(traceButton(item.traceId, "Open trace →"));
+    row.append(mark, el("span", "ir-evidence__label", item.label), el("span", "ir-evidence__source", item.source), body);
+    dom.rehearsalEvidence.append(row);
+  }
+}
+
   stages.forEach((stage, index) => {
     const item = el("li", "ir-lifecycle__stage");
     item.dataset.state = stage.state;
@@ -524,6 +619,8 @@ function renderRehearsal() {
   stages.forEach((stage, index) => {
     const row = el("li", "ir-stage");
     row.dataset.state = stage.state;
+  renderEvidence(result, lastRehearsal.fixTrace);
+
     row.append(
       el("span", "ir-stage__number", String(index + 1)),
       el("span", "ir-stage__label", stage.label),
@@ -562,10 +659,23 @@ async function runRehearsal() {
   dom.rehearsalError.hidden = true;
   rehearsalRunning = true;
   renderRehearsal();
+// The recorded trace of the rehearsal's fix (read-only; null if unavailable).
+async function readFixTrace(result) {
+  const traceId = stepsById(result).get("issue.fix")?.trace_id;
+  if (!traceId) return null;
+  try {
+    const response = await IrisApi.getExecutionTraces();
+    return (response?.traces || []).find((trace) => trace.trace_id === traceId) || null;
+  } catch {
+    return null;  // the evidence falls back to the step results
+  }
+}
+
   const started = performance.now();
   try {
     const result = await IrisApi.runDemoRehearsal(true, "issue_resolution");
-    lastRehearsal = { result, seconds: (performance.now() - started) / 1000 };
+    const seconds = (performance.now() - started) / 1000;
+    lastRehearsal = { result, seconds, fixTrace: await readFixTrace(result) };
   } catch (err) {
     dom.rehearsalErrorText.textContent =
       err instanceof ApiError && err.status === 409

@@ -1,5 +1,6 @@
 """Tests for GET /api/iris/issues (dismounted databases). IRIS is mocked."""
 
+import re
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -146,3 +147,16 @@ def test_namespaces_are_not_read_when_there_are_no_issues(client: TestClient, mo
 
     called = [call.args[0] for call in mock_iris_client.get.call_args_list]
     assert "/v2/namespaces" not in called
+
+
+def test_explanation_keeps_the_sentences_the_issue_resolver_evidence_reads(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    # issue-resolver.js parses these fixed sentences for its Evidence chain.
+    _mock(mock_iris_client, [_db("DEMO", "/data/demo/")], [_dir("/data/demo/", "Dismounted")],
+          [_ns("APP", "DEMO", "USER")])
+
+    (issue,) = client.get("/api/iris/issues").json()["issues"]
+
+    assert re.search(r'Database DEMO \(/data/demo/\) is reported by IRIS as "Dismounted"', issue["explanation"])
+    assert re.search(r"Namespaces that depend on it: [^.]+\.", issue["explanation"])

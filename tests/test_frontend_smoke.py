@@ -1092,8 +1092,8 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
 
     js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
     calls = set(re.findall(r"IrisApi\.(\w+)", js))
-    check(calls == {"getIssues", "runDemoRehearsal"},
-          f"issue-resolver.js calls only IrisApi.getIssues() and the existing rehearsal (found {sorted(calls)})")
+    check(calls == {"getIssues", "runDemoRehearsal", "getExecutionTraces"},
+          f"issue-resolver.js calls only getIssues(), the existing rehearsal and the trace list (found {sorted(calls)})")
     check("fetch(" not in js, "issue-resolver.js makes no raw fetch() call")
     for word in ("mountDatabase", "dismountDatabase", "confirmed", "dry_run:", "dryRun"):
         check(word not in js, f"issue-resolver.js never references {word!r}")  # never builds its own request
@@ -1132,6 +1132,24 @@ def test_issue_resolver_presents_the_rehearsal_lifecycle() -> None:
         check(f'"{step}"' in code, f"the lifecycle is built from the rehearsal's real {step!r} step")
     check("trace_id" in code and "onOpenTrace" in code, "the lifecycle links to the real Observability traces")
     check("Math.random" not in code and "setInterval(" not in code, "no simulated progress")
+
+
+def test_issue_resolver_shows_the_rehearsal_evidence_chain() -> None:
+    print("Checking the rehearsal's evidence chain uses only existing workflow data...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    check('id="issue-resolver-rehearsal-evidence"' in html, "the rehearsal results have an Evidence section")
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    for label in ("Detection", "Impact", "Resolution", "Verification", "Observability"):
+        check(f'label: "{label}"' in code, f"the evidence chain has a {label!r} stage")
+    for source in ('steps.get("issue.detect")', 'steps.get("issue.fix")', 'steps.get("issue.verify")',
+                   "fixTrace?.resolution?.resource", 'fixTrace.verification_result === "verified"',
+                   "entry?.verification_rules", 'entry?.parameters?.find((b) => b.name === "ReadOnly")'):
+        check(source in code, f"the evidence reads {source!r}")
+    check(code.count("IrisApi.getExecutionTraces()") == 1 and "readFixTrace" in code,
+          "the fix trace is read once from the existing trace list")
+    check('"Mounted=true (operation verification: verified)"' in code and "verified ?" in code,
+          "Mounted=true is only claimed when the recorded verification says verified")
 
 
 def test_traces_show_issue_resolution_context() -> None:
@@ -1776,6 +1794,7 @@ def main() -> None:
         test_extensions_view_uses_only_expected_endpoints,
         test_issue_resolver_page_exists_and_is_read_only,
         test_issue_resolver_presents_the_rehearsal_lifecycle,
+        test_issue_resolver_shows_the_rehearsal_evidence_chain,
         test_traces_show_issue_resolution_context,
         test_investigation_nav_and_view_exist_and_are_enabled,
         test_investigation_view_uses_only_expected_endpoints,
