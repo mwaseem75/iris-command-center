@@ -5,7 +5,7 @@
 A modern operational console for **InterSystems IRIS** that brings monitoring, administration, investigation, security visibility, issue resolution, and operational tracing into one place.
 It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and a deterministic AI Assistant.
 <p align="center">
-  <img width="2507" height="1278" alt="image" src="https://github.com/user-attachments/assets/11287960-6cfe-4402-9429-6a2af1a55e96" />
+  <img width="2507"  alt="image" src="https://github.com/user-attachments/assets/11287960-6cfe-4402-9429-6a2af1a55e96" />
 
 </p>
 <p align="center">
@@ -129,7 +129,7 @@ IRIS Command Center is designed around practical operational scenarios rather th
 
 ### 📊 Dashboard & Explorers
 The dashboard provides a live operational snapshot. 
-<img width="2172" height="1168" alt="image" src="https://github.com/user-attachments/assets/ca0ac865-94f7-46f1-99f5-712364961983" />
+<img width="2172"  alt="image" src="https://github.com/user-attachments/assets/ca0ac865-94f7-46f1-99f5-712364961983" />
 
 ### 🩺 Issue Resolver
 Issue Resolver provides deterministic detection and guided resolution for supported IRIS operational issues.
@@ -139,7 +139,7 @@ Enabled Web Application with Missing Namespace — detects an enabled web applic
 Each issue is based on live IRIS API evidence rather than simulated data. The resolver presents the affected resource, evidence, explanation, recommended solution, required privilege, risk level, and resolution workflow.
 Resolution always follows the same controlled lifecycle: authorization → explicit confirmation → execution → verification. The resulting operation is captured in Observability and can be associated with the issue that initiated the resolution.
 The issue catalog is intentionally curated: Command Center reports conditions where it has a deterministic detection rule and a safe, verified resolution path.
-<img width="2172" height="1085" alt="image" src="https://github.com/user-attachments/assets/e3ce708b-1e69-4d08-b7ae-b187c1adeded" />
+<img width="2172"  alt="image" src="https://github.com/user-attachments/assets/e3ce708b-1e69-4d08-b7ae-b187c1adeded" />
 
 ### 🛠️ IRIS System Administration (Operations)
 Monitor an IRIS instance, explore its configuration, and perform supported administrative tasks from one operational console.
@@ -150,7 +150,7 @@ Demo Activity provides a controlled way to demonstrate IRIS Command Center's ope
 The rehearsal uses the real connected IRIS instance and performs a small set of safe, reversible actions, verifying each step and restoring the original state afterward. The workflow also produces execution traces that can be inspected in Observability.
 For Issue Resolver demonstrations, Command Center can intentionally create a clearly labelled, reversible demo issue on the IPM database. The normal Issue Resolver then detects the real IRIS condition, presents the evidence and recommended solution, resolves it through the same authorization and confirmation pipeline used for normal operations, and verifies the result.
 Demo Activity is separate from the Supported Actions catalog: it exists specifically for demonstrations and testing of the Command Center's safety, verification, restoration, and observability workflows.
-<img width="2152" height="1137" alt="image" src="https://github.com/user-attachments/assets/3dc99495-4c6f-4d6b-ac1e-2210e822abed" />
+<img width="2152"  alt="image" src="https://github.com/user-attachments/assets/3dc99495-4c6f-4d6b-ac1e-2210e822abed" />
 
 ### 👁️ Observability
 Observability gives administrators a clear view of what happened inside Command Center and what IRIS recorded during those activities.
@@ -178,7 +178,7 @@ Inspect web application configuration, authentication, CORS, JWT, sessions, cook
 #### REST Applications Endpoints
 REST Applications provide an interactive view of the REST APIs exposed by IRIS web applications. Double-click a REST-enabled application to explore its available endpoints, HTTP methods, paths, and API details directly from the Command Center.
 This provides a convenient way to inspect the REST surface of an IRIS instance without navigating separately through the Management Portal, making it easier to understand and investigate deployed REST services.
-<img width="1608" height="1127" alt="image" src="https://github.com/user-attachments/assets/5795c39a-1c61-4eb6-ba48-efdc15bdb57b" />
+<img width="1608"  alt="image" src="https://github.com/user-attachments/assets/5795c39a-1c61-4eb6-ba48-efdc15bdb57b" />
 
 
 ### 🔐 Security Review
@@ -207,13 +207,13 @@ Sensitive information is protected. The application deliberately withholds or fi
 Tasks provides a live view of scheduled IRIS tasks, including their current state and configuration. Administrators can search and filter tasks, open a detailed view, and inspect task settings while sensitive configuration values are automatically redacted.
 For eligible user tasks, Command Center also provides a controlled Run Now operation with authorization, explicit confirmation, and post-execution verification. System tasks are protected from manual execution.
 Task execution follows the same authorization → confirmation → execution → verification workflow used by other administrative operations.
-<img width="2175" height="1237" alt="image" src="https://github.com/user-attachments/assets/3a929158-9c59-4123-aafa-e8c33456fe38" />
+<img width="2175"  alt="image" src="https://github.com/user-attachments/assets/3a929158-9c59-4123-aafa-e8c33456fe38" />
 
 ### 📖 Journal
 Journal provides a live view of IRIS journal configuration, allowing administrators to inspect key journal settings and understand the current journaling posture of the connected instance.
 Command Center also supports controlled updates to selected journal settings through the same authorization → confirmation → execution → verification workflow used by other administrative operations.
 Changes are validated before execution and verified against the live IRIS configuration afterward, with the operation captured in Observability for traceability.
-<img width="2167" height="1127" alt="image" src="https://github.com/user-attachments/assets/07784520-ae0e-4515-9db4-f54faec03317" />
+<img width="2167"  alt="image" src="https://github.com/user-attachments/assets/07784520-ae0e-4515-9db4-f54faec03317" />
 
 
 ---
@@ -221,7 +221,7 @@ Changes are validated before execution and verified against the live IRIS config
 
 ### 🩺 Deterministic Issue Resolver
 The **Issue Resolver** provides a controlled operational path from a detected issue to a verified resolution. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
-<img width="1827" height="637" alt="image" src="https://github.com/user-attachments/assets/9b2de03f-cda5-4e54-b073-3a24eca312b2" />
+<img width="1827"  alt="image" src="https://github.com/user-attachments/assets/9b2de03f-cda5-4e54-b073-3a24eca312b2" />
 The resolver currently supports two curated issue types:
 #### `database_dismounted` — Dismounted Database
 - **Detection:** live evidence from IRIS (`GET /v2/databases`, `GET /v2/database-dirs`) shows the database reported as `Dismounted`.
@@ -252,7 +252,7 @@ This makes observability more than a browser-only feature.
 <img width="1749" alt="image" src="https://github.com/user-attachments/assets/154dfd30-10f5-40d9-8dc7-bf1a2c1b9a91" />
 Execution traces can optionally be persisted directly in the connected IRIS instance. This allows operational history to survive Command Center restarts rather than existing only in application memory.
 When trace persistence is enabled, Command Center stores each completed execution trace in the IRIS `USER` namespace using the native IRIS API:
-<img width="2508" height="540" alt="image" src="https://github.com/user-attachments/assets/21b0023f-a73d-41f9-8ea5-67483248154d" />
+<img width="2508"  alt="image" src="https://github.com/user-attachments/assets/21b0023f-a73d-41f9-8ea5-67483248154d" />
 
 
 ---
@@ -264,7 +264,7 @@ Vector Search provides supporting operational knowledge only; it does not detect
 
 <img width="1754"  alt="image" src="https://github.com/user-attachments/assets/0d1df68b-6c57-4185-9d23-adfe1f765fc4" />
 Operational knowledge chunks and their generated embedding vectors stored directly in an IRIS SQL table.
-<img width="2508" height="996" alt="image" src="https://github.com/user-attachments/assets/285029f5-6ea1-482d-8f3a-6b78b57ac68b" />
+<img width="2508"  alt="image" src="https://github.com/user-attachments/assets/285029f5-6ea1-482d-8f3a-6b78b57ac68b" />
 
 ---
 
