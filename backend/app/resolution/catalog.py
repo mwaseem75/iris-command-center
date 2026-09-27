@@ -123,6 +123,17 @@ DATABASE_DISMOUNTED = IssueResolution(
         "Goes through the normal authorization, confirmation and verification; there's no bypass.",
     ),
     excluded_databases=_SYSTEM_DATABASES,
+    impact_evidence=(
+        DetectionEvidence(
+            source="GET /v2/namespaces",
+            field="Globals, Routines",
+            condition=(
+                "Namespaces that use this database for Globals or Routines can't reach that data or "
+                "code until it's mounted again."
+            ),
+            issue_field="affected_namespaces",
+        ),
+    ),
 )
 
 ISSUE_CATALOG: dict[str, IssueResolution] = {

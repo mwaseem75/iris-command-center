@@ -95,7 +95,7 @@ def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_ir
                   "MountRequired": False, "MountAtStartup": True, "StreamLocation": "", "Status": ""}]
     dirs = [{"Directory": "/data/demo/", "Size": 1, "MaxSize": "Unlimited", "Status": "Dismounted",
              "Mirrored": False, "Encrypted": False}]
-    bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs}
+    bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": []}
     mock_iris_client.get.side_effect = lambda path, **_: {"status": OK, "console": [], "result": bodies[path]}
 
     (issue,) = client.get("/api/iris/issues").json()["issues"]
@@ -111,7 +111,7 @@ def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_ir
 
 def test_every_live_evidence_field_exists_on_the_detected_issue() -> None:
     issue_fields = set(DatabaseMountIssue.model_fields)
-    linked = [e.issue_field for e in DATABASE_DISMOUNTED.detection_evidence]
+    linked = [e.issue_field for e in DATABASE_DISMOUNTED.detection_evidence + DATABASE_DISMOUNTED.impact_evidence]
     assert all(linked), "every piece of evidence should point at its live value"
     assert set(linked) <= issue_fields
 
@@ -174,3 +174,12 @@ def test_parameter_binding_needs_exactly_one_source() -> None:
 def test_extra_fields_are_rejected() -> None:
     with pytest.raises(ValidationError):
         IssueResolution(**_entry_data(force=True))
+
+
+def test_dismounted_database_records_affected_namespaces_as_impact() -> None:
+    (impact,) = DATABASE_DISMOUNTED.impact_evidence
+    assert impact.source == "GET /v2/namespaces"
+    assert impact.issue_field == "affected_namespaces"
+    # Impact is extra context; detection and the fix are unchanged.
+    assert "affected_namespaces" not in {e.issue_field for e in DATABASE_DISMOUNTED.detection_evidence}
+    assert DATABASE_DISMOUNTED.operation == "database.mount"

@@ -1097,7 +1097,7 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
     for word in ("mountDatabase", "dismountDatabase", "confirmed", "dry_run", "dryRun"):
         check(word not in js, f"issue-resolver.js never references {word!r}")
     for key in ("resolutions", "detection_evidence", "workflow_steps", "required_privileges", "risk_level",
-                "recommended_solution", "Why this solution?"):
+                "recommended_solution", "Why this solution?", "affected_namespaces", "impact_evidence"):
         check(key in js, f"issue-resolver.js renders {key!r} from the catalog")
 
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")

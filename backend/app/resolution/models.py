@@ -106,6 +106,8 @@ class IssueResolution(_Frozen):
     verification_rules: tuple[VerificationRule, ...]
     safety_restrictions: tuple[str, ...]
     excluded_databases: frozenset[str] = frozenset()
+    # What else the issue affects (not needed to detect it), e.g. dependent namespaces.
+    impact_evidence: tuple[DetectionEvidence, ...] = ()
 
     @property
     def operation_definition(self) -> OperationDefinition:

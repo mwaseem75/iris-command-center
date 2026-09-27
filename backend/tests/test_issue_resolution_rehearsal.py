@@ -24,6 +24,12 @@ class FakeIris:
         self.mounted = {IPM_DIR: True, "/usr/irissys/mgr/user/": True}
         self.posts: list[tuple[str, Any]] = []
         self.mount_failures = 0  # POST /mount raises this many times
+        self.namespaces = [("USER", "USER"), ("%SYS", "IRISSYS")]
+
+    @staticmethod
+    def _ns(name: str, db: str) -> dict[str, Any]:
+        return {"Name": name, "Globals": db, "Routines": db, "SysGlobals": "IRISSYS", "SysRoutines": "IRISSYS",
+                "Library": "IRISLIB", "TempGlobals": "IRISTEMP"}
 
     def _env(self, result: Any) -> dict[str, Any]:
         return {"status": OK, "console": [], "result": result}
@@ -44,8 +50,7 @@ class FakeIris:
             return self._env([{"Directory": d, "Size": 17, "MaxSize": "Unlimited", "Mirrored": False, "Encrypted": False,
                                "Status": "Mounted/RW" if m else "Dismounted"} for d, m in self.mounted.items()])
         if path == "/v2/namespaces":
-            return self._env([{"Name": "USER", "Globals": "USER", "Routines": "USER"},
-                              {"Name": "%SYS", "Globals": "IRISSYS", "Routines": "IRISSYS"}])
+            return self._env([self._ns(name, db) for name, db in self.namespaces])
         raise AssertionError(f"unexpected GET {path}")
 
     async def post(self, path: str, json: Any = None, params: Any = None) -> dict[str, Any]:
@@ -224,3 +229,16 @@ async def test_cancellation_after_dismount_still_remounts_ipm(
 
 def test_unknown_scenario_is_rejected(fake: FakeIris) -> None:
     assert _post(fake, {"confirmed": True, "scenario": "anything"}).status_code == 422
+
+
+def test_detected_issue_lists_namespaces_that_depend_on_ipm(fake: FakeIris) -> None:
+    fake.namespaces.append(("IPMAPP", "IPM"))
+
+    body = _post(fake, {"confirmed": True, "scenario": "issue_resolution"}).json()
+
+    assert body["status"] == "completed"
+    steps = _steps(body)
+    assert "Namespaces that depend on it: IPMAPP (Globals, Routines)." in steps["issue.detect"]["detail"]
+    # The resolution itself is unchanged: one dismount, then one mount of IPM.
+    assert [p[0] for p in fake.posts] == ["/v2/database-dir/dismount", "/v2/database-dir/mount"]
+    assert fake.mounted[IPM_DIR] is True

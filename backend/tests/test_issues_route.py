@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from app.iris_client.exceptions import IRISConnectionError
+from app.iris_client.exceptions import IRISConnectionError, IRISResponseError
 
 OK = {"errors": [], "summary": ""}
 
@@ -20,8 +20,13 @@ def _dir(directory: str, status: str, *, mirrored: bool = False) -> dict[str, An
             "Mirrored": mirrored, "Encrypted": False}
 
 
-def _mock(mock: AsyncMock, databases: list[dict], dirs: list[dict]) -> None:
-    bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs}
+def _ns(name: str, globals_db: str, routines_db: str) -> dict[str, Any]:
+    return {"Name": name, "Globals": globals_db, "Routines": routines_db, "SysGlobals": "IRISSYS",
+            "SysRoutines": "IRISSYS", "Library": "IRISLIB", "TempGlobals": "IRISTEMP"}
+
+
+def _mock(mock: AsyncMock, databases: list[dict], dirs: list[dict], namespaces: list[dict] | None = None) -> None:
+    bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": namespaces or []}
     mock.get.side_effect = lambda path, **_: {"status": OK, "console": [], "result": bodies[path]}
 
 
@@ -84,3 +89,60 @@ def test_response_includes_the_resolution_catalog(client: TestClient, mock_iris_
     assert [step["kind"] for step in entry["workflow_steps"]] == [
         "detected", "recommended", "check", "confirm", "execute", "verify", "trace",
     ]
+
+
+# --- affected namespaces ---
+
+
+def test_lists_the_namespaces_that_use_the_database(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock(mock_iris_client,
+          [_db("DEMO", "/data/demo/")],
+          [_dir("/data/demo/", "Dismounted")],
+          [_ns("APP", "DEMO", "DEMO"), _ns("REPORTS", "REPORTSDB", "demo"), _ns("USER", "USER", "USER")])
+
+    (issue,) = client.get("/api/iris/issues").json()["issues"]
+
+    assert issue["affected_namespaces"] == [
+        {"namespace": "APP", "uses": ["Globals", "Routines"]},
+        {"namespace": "REPORTS", "uses": ["Routines"]},  # names compare case-insensitively
+    ]
+    assert "Namespaces that depend on it: APP (Globals, Routines), REPORTS (Routines)." in issue["explanation"]
+    assert issue["recommended_operation"] == "database.mount"
+    assert issue["parameters"] == {"Directory": "/data/demo/", "ReadOnly": False}
+
+
+def test_no_dependent_namespaces_is_an_empty_list(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock(mock_iris_client, [_db("DEMO", "/data/demo/")], [_dir("/data/demo/", "Dismounted")],
+          [_ns("USER", "USER", "USER")])
+
+    (issue,) = client.get("/api/iris/issues").json()["issues"]
+
+    assert issue["affected_namespaces"] == []
+    assert "No namespace uses it for Globals or Routines." in issue["explanation"]
+
+
+def test_unreadable_namespaces_still_report_the_issue(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    bodies = {"/v2/databases": [_db("DEMO", "/data/demo/")], "/v2/database-dirs": [_dir("/data/demo/", "Dismounted")]}
+
+    def get(path: str, **_: Any) -> dict[str, Any]:
+        if path == "/v2/namespaces":
+            raise IRISResponseError(500)
+        return {"status": OK, "console": [], "result": bodies[path]}
+
+    mock_iris_client.get.side_effect = get
+
+    response = client.get("/api/iris/issues")
+
+    assert response.status_code == 200
+    (issue,) = response.json()["issues"]
+    assert issue["affected_namespaces"] is None
+    assert "couldn't be read" in issue["explanation"]
+
+
+def test_namespaces_are_not_read_when_there_are_no_issues(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock(mock_iris_client, [_db("USER", "/usr/irissys/mgr/user/")], [_dir("/usr/irissys/mgr/user", "Mounted/RW")])
+
+    client.get("/api/iris/issues")
+
+    called = [call.args[0] for call in mock_iris_client.get.call_args_list]
+    assert "/v2/namespaces" not in called

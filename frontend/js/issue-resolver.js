@@ -165,7 +165,12 @@ function renderIssueCard(issue, index) {
     meta.append(el("span", "ir-issue__privilege", "No catalog entry for this issue type."));
   }
 
-  card.append(head, resource, meta, el("span", "stat-card__link", "View resolution →"));
+  card.append(head, resource, meta);
+  if (Array.isArray(issue.affected_namespaces) && issue.affected_namespaces.length) {
+    card.append(el("p", "ir-issue__privilege",
+      `Affects namespaces: ${issue.affected_namespaces.map((a) => a.namespace).join(", ")}`));
+  }
+  card.append(el("span", "stat-card__link", "View resolution →"));
   return card;
 }
 
@@ -229,6 +234,25 @@ function evidenceTable(issue, resolution) {
   const wrapper = el("div", "table-wrapper");
   wrapper.append(table);
   return wrapper;
+}
+
+// Namespaces that use the database for Globals or Routines (null means
+// they couldn't be read).
+function affectedNamespaces(issue, resolution) {
+  const wrap = el("div");
+  const impact = (resolution.impact_evidence || []).find((e) => e.issue_field === "affected_namespaces");
+  if (impact) wrap.append(el("p", "ir-why__text", `${impact.condition} (${impact.source} · ${impact.field})`));
+  const affected = issue.affected_namespaces;
+  if (!Array.isArray(affected)) {
+    wrap.append(el("p", "empty-state", "Couldn't read which namespaces use this database."));
+    return wrap;
+  }
+  if (affected.length === 0) {
+    wrap.append(el("p", "empty-state", `No namespace uses ${textOrPlaceholder(issue.database)} for Globals or Routines.`));
+    return wrap;
+  }
+  wrap.append(infoList(affected.map((a) => [a.namespace, a.uses.join(", ")])));
+  return wrap;
 }
 
 function parameterRows(issue, resolution) {
@@ -295,6 +319,7 @@ function openDrawer(index) {
     dom.drawerBody.replaceChildren(
       summary,
       section("Live evidence", evidenceTable(issue, resolution)),
+      ...("affected_namespaces" in issue ? [section("Affected namespaces", affectedNamespaces(issue, resolution))] : []),
       section(
         "Recommended solution",
         el("p", "ir-solution", resolution.recommended_solution),
