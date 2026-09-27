@@ -861,6 +861,7 @@ async function submitMount() {
     if (result.status === "success") {
       // Reload the database list instead of patching local state.
       await loadDatabases();
+      refreshDrawerStatus();
     }
   } catch (err) {
     const failed = {
@@ -999,6 +1000,7 @@ async function submitDismount() {
     if (result.status === "success" || result.status === "verification_failed") {
       // Reload the database list instead of patching local state.
       await loadDatabases();
+      refreshDrawerStatus();
     }
   } catch (err) {
     renderDismountResult({
@@ -1012,6 +1014,15 @@ async function submitDismount() {
     dom.drawerDismountLoading.hidden = true;
     dom.drawerDismountCheckButton.disabled = false;
   }
+}
+
+// After a mount/dismount, show the reloaded status in the open drawer's
+// header (the rest of the drawer keeps the operation's result).
+function refreshDrawerStatus() {
+  const db = allDatabases.find((entry) => entry.Directory === currentDrawerDirectory);
+  if (!db || dom.drawer.hidden) return;
+  dom.drawerStatusBadge.className = `status-badge ${statusBadgeVariant(db.Status)}`;
+  dom.drawerStatusBadge.textContent = textOrPlaceholder(db.Status);
 }
 
 function openDrawer(databaseName) {

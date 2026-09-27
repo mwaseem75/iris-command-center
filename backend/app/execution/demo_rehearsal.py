@@ -452,7 +452,7 @@ class _Rehearsal:
             self.add(step="issue.detect", action="detect", status="success", target=ISSUE_DATABASE,
                      detail=f"Command Center Issue: {issue['explanation']}")
 
-            # Fix it the way Fix Issues would: the recommended operation and the issue's parameters.
+            # Fix it the way Resolve Issues would: the recommended operation and the issue's parameters.
             result, trace_id, error = await self.run_operation(
                 issue["recommended_operation"], issue["parameters"], dry_run=False,
                 resolution_issue_type=issue["kind"])
