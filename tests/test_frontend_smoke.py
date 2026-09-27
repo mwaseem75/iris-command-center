@@ -1139,8 +1139,8 @@ def test_issue_resolver_presents_the_rehearsal_lifecycle() -> None:
     js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
     code = re.sub(r"//[^\n]*", "", js)
     check(code.count("IrisApi.runDemoRehearsal(") == 1
-          and 'IrisApi.runDemoRehearsal(true, "issue_resolution")' in code,
-          "the page runs only the existing IPM Issue Resolution Rehearsal, from one place")
+          and "IrisApi.runDemoRehearsal(true, DEMO_STEPS[step].scenario)" in code,
+          "the page runs only the existing IPM Issue Resolution Rehearsal steps, from one place")
     check("if (rehearsalRunning || !dom.rehearsalAck.checked) return;" in code,
           "the rehearsal only runs after the acknowledgement checkbox")
     check(re.findall(r"\brunRehearsal\(\)", code).count("runRehearsal()") == 2,
@@ -1177,16 +1177,17 @@ def test_issue_resolver_presents_create_demo_issue() -> None:
     panel = re.search(r'<section class="info-card ir-panel ir-rehearsal".*?</section>', html, re.S)
     check(panel is not None, "the Create Demo Issue panel exists on the Issue Resolver page")
     text = panel.group(0) if panel else ""
-    check('id="issue-resolver-rehearsal-title">Create Demo Issue</h3>' in text, "the panel is titled Create Demo Issue")
+    check('id="issue-resolver-rehearsal-title">Demo Issue</h3>' in text, "the panel is titled Demo Issue")
     check("Create &rarr; Detect &rarr; Explain &rarr; Resolve &rarr; Verify &rarr; Restore &rarr; Observe" in text,
           "the panel states the full Create -> Observe flow")
     check("intentionally creates a real, reversible IRIS issue for demonstration" in text,
           "the panel says the issue is real, reversible and intentional")
     check("Dismounted database &mdash; IPM" in text, "the panel names the Dismounted database - IPM scenario")
-    check("IPM is temporarily dismounted" in text, "the panel says IPM is temporarily dismounted")
-    check("detected and resolved through the normal Issue Resolver workflow" in text
-          and "environment is restored afterward" in text,
-          "the panel says the issue is resolved normally and the environment restored")
+    check("IPM is dismounted" in text and "left dismounted until you resolve it" in text,
+          "the panel says Create dismounts IPM and leaves it dismounted until it's resolved")
+    check("detects and resolves it through the normal Issue Resolver workflow" in text
+          and "restores the environment" in text,
+          "the panel says Resolve uses the normal workflow and restores the environment")
     check("<code>database.dismount</code>" in text and "<code>database.mount</code>" in text,
           "the panel names the existing dismount/mount operations")
     check('id="issue-resolver-rehearsal-ack"' in text and 'id="issue-resolver-rehearsal-run" disabled' in text
@@ -1203,6 +1204,37 @@ def test_issue_resolver_presents_create_demo_issue() -> None:
     check(code.count("IrisApi.runDemoRehearsal(") == 1, "the existing rehearsal is still the only thing run")
     for word in ("demo/issue", "createDemoIssue", "localStorage", "sessionStorage"):
         check(word not in code, f"no new API or persistence ({word!r})")
+
+
+def test_issue_resolver_demo_issue_has_separate_create_and_resolve_steps() -> None:
+    print("Checking the demo issue runs as two explicit steps: Create, then Resolve...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    panel = re.search(r'<section class="info-card ir-panel ir-rehearsal".*?</section>', html, re.S)
+    text = panel.group(0) if panel else ""
+    check(re.search(r'id="issue-resolver-demo-resolve"[^>]*disabled[^>]*>\s*Resolve Demo Issue\s*</button>', text)
+          is not None, "a Resolve Demo Issue button exists, disabled until the issue is active")
+    check(text.count('id="issue-resolver-rehearsal-ack"') == 1 and text.count('id="issue-resolver-rehearsal-run"') == 1,
+          "both steps share the one confirmation box and checkbox")
+
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    check('scenario: "issue_create"' in code and 'scenario: "issue_resolve"' in code
+          and '"issue_resolution"' not in code,
+          "the page runs the issue_create and issue_resolve scenarios, not the one-click cycle")
+    check('showRehearsalConfirm(true, "create")' in code and 'showRehearsalConfirm(true, "resolve")' in code,
+          "each button only opens the confirmation for its own step")
+    check("if (!DEMO_STEPS[step]) return;" in code, "nothing runs without a confirmed, known step")
+    check("dom.demoResolve.disabled = rehearsalRunning || !issueActive;" in code
+          and "dom.rehearsalStart.disabled = rehearsalRunning || issueActive;" in code,
+          "Resolve is only enabled while the IPM issue is active, Create only while it isn't")
+    check('issue.kind === DISMOUNTED && String(issue.database).toUpperCase() === "IPM"' in code,
+          "the active demo issue is read from the live issue list")
+    check('"issue.confirm_dismounted"' in code and '"issue.fix"' in code and '"issue.verify"' in code,
+          "the lifecycle uses the real Create (confirm_dismounted) and Resolve (fix, verify) steps")
+    check("stays dismounted until the demo issue is resolved" in code,
+          "after Create, Restore says IPM stays dismounted until it's resolved")
+    for step in ("create", "resolve"):
+        check(f"{step}: {{" in code.split("const SUMMARY = {", 1)[-1], f"the summary has {step!r} texts")
 
 
 def test_traces_show_issue_resolution_context() -> None:
@@ -1610,6 +1642,80 @@ def test_dashboard_links_to_processes_and_issue_resolver() -> None:
           "each issue title opens the Issue Resolver")
 
 
+def test_dashboard_shows_recommendations_separately_from_issues() -> None:
+    print("Checking the Dashboard shows recommendations, labelled apart from issues...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    panel = re.search(r'aria-labelledby="dashboard-issues-title">.*?</section>', html, re.S)
+    text = panel.group(0) if panel else ""
+    check('id="dashboard-recommendations"' in text and 'id="dashboard-recommendation-list"' in text,
+          "the Issues & Recommendations panel has its own Recommendations list")
+    check(">Recommendations</p>" in text and 'aria-label="Recommendations"' in text,
+          "recommendations are labelled Recommendations, not Issues")
+
+    js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    check("body?.recommendations" in code and "body?.recommendations_unavailable" in code,
+          "dashboard.js reads recommendations and recommendations_unavailable from the issues response")
+    check(code.count("IrisApi.getIssues()") == 1, "no extra request: recommendations come from the same GET /api/iris/issues")
+    for field in ("rec.severity", "rec.title", "rec.explanation", "rec.evidence", "rec.recommended_operation",
+                  "rec.parameters"):
+        check(field in code, f"each recommendation shows {field!r}")
+    check('review.textContent = "Review →";' in code, "each recommendation has a Review action")
+    check('"journal.update_purge_archived": "operations"' in code and "navigateTo(page)" in code,
+          "Review opens the existing page where the recommended operation runs")
+    check('issueStatusItem("Unavailable"' in code and "unavailable.length" in code,
+          "an unavailable state is shown when recommendation checks couldn't run")
+    check("renderRecommendations(null)" in code, "recommendations are hidden when the issue check fails")
+    check('review.textContent = "Review & Resolve →";' in code, "issue rendering (Review & Resolve) is unchanged")
+    recs = code[code.index("function recommendationItem"):code.index("function renderRecommendations")]
+    for word in ("IrisApi.", "confirmed", "fetch("):
+        check(word not in recs, f"recommendations never run anything ({word!r})")
+
+
+def test_web_app_issues_resolve_through_web_apps() -> None:
+    print("Checking web-app issues are shown by resource and resolve on the Web Apps page...")
+    no_comments = lambda text: re.sub(r"//[^\n]*", "", text)  # noqa: E731
+    js_dir = FRONTEND_DIR / "js"
+    resolver = no_comments((js_dir / "issue-resolver.js").read_text(encoding="utf-8"))
+    web_apps = no_comments((js_dir / "web-apps.js").read_text(encoding="utf-8"))
+    app_js = no_comments((js_dir / "app.js").read_text(encoding="utf-8"))
+    dashboard = no_comments((js_dir / "dashboard.js").read_text(encoding="utf-8"))
+    databases = no_comments((js_dir / "databases.js").read_text(encoding="utf-8"))
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    # Issue Resolver: resource-aware display and resolve action.
+    for kind, page in (("database_dismounted", '"databases"'), ("web_app_namespace_missing", '"web-apps"')):
+        entry = resolver.split(f"  {kind}: {{", 1)[-1].split("\n  },", 1)[0]
+        check(f"page: {page}" in entry, f"{kind} issues resolve on the {page} page")
+    check('"Resolve in Web Apps →"' in resolver and "issue.web_app" in resolver and "issue.namespace" in resolver,
+          "web-app issues are shown by their web application and namespace")
+    check("const open = resolveHandler(issue);" in resolver and "if (open) open(issue);" in resolver,
+          "the drawer action opens the page for the shown issue's resource")
+    check("issue_checks_unavailable" in resolver and "issue_checks_unavailable" in dashboard,
+          "the Issue Resolver and Dashboard say when an issue check couldn't run")
+    check('id="issue-resolver-drawer-hint"' in html, "the drawer hint names where the issue is resolved")
+
+    # app.js hands the issue to the Web Apps page, then navigates.
+    check("resolveWebAppIssue(issue);" in app_js and 'navigateTo("web-apps");' in app_js,
+          "app.js opens web-app issues on the Web Apps page")
+
+    # Web Apps: the resolution context only labels a Disable of that one app.
+    check("export function resolveWebAppIssue(issue)" in web_apps, "web-apps.js accepts an Issue Resolver issue")
+    check("pendingResolution.name === app.Name && target === false" in web_apps
+          and "resolution_issue_type: pendingResolution.issueType" in web_apps,
+          "only a Disable of the issue's app carries resolution_issue_type")
+    check("...resolutionFieldsFor(app, target)" in web_apps and web_apps.count("IrisApi.setWebAppEnabled(") == 2,
+          "the label goes through the existing dry run and confirm path, no new request")
+    check('id="web-apps-enable-resolution"' in html, "the Enabled State section shows the resolution context")
+    check("pendingResolution = null;  " in (js_dir / "web-apps.js").read_text(encoding="utf-8"),
+          "closing the drawer ends the resolution context")
+
+    # Databases: Resolve Issues only lists database issues.
+    check('issue.kind === "database_dismounted"' in databases, "the Databases page only resolves database issues")
+    check("issueResource(issue)" in dashboard and "issue.web_app" in dashboard,
+          "the Dashboard shows each issue by its resource")
+
+
 def test_theme_selector_offers_four_persisted_themes() -> None:
     print("Checking the theme selector offers Midnight/Slate/Professional/Light and persists the choice...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
@@ -1887,6 +1993,7 @@ def main() -> None:
         test_issue_resolver_presents_the_rehearsal_lifecycle,
         test_issue_resolver_shows_the_rehearsal_evidence_chain,
         test_issue_resolver_presents_create_demo_issue,
+        test_issue_resolver_demo_issue_has_separate_create_and_resolve_steps,
         test_traces_show_issue_resolution_context,
         test_investigation_nav_and_view_exist_and_are_enabled,
         test_investigation_view_uses_only_expected_endpoints,
@@ -1899,6 +2006,8 @@ def main() -> None:
         test_detail_views_use_one_centered_workspace_pattern,
         test_dashboard_shows_issues_and_recommendations,
         test_dashboard_links_to_processes_and_issue_resolver,
+        test_dashboard_shows_recommendations_separately_from_issues,
+        test_web_app_issues_resolve_through_web_apps,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

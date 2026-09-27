@@ -10,7 +10,7 @@ import { loadSystemInfo, initSystemControls } from "./system.js";
 import { loadNamespaces, initNamespacesControls } from "./namespaces.js";
 import { loadProcesses, initProcessesControls } from "./processes.js";
 import { loadDatabases, initDatabasesControls } from "./databases.js";
-import { loadWebApps, initWebAppsControls } from "./web-apps.js";
+import { loadWebApps, initWebAppsControls, resolveWebAppIssue } from "./web-apps.js";
 import { loadTasks, initTasksControls } from "./tasks.js";
 import { loadSecurity, initSecurityControls } from "./security.js";
 import { loadSecurityAccess, initSecurityAccessControls } from "./security-access.js";
@@ -100,6 +100,11 @@ function init() {
   initCapabilitiesControls();
   initIssueResolverControls({
     onOpenDatabases: () => navigateTo("databases"),
+    // Resource-aware: a web-app issue resolves on the Web Apps page.
+    onOpenWebApps: (issue) => {
+      resolveWebAppIssue(issue);
+      navigateTo("web-apps");
+    },
     onOpenTrace: openTrace,
     // After the rehearsal, reload the traces wherever they're shown.
     onRehearsalFinished: () => {

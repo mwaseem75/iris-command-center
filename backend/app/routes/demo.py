@@ -27,9 +27,10 @@ class DemoRehearsalRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     confirmed: StrictBool = False
-    # "issue_resolution" runs the manual IPM rehearsal. The automatic startup
-    # run always uses the standard one.
-    scenario: Literal["standard", "issue_resolution"] = "standard"
+    # "issue_resolution" runs the manual IPM rehearsal; "issue_create" and
+    # "issue_resolve" run its two steps separately (Create Demo Issue, then
+    # Resolve Demo Issue). The automatic startup run always uses the standard one.
+    scenario: Literal["standard", "issue_resolution", "issue_create", "issue_resolve"] = "standard"
 
 
 @router.post("/demo/rehearsal", response_model=RehearsalResult)
@@ -40,6 +41,10 @@ async def demo_rehearsal(
 ) -> RehearsalResult:
     """Returns 200 with the result, or 409 if a rehearsal is already running."""
     try:
+        if body.scenario == "issue_create":
+            return await run_issue_resolution_rehearsal(client, privileges, body.confirmed, step="create")
+        if body.scenario == "issue_resolve":
+            return await run_issue_resolution_rehearsal(client, privileges, body.confirmed, step="resolve")
         runner = run_issue_resolution_rehearsal if body.scenario == "issue_resolution" else run_rehearsal
         return await runner(client, privileges, body.confirmed)
     except RehearsalInProgressError as exc:

@@ -62,6 +62,8 @@ const dom = {
   issuesCount: $("dashboard-issues-count"),
   issuesLabel: $("dashboard-issues-label"),
   issueList: $("dashboard-issue-list"),
+  recommendations: $("dashboard-recommendations"),
+  recommendationList: $("dashboard-recommendation-list"),
   processEmpty: $("dashboard-process-empty"),
   processState: $("dashboard-process-state"),
   processNamespace: $("dashboard-process-namespace"),
@@ -424,6 +426,23 @@ function issueStatusItem(badgeText, badgeClass, message, level) {
   return item;
 }
 
+// The resource each issue is about: name, then detail · status.
+function issueResource(issue) {
+  if (issue.kind === "web_app_namespace_missing") {
+    return [issue.web_app, `namespace ${textOrPlaceholder(issue.namespace)} (missing) · ${issue.enabled ? "Enabled" : "Disabled"}`];
+  }
+  return [issue.database, `${textOrPlaceholder(issue.directory)} · ${textOrPlaceholder(issue.status)}`];
+}
+
+// Issue checks that couldn't run (their IRIS data couldn't be read).
+function issueChecksUnavailableItem(body, resolutions) {
+  const unavailable = Array.isArray(body?.issue_checks_unavailable) ? body.issue_checks_unavailable : [];
+  if (!unavailable.length) return null;
+  const names = unavailable.map((kind) => resolutions[kind]?.title || kind).join(", ");
+  return issueStatusItem("Unavailable", "status-badge--warning",
+    `Some issue checks couldn't run (${names}); IRIS data for them couldn't be read.`, "info");
+}
+
 function renderIssues(settled) {
   if (!settled) return;  // not refreshed this time, keep what's shown
   const body = settled.status === "fulfilled" ? settled.value : null;
@@ -432,6 +451,7 @@ function renderIssues(settled) {
   dom.issueList.replaceChildren();
 
   if (issues === null) {
+    renderRecommendations(null);
     dom.issuesCount.textContent = PLACEHOLDER;
     dom.issuesLabel.textContent = "Could not check for issues right now.";
     dom.issueList.append(issueStatusItem("Info", "status-badge--neutral", "The issue check didn't respond. Try Refresh.", "info"));
@@ -439,9 +459,12 @@ function renderIssues(settled) {
   }
 
   dom.issuesCount.textContent = String(issues.length);
+  renderRecommendations(body);
+  const unavailableItem = issueChecksUnavailableItem(body, resolutions);
   if (issues.length === 0) {
     dom.issuesLabel.textContent = "active issues";
-    dom.issueList.append(issueStatusItem("OK", "status-badge--ok", "No actionable issues detected.", "ok"));
+    dom.issueList.append(unavailableItem ||
+      issueStatusItem("OK", "status-badge--ok", "No actionable issues detected.", "ok"));
     return;
   }
 
@@ -468,13 +491,14 @@ function renderIssues(settled) {
     const titleLink = document.createElement("button");
     titleLink.className = "dash-issue__title-link";
     titleLink.type = "button";
-    titleLink.textContent = `${resolution ? resolution.title : textOrPlaceholder(issue.kind)}: ${textOrPlaceholder(issue.database)}`;
+    const [resourceName, resourceDetail] = issueResource(issue);
+    titleLink.textContent = `${resolution ? resolution.title : textOrPlaceholder(issue.kind)}: ${textOrPlaceholder(resourceName)}`;
     titleLink.title = "Open in the Issue Resolver";
     titleLink.addEventListener("click", () => navigateTo("issue-resolver"));
     title.append(titleLink);
     const resource = document.createElement("p");
     resource.className = "dash-issue__resource";
-    resource.textContent = `${textOrPlaceholder(issue.directory)} · ${textOrPlaceholder(issue.status)}`;
+    resource.textContent = resourceDetail;
     const explanation = document.createElement("p");
     explanation.className = "dash-issue__text";
     explanation.textContent = resolution
@@ -490,6 +514,89 @@ function renderIssues(settled) {
 
     item.append(badge, body_, review);
     dom.issueList.append(item);
+  }
+  if (unavailableItem) dom.issueList.append(unavailableItem);
+}
+
+// Recommendations from the same response (`recommendations`,
+// `recommendations_unavailable`): suggested changes, not issues. "Review"
+// opens the page where the recommended operation already runs, with its own
+// authorization and confirmation; nothing is run from here.
+
+const RECOMMENDATION_PAGES = {
+  "journal.update_purge_archived": "operations",
+};
+
+const RECOMMENDATION_CHECKS = {
+  journal_purge_archived_off: "journal settings",
+};
+
+function formatEvidence(evidence) {
+  return (Array.isArray(evidence) ? evidence : [])
+    .map((e) => `${textOrPlaceholder(e.source)} ${textOrPlaceholder(e.field)}: ${textOrPlaceholder(String(e.value))}`)
+    .join(" · ");
+}
+
+function formatParameters(parameters) {
+  return Object.entries(parameters && typeof parameters === "object" ? parameters : {})
+    .map(([name, value]) => `${name}=${value}`)
+    .join(", ");
+}
+
+function recommendationItem(rec) {
+  const severity = typeof rec.severity === "string" ? rec.severity : "";
+  const item = document.createElement("li");
+  item.className = "dash-issue dash-recommendation";
+
+  const badge = makeBadge(
+    severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : "Info",
+    SEVERITY_BADGE[severity] || "status-badge--neutral",
+  );
+  const body_ = document.createElement("div");
+  body_.className = "dash-issue__body";
+  const title = document.createElement("p");
+  title.className = "dash-issue__title";
+  title.textContent = `${textOrPlaceholder(rec.title)}: ${textOrPlaceholder(rec.target)}`;
+  const explanation = document.createElement("p");
+  explanation.className = "dash-issue__text";
+  explanation.textContent = textOrPlaceholder(rec.explanation);
+  const evidence = document.createElement("p");
+  evidence.className = "dash-issue__resource";
+  evidence.textContent = `Evidence: ${formatEvidence(rec.evidence) || PLACEHOLDER}`;
+  const operation = document.createElement("p");
+  operation.className = "dash-issue__resource";
+  const params = formatParameters(rec.parameters);
+  operation.textContent = `Operation: ${textOrPlaceholder(rec.recommended_operation)}${params ? ` (${params})` : ""}`;
+  body_.append(title, explanation, evidence, operation);
+
+  const review = document.createElement("button");
+  review.className = "dash-panel__link dash-issue__action";
+  review.type = "button";
+  review.textContent = "Review →";
+  const page = RECOMMENDATION_PAGES[rec.recommended_operation] || "operations";
+  review.title = "Opens the Operations page, where this operation runs with its own confirmation";
+  review.addEventListener("click", () => navigateTo(page));
+
+  item.append(badge, body_, review);
+  return item;
+}
+
+function renderRecommendations(body) {
+  const recommendations = Array.isArray(body?.recommendations) ? body.recommendations : null;
+  const unavailable = Array.isArray(body?.recommendations_unavailable) ? body.recommendations_unavailable : [];
+  dom.recommendationList.replaceChildren();
+  // An older backend without recommendations: keep the section hidden.
+  dom.recommendations.hidden = recommendations === null;
+  if (recommendations === null) return;
+
+  for (const rec of recommendations) dom.recommendationList.append(recommendationItem(rec));
+  if (unavailable.length) {
+    const checks = unavailable.map((kind) => RECOMMENDATION_CHECKS[kind] || kind).join(", ");
+    dom.recommendationList.append(issueStatusItem("Unavailable", "status-badge--warning",
+      `Some recommendation checks couldn't run (${checks}); IRIS data for them couldn't be read.`, "info"));
+  }
+  if (recommendations.length === 0 && unavailable.length === 0) {
+    dom.recommendationList.append(issueStatusItem("OK", "status-badge--ok", "No recommendations right now.", "ok"));
   }
 }
 

@@ -1213,7 +1213,10 @@ async function loadIssues() {
   let issues;
   try {
     const response = await IrisApi.getIssues();
-    issues = Array.isArray(response?.issues) ? response.issues : null;
+    // Only database issues are resolved here; others resolve on their own page.
+    issues = Array.isArray(response?.issues)
+      ? response.issues.filter((issue) => issue.kind === "database_dismounted")
+      : null;
   } catch {
     issues = null;
   }

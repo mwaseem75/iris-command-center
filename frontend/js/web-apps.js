@@ -114,6 +114,8 @@ const dom = {
   sessionDrawerOpenApp: document.getElementById("web-sessions-drawer-open-app"),
   sessionDrawerClose: document.getElementById("web-sessions-drawer-close"),
   enableCheckButton: document.getElementById("web-apps-enable-check-button"),
+  enableResolution: document.getElementById("web-apps-enable-resolution"),
+  enableResolutionText: document.getElementById("web-apps-enable-resolution-text"),
   enableLoading: document.getElementById("web-apps-enable-loading"),
   enableLoadingText: document.getElementById("web-apps-enable-loading-text"),
   enableError: document.getElementById("web-apps-enable-error"),
@@ -658,6 +660,35 @@ async function loadDrawerDetail(name) {
 // its state changes.
 let pendingEnableFields = null;
 
+// An Issue Resolver issue being resolved here ({ name, issueType, namespace }),
+// set by resolveWebAppIssue(). Only a Disable of that app carries its
+// resolution_issue_type, which labels the trace; the backend checks the type.
+let pendingResolution = null;
+
+/**
+ * Called from the Issue Resolver (via app.js) for a web_app_namespace_missing
+ * issue: the next load opens that app's drawer with the resolution context.
+ */
+export function resolveWebAppIssue(issue) {
+  if (!issue || typeof issue.web_app !== "string") return;
+  pendingResolution = { name: issue.web_app, issueType: issue.kind, namespace: issue.namespace };
+}
+
+function resolutionFieldsFor(app, target) {
+  return pendingResolution && pendingResolution.name === app.Name && target === false
+    ? { resolution_issue_type: pendingResolution.issueType }
+    : {};
+}
+
+function syncResolutionBanner(app) {
+  const active = Boolean(pendingResolution && pendingResolution.name === app.Name && app.Enabled === true);
+  dom.enableResolution.hidden = !active;
+  dom.enableResolutionText.textContent = active
+    ? `Issue Resolver: ${app.Name} is enabled but its namespace ${pendingResolution.namespace} doesn't exist. ` +
+      "Check Disable, then confirm, to resolve it; the change is recorded as an Issue Resolver resolution."
+    : "";
+}
+
 function enableTargetFor(app) {
   return typeof app.Enabled === "boolean" ? !app.Enabled : null;
 }
@@ -690,6 +721,7 @@ function syncEnableControls(app) {
   const target = enableTargetFor(app);
   dom.enableCheckButton.hidden = target === null;
   const verb = target ? "Enable" : "Disable";
+  syncResolutionBanner(app);
   dom.enableCheckButton.textContent = `Check ${verb}`;
   dom.enableConfirmButton.textContent = `Confirm & ${verb}`;
   dom.enableAckText.textContent = `I understand this will ${verb.toLowerCase()} ${app.Name} on the IRIS instance.`;
@@ -708,7 +740,7 @@ async function handleEnableCheckClick() {
   const target = app ? enableTargetFor(app) : null;
   if (!app || target === null) return;
 
-  const fields = { Name: app.Name, Enabled: target };
+  const fields = { Name: app.Name, Enabled: target, ...resolutionFieldsFor(app, target) };
   clearEnablePreview();
   dom.enableError.hidden = true;
   dom.enableResult.hidden = true;
@@ -798,6 +830,8 @@ async function submitEnable() {
   if (currentDrawerName === fields.Name) renderEnableResult(result);
 
   if (result.status === "success" || result.status === "verification_failed") {
+    // The issue was acted on; don't reopen it on the next load.
+    if (fields.resolution_issue_type) pendingResolution = null;
     // Reload the list instead of patching local state; the drawer re-renders
     // (same app, so the result stays).
     await loadWebApps();
@@ -1224,6 +1258,8 @@ function openDrawer(name) {
 
 function closeDrawer() {
   currentDrawerName = null;
+  pendingResolution = null;  // closing the app ends its resolution context
+  dom.enableResolution.hidden = true;
   detailRequestSeq += 1;  // ignore any detail response still in flight
   resetRestPanel();
   resetEnableControls();
@@ -1530,6 +1566,11 @@ export async function loadWebApps() {
   }
 
   renderWebApps(webApps);
+  // Coming from the Issue Resolver: open the issue's app.
+  if (pendingResolution && currentDrawerName !== pendingResolution.name &&
+      allWebApps.some((app) => app.Name === pendingResolution.name)) {
+    openDrawer(pendingResolution.name);
+  }
   const sessionsResult = await sessionsPromise;
   if (sessionsSeq === sessionsLoadSeq) renderSessionsResult(sessionsResult);
   setLoading(false);

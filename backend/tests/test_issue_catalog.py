@@ -34,8 +34,8 @@ def _entry_data(**overrides: Any) -> dict[str, Any]:
 # --- the catalog ---
 
 
-def test_catalog_starts_with_only_the_dismounted_database_issue() -> None:
-    assert list(ISSUE_CATALOG) == ["database_dismounted"]
+def test_catalog_has_the_dismounted_database_and_web_app_namespace_issues() -> None:
+    assert list(ISSUE_CATALOG) == ["database_dismounted", "web_app_namespace_missing"]
     assert get_issue_resolution("database_dismounted") is DATABASE_DISMOUNTED
 
 
@@ -95,7 +95,11 @@ def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_ir
                   "MountRequired": False, "MountAtStartup": True, "StreamLocation": "", "Status": ""}]
     dirs = [{"Directory": "/data/demo/", "Size": 1, "MaxSize": "Unlimited", "Status": "Dismounted",
              "Mirrored": False, "Encrypted": False}]
-    bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": []}
+    journal = {"AlternateDirectory": "", "ArchiveName": "", "BackupsBeforePurge": 2, "CurrentDirectory": "",
+               "DaysBeforePurge": 2, "FileSizeLimit": 1024, "FreezeOnError": False, "JournalFilePrefix": "",
+               "JournalcspSession": False, "PurgeArchived": False, "CompressFiles": True, "wijdir": "", "targwijsz": 0}
+    bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": [],
+              "/v2/journal/settings": journal, "/v2/web-apps": []}  # read for recommendations
     mock_iris_client.get.side_effect = lambda path, **_: {"status": OK, "console": [], "result": bodies[path]}
 
     (issue,) = client.get("/api/iris/issues").json()["issues"]
@@ -183,3 +187,33 @@ def test_dismounted_database_records_affected_namespaces_as_impact() -> None:
     # Impact is extra context; detection and the fix are unchanged.
     assert "affected_namespaces" not in {e.issue_field for e in DATABASE_DISMOUNTED.detection_evidence}
     assert DATABASE_DISMOUNTED.operation == "database.mount"
+
+
+# --- web_app_namespace_missing ---
+
+
+def test_web_app_entry_uses_the_registered_set_enabled_operation() -> None:
+    from app.resolution.catalog import WEB_APP_NAMESPACE_MISSING as entry
+
+    definition = OPERATION_REGISTRY["web_app.set_enabled"]
+    assert entry.operation == "web_app.set_enabled"
+    assert definition.kind is OperationKind.MUTATING
+    assert entry.required_privileges == definition.required_privileges
+    assert entry.risk_level is definition.risk_level and entry.confirmation_required is True
+
+
+def test_web_app_entry_disables_the_detected_app_and_nothing_else() -> None:
+    from app.resolution.catalog import WEB_APP_NAMESPACE_MISSING as entry
+
+    bindings = {b.name: b for b in entry.parameters}
+    assert set(bindings) == {"Name", "Enabled"}
+    assert bindings["Name"].from_issue_field == "web_app"
+    assert bindings["Enabled"].value is False
+
+
+def test_every_web_app_evidence_field_exists_on_the_detected_issue() -> None:
+    from app.resolution.catalog import WEB_APP_NAMESPACE_MISSING as entry
+    from app.routes.issues import WebAppNamespaceIssue
+
+    linked = [e.issue_field for e in entry.detection_evidence]
+    assert all(linked) and set(linked) <= set(WebAppNamespaceIssue.model_fields)

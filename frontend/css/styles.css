@@ -5821,6 +5821,15 @@ html.detail-workspace-open {
   justify-self: start;
 }
 
+/* Recommendations: a separate labelled list under the issues. */
+.dash-recommendations {
+  margin-top: 12px;
+}
+
+.dash-recommendations .dash-subtitle {
+  margin-bottom: 6px;
+}
+
 /* --- Issue Resolver: Issue Resolution Rehearsal --- */
 
 .ir-rehearsal__head {

@@ -14,6 +14,7 @@ from app.execution import demo_rehearsal
 from app.iris_client.exceptions import IRISResponseError
 from app.main import app
 from app.observability import store
+from app.routes.issues import get_issues
 
 OK = {"errors": [], "summary": ""}
 IPM_DIR = "/usr/irissys/mgr/zpm/"
@@ -242,3 +243,105 @@ def test_detected_issue_lists_namespaces_that_depend_on_ipm(fake: FakeIris) -> N
     # The resolution itself is unchanged: one dismount, then one mount of IPM.
     assert [p[0] for p in fake.posts] == ["/v2/database-dir/dismount", "/v2/database-dir/mount"]
     assert fake.mounted[IPM_DIR] is True
+
+
+# --- Two-step demo: Create Demo Issue, then Resolve Demo Issue ---
+
+
+def test_create_dismounts_ipm_verifies_and_leaves_the_issue_active(fake: FakeIris) -> None:
+    body = _post(fake, {"confirmed": True, "scenario": "issue_create"}).json()
+
+    assert body["status"] == "completed"
+    assert "stays active" in body["detail"]
+    assert [s["step"] for s in body["steps"]] == [
+        "issue.read", "issue.dry_run", "issue.dismount", "issue.confirm_dismounted",
+    ]
+    assert all(s["status"] in ("success", "dry_run") for s in body["steps"])
+    # Only the dismount was sent, and IPM is left dismounted on purpose.
+    assert [p[0] for p in fake.posts] == ["/v2/database-dir/dismount"]
+    assert fake.mounted == {IPM_DIR: False, "/usr/irissys/mgr/user/": True}
+    # The real issue is now active in the issue detection (GET /api/iris/issues).
+    issues = asyncio.run(get_issues(fake)).issues
+    assert [(i.kind, i.database) for i in issues] == [("database_dismounted", "IPM")]
+
+
+def test_resolve_mounts_ipm_with_the_recommended_operation_and_verifies(fake: FakeIris) -> None:
+    _post(fake, {"confirmed": True, "scenario": "issue_create"})
+    fake.posts.clear()
+
+    body = _post(fake, {"confirmed": True, "scenario": "issue_resolve"}).json()
+
+    assert body["status"] == "completed"
+    assert [s["step"] for s in body["steps"]] == ["issue.check", "issue.detect", "issue.fix", "issue.verify"]
+    steps = _steps(body)
+    assert steps["issue.fix"]["operation_name"] == "database.mount"
+    assert [p[0] for p in fake.posts] == ["/v2/database-dir/mount"]
+    assert fake.mounted[IPM_DIR] is True
+    fix = {t.trace_id: t for t in store.list_traces()}[steps["issue.fix"]["trace_id"]]
+    assert fix.resolution is not None and fix.resolution.issue_type == "database_dismounted"
+
+
+def test_resolve_without_an_active_issue_changes_nothing(fake: FakeIris) -> None:
+    body = _post(fake, {"confirmed": True, "scenario": "issue_resolve"}).json()
+
+    assert body["status"] == "stopped"
+    assert _steps(body)["issue.check"]["status"] == "failed"
+    assert fake.posts == [] and fake.mounted[IPM_DIR] is True
+
+
+def test_create_remounts_ipm_if_it_is_not_reported_dismounted(
+    fake: FakeIris, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # database.dismount's own verification passes, but the storage list
+    # still reports IPM mounted: the Create check fails and IPM is restored.
+    original_get = fake.get
+
+    async def stale_storage_list(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = await original_get(path, params)
+        if path == "/v2/database-dirs" and fake.posts:
+            for entry in response["result"]:
+                entry["Status"] = "Mounted/RW"
+        return response
+
+    monkeypatch.setattr(fake, "get", stale_storage_list)
+    body = _post(fake, {"confirmed": True, "scenario": "issue_create"}).json()
+
+    assert body["status"] == "stopped"
+    steps = _steps(body)
+    assert steps["issue.dismount"]["status"] == "success"
+    assert steps["issue.confirm_dismounted"]["status"] == "failed"
+    assert "issue.restore" in steps  # the remount safety net ran
+
+
+def test_failed_resolve_leaves_the_issue_active_and_says_so(fake: FakeIris) -> None:
+    _post(fake, {"confirmed": True, "scenario": "issue_create"})
+    fake.posts.clear()
+    fake.mount_failures = 1
+
+    body = _post(fake, {"confirmed": True, "scenario": "issue_resolve"}).json()
+
+    assert body["status"] == "stopped"
+    assert _steps(body)["issue.fix"]["status"] == "failed"
+    assert "may still be active" in body["detail"]
+    assert "issue.restore" not in _steps(body)  # no automatic retry: IPM stays as it was
+    assert [p[0] for p in fake.posts] == ["/v2/database-dir/mount"]
+    assert fake.mounted[IPM_DIR] is False
+
+
+@pytest.mark.parametrize("scenario", ["issue_create", "issue_resolve"])
+def test_two_step_scenarios_need_confirmation(fake: FakeIris, scenario: str) -> None:
+    if scenario == "issue_resolve":
+        fake.mounted[IPM_DIR] = False  # an active demo issue
+    body = _post(fake, {"confirmed": False, "scenario": scenario}).json()
+
+    assert body["status"] == "stopped"
+    assert fake.posts == []
+
+
+@pytest.mark.asyncio
+async def test_two_step_scenarios_share_the_rehearsal_lock(fake: FakeIris) -> None:
+    async with demo_rehearsal._rehearsal_lock:
+        for step in ("create", "resolve"):
+            with pytest.raises(demo_rehearsal.RehearsalInProgressError):
+                await demo_rehearsal.run_issue_resolution_rehearsal(fake, frozenset(), True, step=step)
+    assert fake.posts == []

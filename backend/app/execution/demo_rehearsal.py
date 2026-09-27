@@ -23,6 +23,12 @@ first), checks the issue shows up in GET /api/iris/issues, fixes it with
 database.mount using the issue's parameters, and checks it's gone. If
 anything fails after the dismount, IPM is mounted again.
 
+It can also run as two separate steps. "Create" dismounts IPM, verifies
+IRIS reports it dismounted, and stops, leaving the issue active on purpose
+(a failure before that check still remounts IPM). "Resolve" detects the
+active IPM issue, fixes it with database.mount and verifies it's gone; on
+failure IPM stays dismounted and the result says so.
+
 The results only hold short detail strings and target names/ids, never
 handler data or credentials.
 """
@@ -422,7 +428,9 @@ class _Rehearsal:
                      f"Databases page. {detail}"),
                  trace_id=trace_id)
 
-    async def issue_resolution_phase(self) -> None:
+    async def dismount_ipm(self) -> tuple[str, bool]:
+        """Check IPM is mounted, dry-run then run database.dismount.
+        Returns (directory, dismounted)."""
         directory, mounted = await self.read("issue.read", ISSUE_DATABASE, self._ipm_state, "the IPM database")
         if not mounted:
             self.add(step="issue.read", action="read", status="failed", target=ISSUE_DATABASE,
@@ -440,53 +448,93 @@ class _Rehearsal:
         self.add(step="issue.dismount", operation_name=DISMOUNT_OPERATION, action="change",
                  status="success" if dismounted else "failed", operation_status=status.value if status else "error",
                  target=ISSUE_DATABASE, detail=error or result.detail, trace_id=trace_id)
+        return directory, dismounted
+
+    async def detect_and_resolve_ipm(self) -> None:
+        """Detect IPM's issue, fix it with the recommended operation, verify it's gone."""
+        issue = await self._ipm_issue()
+        if issue is None:
+            self.add(step="issue.detect", action="detect", status="failed", target=ISSUE_DATABASE,
+                     detail="The Command Center issue detection did not report IPM.")
+            raise _Stop
+        self.add(step="issue.detect", action="detect", status="success", target=ISSUE_DATABASE,
+                 detail=f"Command Center Issue: {issue['explanation']}")
+
+        # Fix it the way Resolve Issues would: the recommended operation and the issue's parameters.
+        result, trace_id, error = await self.run_operation(
+            issue["recommended_operation"], issue["parameters"], dry_run=False,
+            resolution_issue_type=issue["kind"])
+        fixed = result is not None and result.status is OperationResultStatus.SUCCESS
+        self.add(step="issue.fix", operation_name=issue["recommended_operation"], action="fix",
+                 status="success" if fixed else "failed",
+                 operation_status=result.status.value if result else "error",
+                 target=ISSUE_DATABASE, detail=error or result.detail, trace_id=trace_id)
+        if not fixed:
+            raise _Stop
+
+        state = await self._ipm_state()
+        still_listed = await self._ipm_issue()
+        if state is None or not state[1] or still_listed is not None:
+            self.add(step="issue.verify", action="verify", status="failed", target=ISSUE_DATABASE,
+                     detail="After the fix, IPM is not reported as mounted or the issue is still listed.")
+            raise _Stop
+        self.add(step="issue.verify", action="verify", status="success", target=ISSUE_DATABASE,
+                 detail="IPM is mounted again and the Command Center issue is gone.")
+
+    async def issue_resolution_phase(self) -> None:
+        directory, dismounted = await self.dismount_ipm()
         try:
             if not dismounted:
                 raise _Stop
-
-            issue = await self._ipm_issue()
-            if issue is None:
-                self.add(step="issue.detect", action="detect", status="failed", target=ISSUE_DATABASE,
-                         detail="The Command Center issue detection did not report IPM.")
-                raise _Stop
-            self.add(step="issue.detect", action="detect", status="success", target=ISSUE_DATABASE,
-                     detail=f"Command Center Issue: {issue['explanation']}")
-
-            # Fix it the way Resolve Issues would: the recommended operation and the issue's parameters.
-            result, trace_id, error = await self.run_operation(
-                issue["recommended_operation"], issue["parameters"], dry_run=False,
-                resolution_issue_type=issue["kind"])
-            fixed = result is not None and result.status is OperationResultStatus.SUCCESS
-            self.add(step="issue.fix", operation_name=issue["recommended_operation"], action="fix",
-                     status="success" if fixed else "failed",
-                     operation_status=result.status.value if result else "error",
-                     target=ISSUE_DATABASE, detail=error or result.detail, trace_id=trace_id)
-            if not fixed:
-                raise _Stop
-
-            state = await self._ipm_state()
-            still_listed = await self._ipm_issue()
-            if state is None or not state[1] or still_listed is not None:
-                self.add(step="issue.verify", action="verify", status="failed", target=ISSUE_DATABASE,
-                         detail="After the fix, IPM is not reported as mounted or the issue is still listed.")
-                raise _Stop
-            self.add(step="issue.verify", action="verify", status="success", target=ISSUE_DATABASE,
-                     detail="IPM is mounted again and the Command Center issue is gone.")
+            await self.detect_and_resolve_ipm()
         except BaseException:
             # On any failure after the dismount, including cancellation
             # (CancelledError is a BaseException), remount IPM first, then re-raise.
             await self.ensure_ipm_mounted(directory)
             raise
 
-    async def run_issue_resolution(self) -> RehearsalResult:
+    # --- Two-step demo: Create Demo Issue, then Resolve Demo Issue ---
+
+    async def create_issue_phase(self) -> None:
+        """Dismount IPM, verify it's dismounted, then stop and leave the issue
+        active on purpose. Only a failure before that verification remounts IPM."""
+        directory, dismounted = await self.dismount_ipm()
         try:
-            await self.issue_resolution_phase()
+            if not dismounted:
+                raise _Stop
+            state = await self._ipm_state()
+            if state is None or state[1]:
+                self.add(step="issue.confirm_dismounted", action="verify", status="failed", target=ISSUE_DATABASE,
+                         detail="After the dismount, IRIS does not report IPM as dismounted.")
+                raise _Stop
+        except BaseException:
+            await self.ensure_ipm_mounted(directory)
+            raise
+        self.add(step="issue.confirm_dismounted", action="verify", status="success", target=ISSUE_DATABASE,
+                 detail=f"IRIS reports IPM ({directory}) as dismounted. The demo issue stays active until it is resolved.")
+
+    async def resolve_issue_phase(self) -> None:
+        """Resolve the active IPM demo issue with the normal detect/fix/verify
+        steps. No remount on failure: IPM stays as it was (dismounted)."""
+        _, mounted = await self.read("issue.check", ISSUE_DATABASE, self._ipm_state, "the IPM database")
+        if mounted:
+            self.add(step="issue.check", action="read", status="failed", target=ISSUE_DATABASE,
+                     detail="IPM is mounted, so there is no demo issue to resolve. Create it first.")
+            raise _Stop
+        self.add(step="issue.check", action="read", status="success", target=ISSUE_DATABASE,
+                 detail="IPM is dismounted; the demo issue is active.")
+        await self.detect_and_resolve_ipm()
+
+    async def run_issue_resolution(self, phase: Callable[[], Awaitable[None]] | None = None,
+                                   **summary: str) -> RehearsalResult:
+        try:
+            await (phase or self.issue_resolution_phase)()
         except _Stop:
             pass
         except Exception as exc:  # noqa: BLE001 - reported as a failed step, never raised
             self.add(step="issue.error", action="read", status="failed", target=ISSUE_DATABASE,
                      detail=f"The rehearsal raised an unexpected error ({exc.__class__.__name__}).")
-        return self._summary()
+        return self._summary(**summary)
 
     async def run(self) -> RehearsalResult:
         try:
@@ -497,17 +545,18 @@ class _Rehearsal:
             pass
         return self._summary()
 
-    def _summary(self) -> RehearsalResult:
+    def _summary(self, *, completed: str | None = None, stopped: str | None = None) -> RehearsalResult:
         failed = next((s for s in self.steps if s.status == "failed"), None)
         if self.restore_failed:
             status: RehearsalStatus = "restore_failed"
             detail = "Stopped: a temporary change could NOT be restored — see the failed restore step."
         elif failed:
             status = "stopped"
-            detail = f"Stopped at {failed.step}; every temporary change made before it was restored."
+            detail = f"Stopped at {failed.step}; " + (
+                stopped or "every temporary change made before it was restored.")
         else:
             status = "completed"
-            detail = "Rehearsal completed; every temporary change was restored and verified."
+            detail = completed or "Rehearsal completed; every temporary change was restored and verified."
         return RehearsalResult(status=status, confirmed=self.confirmed, detail=detail, steps=self.steps)
 
 
@@ -532,12 +581,26 @@ async def run_issue_resolution_rehearsal(
     confirmed: bool,
     *,
     executor: OperationExecutor | None = None,
+    step: Literal["full", "create", "resolve"] = "full",
 ) -> RehearsalResult:
-    """Run the Issue Resolution Rehearsal (IPM). Uses the same lock as
-    run_rehearsal, so raises RehearsalInProgressError if one is running.
+    """Run the Issue Resolution Rehearsal (IPM): the whole cycle ("full"),
+    or one step of the two-step demo ("create" or "resolve"). Uses the same
+    lock as run_rehearsal, so raises RehearsalInProgressError if one is running.
     """
     if _rehearsal_lock.locked():
         raise RehearsalInProgressError
     async with _rehearsal_lock:
         rehearsal = _Rehearsal(client, privileges, confirmed, executor or build_rehearsal_executor(client))
+        if step == "create":
+            return await rehearsal.run_issue_resolution(
+                rehearsal.create_issue_phase,
+                completed="Demo issue created: IPM is dismounted and the issue stays active until it is resolved.",
+            )
+        if step == "resolve":
+            return await rehearsal.run_issue_resolution(
+                rehearsal.resolve_issue_phase,
+                completed="Demo issue resolved: IPM is mounted again and the issue is gone.",
+                stopped="the demo issue may still be active (IPM dismounted). Resolve it again, or mount IPM "
+                        "from the Databases page.",
+            )
         return await rehearsal.run_issue_resolution()

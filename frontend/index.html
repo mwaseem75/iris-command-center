@@ -320,6 +320,10 @@
                 <span class="dash-issues__label" id="dashboard-issues-label">Checking for issues&hellip;</span>
               </div>
               <ul class="dash-alert-list" id="dashboard-issue-list" aria-label="Issues and recommendations"></ul>
+              <div class="dash-recommendations" id="dashboard-recommendations" hidden>
+                <p class="dash-subtitle" title="Suggested changes from live IRIS state (GET /api/iris/issues &rarr; recommendations). Not issues; nothing is run from here.">Recommendations</p>
+                <ul class="dash-alert-list" id="dashboard-recommendation-list" aria-label="Recommendations"></ul>
+              </div>
             </section>
 
             <section class="info-card dash-panel dash-panel--process" aria-labelledby="dashboard-process-title">
@@ -1215,6 +1219,10 @@
                   <button class="btn" type="button" id="web-apps-enable-check-button">Check</button>
                 </div>
                 <p class="ns-hint">Enables or disables this web application through the authorization &rarr; confirmation &rarr; execution &rarr; verification framework. The check is a read-only dry run; nothing is sent to IRIS until you explicitly confirm, and only the Enabled setting is ever sent. Protected applications are refused by the backend.</p>
+                <div class="banner banner--warning" id="web-apps-enable-resolution" hidden role="status">
+                  <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                  <span id="web-apps-enable-resolution-text"></span>
+                </div>
                 <div class="loading-state" id="web-apps-enable-loading" hidden>
                   <span class="spinner" aria-hidden="true"></span>
                   <span id="web-apps-enable-loading-text">Checking&hellip;</span>
@@ -2493,28 +2501,34 @@
             <div class="ir-rehearsal__head">
               <span class="ir-rehearsal__icon" aria-hidden="true">&#9654;</span>
               <div class="ir-rehearsal__intro">
-                <h3 class="info-card__title" id="issue-resolver-rehearsal-title">Create Demo Issue</h3>
+                <h3 class="info-card__title" id="issue-resolver-rehearsal-title">Demo Issue</h3>
                 <p class="ir-rehearsal__flow">Create &rarr; Detect &rarr; Explain &rarr; Resolve &rarr; Verify &rarr; Restore &rarr; Observe</p>
-                <p class="info-card__hint">This intentionally creates a real, reversible IRIS issue for demonstration. The issue is then detected and resolved through the normal Issue Resolver workflow, and the environment is restored afterward. Every change uses the existing operations and is authorized, confirmed, verified and traced.</p>
+                <p class="info-card__hint">Two explicit steps. <strong>Create Demo Issue</strong> intentionally creates a real, reversible IRIS issue for demonstration and stops, leaving the issue active so you can inspect it in Active Issues. <strong>Resolve Demo Issue</strong> then detects and resolves it through the normal Issue Resolver workflow, which restores the environment. Every change uses the existing operations and is authorized, confirmed, verified and traced.</p>
                 <dl class="ir-rehearsal__scenario">
                   <div><dt>Scenario</dt><dd id="issue-resolver-demo-scenario">Dismounted database &mdash; IPM</dd></div>
-                  <div><dt>What changes</dt><dd>IPM is temporarily dismounted (<code>database.dismount</code>), then mounted again by the resolution (<code>database.mount</code>). Only IPM is touched; if anything fails after the dismount, IPM is mounted again.</dd></div>
+                  <div><dt>Create</dt><dd>IPM is dismounted (<code>database.dismount</code>) and verified as dismounted, then left dismounted until you resolve it. While it is, the IPM package manager is unavailable. If anything fails before the dismount is verified, IPM is mounted again.</dd></div>
+                  <div><dt>Resolve</dt><dd>The active issue is detected, IPM is mounted again with <code>database.mount</code>, and the fix is verified. If the fix fails, the issue stays active and you can resolve it again.</dd></div>
                 </dl>
               </div>
-              <button class="btn btn--primary" type="button" id="issue-resolver-rehearsal-start">
-                <span class="btn__icon" aria-hidden="true">&#9654;</span>
-                Create Demo Issue
-              </button>
+              <div class="btn-row">
+                <button class="btn btn--primary" type="button" id="issue-resolver-rehearsal-start">
+                  <span class="btn__icon" aria-hidden="true">&#9654;</span>
+                  Create Demo Issue
+                </button>
+                <button class="btn" type="button" id="issue-resolver-demo-resolve" disabled title="Available while the IPM demo issue is active">
+                  Resolve Demo Issue
+                </button>
+              </div>
             </div>
 
             <div class="ir-rehearsal__confirm" id="issue-resolver-rehearsal-confirm" hidden>
               <div class="banner banner--warning" role="alert">
                 <span class="banner__icon" aria-hidden="true">&#9888;</span>
-                <span>This intentionally creates a real issue: the IPM database on the connected IRIS instance is dismounted for a few seconds, then mounted again when the issue is resolved.</span>
+                <span id="issue-resolver-rehearsal-warning">This intentionally creates a real issue: the IPM database on the connected IRIS instance is dismounted and stays dismounted until you resolve it.</span>
               </div>
               <label class="ns-form-checkbox">
                 <input type="checkbox" id="issue-resolver-rehearsal-ack" />
-                I understand IPM will be dismounted and mounted again.
+                <span id="issue-resolver-rehearsal-ack-text">I understand IPM will be dismounted and stay dismounted until I resolve it.</span>
               </label>
               <div class="btn-row">
                 <button class="btn btn--warning" type="button" id="issue-resolver-rehearsal-run" disabled>Confirm &amp; Create Demo Issue</button>
@@ -2526,7 +2540,7 @@
 
             <div class="loading-state" id="issue-resolver-rehearsal-running" hidden>
               <span class="spinner" aria-hidden="true"></span>
-              <span>Creating and resolving the demo issue&hellip; results appear when it finishes (usually a few seconds).</span>
+              <span id="issue-resolver-rehearsal-running-text">Running&hellip; results appear when it finishes (usually a few seconds).</span>
             </div>
             <div class="banner banner--error" id="issue-resolver-rehearsal-error" hidden role="alert">
               <span class="banner__icon" aria-hidden="true">&#9888;</span>
@@ -2570,7 +2584,7 @@
               </div>
               <button class="ns-drawer__close" type="button" id="issue-resolver-drawer-close" aria-label="Close issue details">&times;</button>
             </div>
-            <p class="ns-hint">Read-only. Resolving runs through Resolve Issues on the Databases page.</p>
+            <p class="ns-hint" id="issue-resolver-drawer-hint">Read-only. Resolving runs through Resolve Issues on the Databases page.</p>
             <div id="issue-resolver-drawer-body"></div>
             <div class="btn-row ir-drawer__actions">
               <button class="btn btn--primary" type="button" id="issue-resolver-open-databases">Go to Resolve Issues &rarr;</button>

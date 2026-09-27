@@ -198,3 +198,66 @@ def test_route_rejects_an_unknown_issue_type_before_calling_iris() -> None:
     assert response.status_code == 422
     assert fake.posts == []
     assert store.list_traces() == []
+
+
+# --- web_app_namespace_missing and the set-enabled route ---
+
+
+def test_web_app_trace_context_comes_from_the_catalog() -> None:
+    context = trace_context("web_app_namespace_missing", "web_app.set_enabled", {"Name": "/csp/orders", "Enabled": False})
+    assert context == ResolutionContext(
+        issue_type="web_app_namespace_missing", issue_title="Web application with a missing namespace",
+        severity="medium", resource="/csp/orders",
+    )
+    assert trace_context("web_app_namespace_missing", "database.mount", {"Directory": DIRECTORY}) is None
+    assert trace_context("database_dismounted", "web_app.set_enabled", {"Name": "/csp/orders"}) is None
+
+
+def _set_enabled(body: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> tuple[Any, _Handler]:
+    from app.dependencies import get_caller_privileges
+
+    handler = _Handler()
+    monkeypatch.setattr("app.routes.web_apps.WebAppSetEnabledHandler", lambda client: handler)
+    app.dependency_overrides[get_iris_client] = lambda: object()
+    app.dependency_overrides[get_caller_privileges] = lambda: frozenset({"Manage"})
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/iris/web-apps/set-enabled", json=body)
+    finally:
+        app.dependency_overrides.pop(get_caller_privileges, None)
+    return response, handler
+
+
+def test_set_enabled_route_labels_a_web_app_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    response, handler = _set_enabled({"Name": "/csp/orders", "Enabled": False, "confirmed": True,
+                                      "resolution_issue_type": "web_app_namespace_missing"}, monkeypatch)
+    assert response.status_code == 200 and response.json()["status"] == "success"
+    assert handler.parameters == [{"Name": "/csp/orders", "Enabled": False}]  # the label is never a parameter
+    (trace,) = store.list_traces()
+    assert trace.resolution is not None
+    assert trace.resolution.issue_type == "web_app_namespace_missing"
+    assert trace.resolution.resource == "/csp/orders"
+
+
+def test_set_enabled_route_without_the_field_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    response, _ = _set_enabled({"Name": "/csp/orders", "Enabled": False, "confirmed": True}, monkeypatch)
+    assert response.status_code == 200
+    (trace,) = store.list_traces()
+    assert trace.resolution is None
+
+
+@pytest.mark.parametrize("issue_type", ["made_up", "database_dismounted"])
+def test_set_enabled_route_rejects_an_issue_type_it_does_not_resolve(
+    issue_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response, handler = _set_enabled({"Name": "/csp/orders", "Enabled": False, "confirmed": True,
+                                      "resolution_issue_type": issue_type}, monkeypatch)
+    assert response.status_code == 422
+    assert handler.parameters == []
+    assert store.list_traces() == []
+
+
+def test_mount_route_rejects_the_web_app_issue_type() -> None:
+    response, fake = _mount({"Directory": DIRECTORY, "confirmed": True, "dry_run": True,
+                             "resolution_issue_type": "web_app_namespace_missing"})
+    assert response.status_code == 422 and fake.posts == []

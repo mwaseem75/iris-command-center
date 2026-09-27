@@ -5,7 +5,7 @@ verification). The registry asks for Manage; the handlers also require
 Secure because IRIS's own PUT /v2/web-app checks it.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
 
 from app.dependencies import get_caller_privileges, get_iris_client
@@ -14,6 +14,7 @@ from app.execution.models import ExecutionContext, OperationRequest, OperationRe
 from app.execution.web_app_set_enabled_handler import WebAppSetEnabledHandler
 from app.execution.web_app_update_description_handler import WebAppUpdateDescriptionHandler
 from app.iris_client.client import IRISClient
+from app.resolution.catalog import resolves_with
 
 router = APIRouter(prefix="/api/iris", tags=["iris-operations"])
 
@@ -22,7 +23,9 @@ _OPERATION_NAME = "web_app.set_enabled"
 
 class WebAppSetEnabledOperationRequest(BaseModel):
     """Request body. Nothing happens without confirmed=true, there's no force/skip
-    field, and unknown fields are rejected with 422.
+    field, and unknown fields are rejected with 422. `resolution_issue_type` is
+    set when the change is part of an Issue Resolution workflow; it only labels
+    the trace (same as database.mount).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -31,6 +34,7 @@ class WebAppSetEnabledOperationRequest(BaseModel):
     Enabled: StrictBool
     confirmed: bool = False
     dry_run: bool = False
+    resolution_issue_type: str | None = None
 
 
 @router.post("/web-apps/set-enabled", response_model=OperationResult)
@@ -40,10 +44,17 @@ async def set_web_app_enabled(
     privileges: frozenset[str] = Depends(get_caller_privileges),
 ) -> OperationResult:
     """Always returns 200 with an OperationResult; the outcome is in `status`."""
+    issue_type = body.resolution_issue_type
+    if issue_type is not None and not resolves_with(issue_type, _OPERATION_NAME):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{issue_type!r} is not an issue type resolved by {_OPERATION_NAME}.",
+        )
     executor = OperationExecutor({_OPERATION_NAME: WebAppSetEnabledHandler(client)})
     request = OperationRequest(
         operation_name=_OPERATION_NAME,
         parameters={"Name": body.Name, "Enabled": body.Enabled},
+        resolution_issue_type=issue_type,
     )
     context = ExecutionContext(
         available_privileges=privileges,
