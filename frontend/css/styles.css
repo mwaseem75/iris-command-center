@@ -57,8 +57,8 @@
   --header-height: 76px;
 }
 
-/* --- Themes. Midnight is the default :root palette above. Slate and Light
-   only override color tokens, via <html data-theme="..."> (set by
+/* --- Themes. Midnight is the default :root palette above. Slate,
+   Professional and Light only override color tokens, via <html data-theme="..."> (set by
    js/theme.js, and by the inline script in index.html before first paint). --- */
 
 :root[data-theme="slate"] {
@@ -87,6 +87,38 @@
 
   --color-chart-2: #9277ff;
   --color-chart-6: #3fdcc8;
+}
+
+:root[data-theme="professional"] {
+  /* Charcoal / blue-gray: lighter than Slate, still a dark theme. */
+  --color-bg: #2c333e;
+  --color-surface: #363e4b;
+  --color-surface-raised: #3d4654;
+  --color-surface-hover: #475163;
+  --color-border: #525d6e;
+  --color-border-subtle: #464f5e;
+
+  --color-text: #f3f5f9;
+  --color-text-muted: #c4ccd7;
+  --color-text-faint: #a3adbb;
+
+  --color-accent: #7fb0ff;
+  --color-accent-hover: #9ac1ff;
+  --color-accent-soft: rgba(127, 176, 255, 0.18);
+
+  --color-success: #6ad6a2;
+  --color-success-soft: rgba(106, 214, 162, 0.16);
+  --color-warning: #f2bf62;
+  --color-warning-soft: rgba(242, 191, 98, 0.16);
+  --color-error: #f58f6d;
+  --color-error-soft: rgba(245, 143, 109, 0.15);
+  --color-error-text: #ffc7ae;
+
+  --color-chart-2: #a590ff;
+  --color-chart-6: #5ee3d1;
+
+  --shadow-sm: 0 1px 2px rgba(12, 16, 24, 0.3);
+  --shadow-md: 0 8px 24px rgba(12, 16, 24, 0.34);
 }
 
 :root[data-theme="light"] {
@@ -271,7 +303,7 @@ input:focus-visible {
   gap: 14px;
 }
 
-/* Theme switch (js/theme.js): Midnight / Slate / Light. */
+/* Theme switch (js/theme.js): Midnight / Slate / Professional / Light. */
 .theme-switch {
   display: inline-flex;
   gap: 2px;
@@ -5043,7 +5075,7 @@ html.detail-workspace-open {
   gap: 8px;
 }
 
-/* --- Databases: Fix Issues panel --- */
+/* --- Databases: Resolve Issues panel --- */
 .db-issues {
   margin-bottom: 16px;
 }
@@ -5420,4 +5452,159 @@ html.detail-workspace-open {
   .ext-heading__icon {
     display: none;
   }
+}
+
+/* --- Resolve Issues: step tracker ---
+   Detected issue -> recommended fix -> dry run -> confirmation -> execution
+   -> verification -> trace. Compact on the issue card, detailed in the
+   database drawer's Mount section. */
+
+.resolve-flow {
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.resolve-flow__title {
+  margin: 0 0 10px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.resolve-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resolve-step {
+  --step-color: var(--color-text-faint);
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 0 0 10px;
+}
+
+/* Connector line between markers. */
+.resolve-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 24px;
+  bottom: 0;
+  left: 11px;
+  width: 2px;
+  background: var(--color-border);
+}
+
+.resolve-step[data-state="done"] { --step-color: var(--color-success); }
+.resolve-step[data-state="current"],
+.resolve-step[data-state="running"] { --step-color: var(--color-accent); }
+.resolve-step[data-state="failed"] { --step-color: var(--color-error); }
+
+.resolve-step[data-state="done"]:not(:last-child)::after {
+  background: color-mix(in srgb, var(--color-success) 55%, var(--color-border));
+}
+
+.resolve-step__marker {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--step-color);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--step-color);
+  background: var(--color-surface);
+}
+
+.resolve-step[data-state="done"] .resolve-step__marker,
+.resolve-step[data-state="failed"] .resolve-step__marker {
+  color: var(--color-surface);
+  background: var(--step-color);
+}
+
+.resolve-step[data-state="running"] .resolve-step__marker {
+  border-style: dashed;
+}
+
+.resolve-step__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.resolve-step__label {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.resolve-step[data-state="pending"] .resolve-step__label,
+.resolve-step[data-state="skipped"] .resolve-step__label {
+  color: var(--color-text-muted);
+}
+
+.resolve-step__state {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--step-color);
+}
+
+.resolve-step__detail {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Compact version on the issue card: one wrapping row of chips. */
+.resolve-steps--compact {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 6px;
+}
+
+.resolve-steps--compact .resolve-step {
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+}
+
+.resolve-steps--compact .resolve-step::after {
+  display: none;
+}
+
+.resolve-steps--compact .resolve-step__marker {
+  width: 18px;
+  height: 18px;
+  border-width: 1.5px;
+  font-size: 10px;
+}
+
+.resolve-steps--compact .resolve-step__body {
+  padding-top: 0;
+}
+
+.resolve-steps--compact .resolve-step__label {
+  font-size: 12px;
+}
+
+.resolve-steps--compact .resolve-step__state {
+  display: none;
 }

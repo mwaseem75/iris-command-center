@@ -61,7 +61,7 @@ const STEP_LABEL = {
   "issue.dry_run": "Dismount IPM (dry run — eligibility)",
   "issue.dismount": "Dismount IPM (create the issue)",
   "issue.detect": "Detect Command Center Issue",
-  "issue.fix": "Fix Issue: mount IPM",
+  "issue.fix": "Resolve Issue: mount IPM",
   "issue.verify": "Verify IPM mounted and issue gone",
   "issue.restore": "Restore IPM (mount)",
   "issue.error": "Unexpected error",

@@ -450,8 +450,8 @@ function renderAlerts(monitor, sysMon) {
 }
 
 // Command Center Issues come from our own issue check (GET /api/iris/issues)
-// and are shown separately from IRIS's alerts. "Review & Fix" goes to the
-// Fix Issues panel on the Databases page, which uses database.mount.
+// and are shown separately from IRIS's alerts. "Review & Resolve" goes to
+// the Resolve Issues panel on the Databases page, which uses database.mount.
 function renderCcIssues(settled) {
   if (!settled) return;  // not refreshed this time, keep what's shown
   const issues = settled.status === "fulfilled" && Array.isArray(settled.value?.issues) ? settled.value.issues : null;
@@ -478,7 +478,7 @@ function renderCcIssues(settled) {
     const fix = document.createElement("button");
     fix.className = "dash-panel__link";
     fix.type = "button";
-    fix.textContent = "Review & Fix →";
+    fix.textContent = "Review & Resolve →";
     fix.addEventListener("click", () => {
       navigateTo("databases");
       document.getElementById("databases-issues-title")?.scrollIntoView({ block: "start" });

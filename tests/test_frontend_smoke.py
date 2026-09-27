@@ -1428,20 +1428,22 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
     check("Unknown (process list unavailable)" in dashboard_js, "System Monitor state is Unknown when process data fails")
 
 
-def test_theme_selector_offers_three_persisted_themes() -> None:
-    print("Checking the theme selector offers Midnight/Slate/Light and persists the choice...")
+def test_theme_selector_offers_four_persisted_themes() -> None:
+    print("Checking the theme selector offers Midnight/Slate/Professional/Light and persists the choice...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
     check('id="theme-select"' in html, "the header has a theme selector")
-    for theme in ("midnight", "slate", "light"):
+    for theme in ("midnight", "slate", "professional", "light"):
         check(f'value="{theme}"' in html, f"the theme selector offers {theme!r}")
     check('"icc-theme"' in html, "index.html applies the saved theme before first paint")
 
     css = (FRONTEND_DIR / "css" / "styles.css").read_text(encoding="utf-8")
-    for theme in ("slate", "light"):
+    for theme in ("slate", "professional", "light"):
         check(f':root[data-theme="{theme}"]' in css, f"styles.css defines the {theme!r} theme tokens")
 
     theme_js = (FRONTEND_DIR / "js" / "theme.js").read_text(encoding="utf-8")
     check('STORAGE_KEY = "icc-theme"' in theme_js, "theme.js persists under the icc-theme key")
+    check('"professional"' in theme_js, "theme.js accepts the professional theme")
+    check('savedTheme === "professional"' in html, "index.html applies a saved professional theme before first paint")
     check(theme_js.count("try {") >= 2, "theme.js guards every localStorage access")
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
     check("initThemeSelector()" in app_js, "app.js initialises the theme selector")
@@ -1698,7 +1700,7 @@ def main() -> None:
         test_dashboard_live_monitoring_uses_real_read_only_sources,
         test_demo_activity_is_confirmed_and_uses_only_real_traces,
         test_detail_views_use_one_centered_workspace_pattern,
-        test_theme_selector_offers_three_persisted_themes,
+        test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]
     for test in tests:

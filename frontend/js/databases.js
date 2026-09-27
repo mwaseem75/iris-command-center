@@ -84,6 +84,9 @@ const dom = {
   drawerMountConfirmButton: document.getElementById("databases-drawer-mount-confirm-button"),
   drawerMountResult: document.getElementById("databases-drawer-mount-result"),
   issuesBody: document.getElementById("databases-issues-body"),
+  resolveFlow: document.getElementById("databases-resolve-flow"),
+  resolveTitle: document.getElementById("databases-resolve-title"),
+  resolveSteps: document.getElementById("databases-resolve-steps"),
   drawerDismountCheckButton: document.getElementById("databases-drawer-dismount-check-button"),
   drawerDismountLoading: document.getElementById("databases-drawer-dismount-loading"),
   drawerDismountLoadingText: document.getElementById("databases-drawer-dismount-loading-text"),
@@ -591,6 +594,113 @@ async function handleRunIntegrityCheckClick() {
   }
 }
 
+// --- Issue resolution tracker ---
+//
+// When the drawer is opened from Resolve Issues, the Mount section shows the
+// whole path. Every step's state comes from the existing flow: the detected
+// issue, its recommended operation, the Check Mount dry run, the checkbox,
+// the real mount's result and verification, and its execution trace.
+
+const RESOLVE_STEPS = [
+  ["detected", "Detected issue"],
+  ["recommended", "Recommended fix"],
+  ["check", "Dry-run check"],
+  ["confirm", "Confirmation"],
+  ["execute", "Execution"],
+  ["verify", "Verification"],
+  ["trace", "Trace"],
+];
+const STEP_STATE_LABELS = {
+  done: "Done",
+  current: "Next",
+  running: "In progress",
+  failed: "Failed",
+  skipped: "Skipped",
+  pending: "Pending",
+};
+
+// The issue being resolved in the open drawer, with each step's state and
+// detail text; null when the drawer wasn't opened from Resolve Issues.
+let resolving = null;
+
+// Render the steps into `list`. `steps` maps step key -> { state, detail }.
+function renderResolveSteps(list, steps, { compact = false } = {}) {
+  list.replaceChildren();
+  RESOLVE_STEPS.forEach(([key, label], index) => {
+    const step = steps[key] || { state: "pending" };
+    const item = document.createElement("li");
+    item.className = "resolve-step";
+    item.dataset.state = step.state;
+    if (step.state === "current" || step.state === "running") item.setAttribute("aria-current", "step");
+
+    const marker = document.createElement("span");
+    marker.className = "resolve-step__marker";
+    marker.setAttribute("aria-hidden", "true");
+    marker.textContent = step.state === "done" ? "✓" : step.state === "failed" ? "!" : String(index + 1);
+
+    const body = document.createElement("span");
+    body.className = "resolve-step__body";
+    const name = document.createElement("span");
+    name.className = "resolve-step__label";
+    name.textContent = label;
+    const state = document.createElement("span");
+    state.className = "resolve-step__state";
+    state.textContent = STEP_STATE_LABELS[step.state] || step.state;
+    body.append(name, state);
+    if (!compact && step.detail) {
+      const detail = document.createElement("span");
+      detail.className = "resolve-step__detail";
+      detail.textContent = step.detail;
+      body.append(detail);
+    }
+    item.title = step.detail ? `${label}: ${step.detail}` : label;
+    item.append(marker, body);
+    list.append(item);
+  });
+}
+
+function issueSteps(issue) {
+  return {
+    detected: { state: "done", detail: `${textOrPlaceholder(issue.database)} is ${textOrPlaceholder(issue.status)}` },
+    recommended: { state: "done", detail: `${textOrPlaceholder(issue.recommended_operation)} (read-write)` },
+    check: { state: "current", detail: "Run Check Mount below (dry run, nothing is changed)." },
+  };
+}
+
+function setResolveStep(key, state, detail) {
+  if (!resolving) return;
+  resolving.steps[key] = { state, detail };
+  renderResolveFlow();
+}
+
+function renderResolveFlow() {
+  if (!resolving) {
+    dom.resolveFlow.hidden = true;
+    return;
+  }
+  dom.resolveTitle.textContent =
+    `Resolving: ${textOrPlaceholder(resolving.issue.database)} is ${textOrPlaceholder(resolving.issue.status)}`;
+  renderResolveSteps(dom.resolveSteps, resolving.steps);
+  dom.resolveFlow.hidden = false;
+}
+
+function startResolution(issue) {
+  resolving = { database: issue.database, issue, steps: issueSteps(issue) };
+  renderResolveFlow();
+}
+
+// A changed request (e.g. the Read-only toggle) needs a new dry run.
+function resetResolutionToCheck() {
+  if (!resolving) return;
+  const { detected, recommended } = resolving.steps;
+  resolving.steps = {
+    detected,
+    recommended,
+    check: { state: "current", detail: "Run Check Mount again for the changed request." },
+  };
+  renderResolveFlow();
+}
+
 // What was previewed with Check Mount. Set by a successful dry run,
 // cleared on any change (drawer reopen, Read-only toggle). Confirm & Mount
 // needs this and the checkbox.
@@ -640,6 +750,7 @@ async function handleMountCheckClick() {
   dom.drawerMountCheckButton.disabled = true;
   dom.drawerMountLoadingText.textContent = "Checking mount state…";
   dom.drawerMountLoading.hidden = false;
+  setResolveStep("check", "running", "Checking the mount request against IRIS (dry run)…");
 
   try {
     const preview = await IrisApi.mountDatabase(fields, true, true);
@@ -650,19 +761,23 @@ async function handleMountCheckClick() {
       dom.drawerMountPreviewText.textContent = handlerResult.detail;
       dom.drawerMountConfirm.hidden = false;
       updateMountConfirmEnabled();
+      setResolveStep("check", "done", handlerResult.detail);
+      setResolveStep("confirm", "current", "Tick the checkbox, then Confirm & Mount.");
     } else {
-      showMountError(
+      const message =
         (handlerResult && handlerResult.detail) ||
-          preview.detail ||
-          "This mount request could not be validated against IRIS.",
-      );
+        preview.detail ||
+        "This mount request could not be validated against IRIS.";
+      showMountError(message);
+      setResolveStep("check", "failed", message);
     }
   } catch (err) {
-    showMountError(
+    const message =
       err instanceof ApiError
         ? "Could not reach the Command Center backend to check this database's mount state."
-        : "An unexpected error occurred while checking this database's mount state.",
-    );
+        : "An unexpected error occurred while checking this database's mount state.";
+    showMountError(message);
+    setResolveStep("check", "failed", message);
   } finally {
     dom.drawerMountLoading.hidden = true;
     dom.drawerMountCheckButton.disabled = false;
@@ -700,6 +815,24 @@ function renderMountResult(result) {
   dom.drawerMountResult.hidden = false;
 }
 
+// Update Execution and Verification from the backend's OperationResult.
+function trackMountResult(result) {
+  if (!resolving) return;
+  const execDetail = (result.handler_result && result.handler_result.detail) || result.detail || "";
+  const verification = result.verification;
+  if (result.status === "success" || result.status === "verification_failed") {
+    setResolveStep("execute", "done", execDetail);
+    setResolveStep(
+      "verify",
+      verification && verification.status === "verified" ? "done" : "failed",
+      verification ? verification.detail : result.detail,
+    );
+  } else {
+    setResolveStep("execute", "failed", execDetail || `Not executed (${textOrPlaceholder(result.status)}).`);
+    setResolveStep("verify", "skipped", "Nothing to verify: the mount didn't run.");
+  }
+}
+
 /**
  * The only place that sends a real mount. Only reachable from Confirm &
  * Mount, after a successful Check Mount and the checkbox.
@@ -712,24 +845,32 @@ async function submitMount() {
   dom.drawerMountCheckButton.disabled = true;
   dom.drawerMountLoadingText.textContent = "Mounting database…";
   dom.drawerMountLoading.hidden = false;
+  setResolveStep("confirm", "done", "Confirmed.");
+  setResolveStep("execute", "running", "Sending database.mount to IRIS…");
 
   const startedMs = Date.now();
   try {
     const result = await IrisApi.mountDatabase(fields, true, false);
     renderMountResult(result);
-    await appendMountTraceLink(startedMs);
+    trackMountResult(result);
+    const trace = await appendMountTraceLink(startedMs);
+    if (trace) setResolveStep("trace", "done", "Recorded. Use “Open execution trace” below.");
+    else setResolveStep("trace", "skipped", "No matching execution trace was found.");
     if (result.status === "success") {
       // Reload the database list instead of patching local state.
       await loadDatabases();
     }
   } catch (err) {
-    renderMountResult({
+    const failed = {
       status: "request_failed",
       detail:
         err instanceof ApiError
           ? "Could not reach the Command Center backend to mount this database."
           : "An unexpected error occurred while mounting this database.",
-    });
+    };
+    renderMountResult(failed);
+    trackMountResult(failed);
+    setResolveStep("trace", "skipped", "The request didn't reach the backend.");
   } finally {
     dom.drawerMountLoading.hidden = true;
     dom.drawerMountCheckButton.disabled = false;
@@ -901,6 +1042,8 @@ function openDrawer(databaseName) {
   resetDrawerIntegrityCheck();
   resetDrawerMount();
   resetDrawerDismount();
+  resolving = null;
+  renderResolveFlow();
 
   dom.drawerBackdrop.hidden = false;
   dom.drawer.hidden = false;
@@ -910,6 +1053,7 @@ function openDrawer(databaseName) {
 function closeDrawer() {
   dom.drawerBackdrop.hidden = true;
   dom.drawer.hidden = true;
+  resolving = null;
 }
 
 function renderDatabases(databases) {
@@ -1001,12 +1145,13 @@ export async function loadDatabases() {
   loadIssues();
 }
 
-// --- Fix Issues: dismounted databases ---
+// --- Resolve Issues: dismounted databases ---
 //
 // Issues come from GET /api/iris/issues (the backend skips system and
-// mirrored databases). "Fix Issue" just opens the database's drawer at the
-// Mount section, so the normal flow runs: Check Mount (dry run) -> confirm
-// -> Confirm & Mount -> verification -> trace.
+// mirrored databases). "Resolve Issue" opens the database's drawer at the
+// Mount section with the resolution tracker, so the normal flow runs:
+// detected issue -> recommended fix -> Check Mount (dry run) -> confirm ->
+// Confirm & Mount -> verification -> trace.
 
 function hint(text) {
   const p = document.createElement("p");
@@ -1078,16 +1223,21 @@ async function loadIssues() {
       const recommended = document.createElement("p");
       recommended.className = "db-issue__fix";
       recommended.textContent = `Recommended: ${issue.recommended_operation} (read-write)`;
-      text.append(title, hint(issue.explanation), recommended, whyThisFix(issue));
+      const path = document.createElement("ol");
+      path.className = "resolve-steps resolve-steps--compact";
+      path.setAttribute("aria-label", "Resolution steps");
+      renderResolveSteps(path, { ...issueSteps(issue), check: { state: "pending" } }, { compact: true });
+      text.append(title, hint(issue.explanation), recommended, path, whyThisFix(issue));
       item.append(text);
       if (allDatabases.some((db) => db.Name === issue.database)) {
         const button = document.createElement("button");
         button.className = "btn btn--primary";
         button.type = "button";
-        button.textContent = "Fix Issue";
+        button.textContent = "Resolve Issue";
         button.addEventListener("click", () => {
           openDrawer(issue.database);
-          dom.drawerMountCheckButton.scrollIntoView({ block: "center" });
+          startResolution(issue);
+          dom.resolveFlow.scrollIntoView({ block: "center" });
           dom.drawerMountCheckButton.focus();
         });
         item.append(button);
@@ -1098,17 +1248,17 @@ async function loadIssues() {
 }
 
 /**
- * After a real mount: its execution trace (the newest database.mount trace
- * since `sinceMs`).
+ * After a real mount: link its execution trace (the newest database.mount
+ * trace since `sinceMs`). Returns the trace, or null if none was found.
  */
 async function appendMountTraceLink(sinceMs) {
-  if (!onOpenTrace) return;
+  if (!onOpenTrace) return null;
   try {
     const traces = (await IrisApi.getExecutionTraces())?.traces || [];
     const trace = traces.find(
       (t) => t.operation_name === "database.mount" && new Date(t.start_time).getTime() >= sinceMs - 1000,
     );
-    if (!trace) return;
+    if (!trace) return null;
     const button = document.createElement("button");
     button.className = "dash-panel__link";
     button.type = "button";
@@ -1118,8 +1268,10 @@ async function appendMountTraceLink(sinceMs) {
       onOpenTrace(trace.trace_id);
     });
     dom.drawerMountResult.append(button);
+    return trace;
   } catch {
     // The trace link is just a shortcut; the mount result stands on its own.
+    return null;
   }
 }
 
@@ -1429,7 +1581,10 @@ export function initDatabasesControls({ onOpenTrace: openTrace } = {}) {
   dom.drawerMountCheckButton.addEventListener("click", () => {
     handleMountCheckClick();
   });
-  dom.drawerMountReadOnly.addEventListener("change", clearMountPreview);
+  dom.drawerMountReadOnly.addEventListener("change", () => {
+    clearMountPreview();
+    resetResolutionToCheck();
+  });
   dom.drawerMountAckCheckbox.addEventListener("change", updateMountConfirmEnabled);
   dom.drawerMountConfirmButton.addEventListener("click", () => {
     submitMount();

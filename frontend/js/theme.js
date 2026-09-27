@@ -1,4 +1,4 @@
-// Color themes: Midnight (default), Slate and Light.
+// Color themes: Midnight (default), Slate, Professional and Light.
 //
 // Each theme overrides the CSS color tokens via <html data-theme="...">;
 // Midnight is no attribute at all. The choice is saved in localStorage if
@@ -6,7 +6,7 @@
 // the header switch in sync.
 
 const STORAGE_KEY = "icc-theme";
-const THEMES = ["midnight", "slate", "light"];
+const THEMES = ["midnight", "slate", "professional", "light"];
 const DEFAULT_THEME = "midnight";
 
 function readSavedTheme() {
