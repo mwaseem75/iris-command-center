@@ -31,7 +31,7 @@ It combines live IRIS system information with controlled administrative workflow
 
 | Area | What you can do |
 |---|---|
-| 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, alerts, and recent activity |
+| 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, alerts, Issues & Recommendations, and recent activity |
 | 🗂️ **Namespaces** | Explore namespaces, relationships, and create namespaces safely |
 | 💾 **Databases** | Inspect databases, storage, integrity, and perform controlled create, mount, and dismount workflows |
 | ⚙️ **Processes** | Search, filter, and investigate live IRIS processes |
@@ -42,11 +42,11 @@ It combines live IRIS system information with controlled administrative workflow
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
-| 🩺 **Issue Resolver** | Detect supported issues, understand why a fix is recommended, apply the safe workflow, and verify the result |
+| 🩺 **Issue Resolver** | Detect supported issues from live evidence, see their impact, resolve them safely through the existing operations, verify the result, and follow the execution trace |
 | 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
-| 🎬 **Demo Activity** | Demonstrate controlled operations, issue resolution, verification, restoration, and execution tracing |
+| 🎬 **Demo Activity** | Demonstrate controlled operations and an intentional, reversible demo issue, with verification, restoration, and execution tracing |
 
 ---
 
@@ -170,8 +170,8 @@ Sensitive information is protected. The application deliberately withholds or fi
 - Sensitive personal fields
 
 
-### 🩺 Database Troubleshooting & Recovery
-Detect supported database-state issues, understand the evidence behind the recommended fix, execute the existing safe operation, and verify that the issue is resolved.
+### 🩺 Issue Resolver
+A deterministic Issue Resolver: it detects supported issues in live IRIS data, explains each one from the Issue Resolution Catalog (evidence, impact, recommended solution, required privilege and risk), resolves it with the existing safe operation, and verifies that the issue is gone.
 <img width="2178" alt="image" src="https://github.com/user-attachments/assets/4875ea65-f29b-4623-888f-1ad8f9f889bd" />
 
 
@@ -179,6 +179,7 @@ Detect supported database-state issues, understand the evidence behind the recom
 Ask natural-language questions about live IRIS data while keeping the assistant inside the same controlled application API boundary.
 The current AI Assistant intentionally uses a **deterministic intent classifier**, not an external LLM.
 It provides a natural-language interface while keeping the operational path inside the existing application architecture.
+Knowledge questions may use IRIS Vector Search for supporting context; search results never trigger administrative changes, and any change the assistant can request goes through the same authorization, confirmation and verification framework as the rest of the application.
 <img width="2175"  alt="image" src="https://github.com/user-attachments/assets/52a5785f-321d-4451-bb6c-00067b6e7869" />
 
 
@@ -201,9 +202,36 @@ A trace records safe operational information such as:
 ## Advanced Capabilities
 
 ### 🩺 Deterministic Issue Resolver
-The **Fix Issues** workflow provides a controlled operational path:
+The **Issue Resolver** provides a controlled operational path from a detected issue to a verified resolution. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
+
+The current real scenario is **`database_dismounted`** (for example, the **IPM** database):
+
+- **Detection:** live evidence from IRIS (`GET /v2/databases`, `GET /v2/database-dirs`) shows the database reported as `Dismounted`.
+- **Impact:** the namespaces that use the database for **Globals** or **Routines** are listed (`GET /v2/namespaces`).
+- **Recommendation:** the catalog-defined solution — mount the database read-write with **`database.mount`** — along with its required privilege (**Operate**) and risk level (**medium**).
+- **Resolve:** the operation runs through the normal authorization → explicit confirmation → execution path. There is no bypass.
+- **Verification:** the operation verifies the database is mounted, and issue detection confirms the issue is gone.
+- **Observe:** the resolution is recorded as an execution trace, labelled with the issue it resolved, and can be opened in Observability.
 
 <img width="1827" alt="image" src="https://github.com/user-attachments/assets/958632a0-9b9e-4d54-970a-1f11c3ceaaf5" />
+
+#### Evidence-driven Resolution
+Every resolution is backed by a chain of real evidence:
+
+```text
+Detection Evidence → Impact Evidence → Resolution Operation → Verification Evidence → Execution Trace
+```
+
+#### Intentional Demo Issues
+**Create Demo Issue** intentionally creates a real, reversible IRIS issue for demonstration. The current scenario, *Dismounted database — IPM*, temporarily dismounts the IPM database. The normal Issue Resolver then detects, explains, resolves and verifies it, and the environment is restored afterward.
+
+```text
+Create Demo Issue → Detect → Explain → Resolve → Verify → Restore → Observe
+```
+
+- Explicit confirmation is required before anything runs.
+- This is real IRIS state, not simulated data: IPM is really dismounted and mounted again through `database.dismount` and `database.mount`.
+- Only IPM is touched; if any step fails after the dismount, IPM is mounted again.
 
 ---
 
@@ -218,6 +246,7 @@ This makes observability more than a browser-only feature.
 ### 🔍 IRIS Vector Search
 
 Command Center demonstrates **InterSystems IRIS Vector Search** as an operational knowledge capability.
+Vector Search provides supporting operational knowledge only; it does not detect issues, select mutations, or execute remediation.
 
 <img width="1754"  alt="image" src="https://github.com/user-attachments/assets/0d1df68b-6c57-4185-9d23-adfe1f765fc4" />
 
@@ -225,6 +254,7 @@ Command Center demonstrates **InterSystems IRIS Vector Search** as an operationa
 
 ### 🎯 Demo Activity
 Command Center includes a controlled **Demo Activity** workflow for demonstrating the safety model without leaving arbitrary configuration behind.
+Alongside the standard rehearsal, Demo Activity offers **Create Demo Issue**: after explicit confirmation it intentionally creates a real, reversible issue (IPM is temporarily dismounted), which is then detected, resolved and verified through the normal Issue Resolver workflow, and the environment is restored afterward.
 <img width="1765" alt="image" src="https://github.com/user-attachments/assets/af2f6967-0f3d-40db-bf30-e17b686dc23d" />
 
 ---
