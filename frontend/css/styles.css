@@ -5821,6 +5821,38 @@ html.detail-workspace-open {
   justify-self: start;
 }
 
+/* Issue Resolver: Custom Issue Rules form (two columns, one on phones). */
+.ir-rule-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 12px 0;
+}
+
+.ir-rule-form__wide {
+  grid-column: 1 / -1;
+}
+
+.ir-rule-form textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+@media (max-width: 640px) {
+  .ir-rule-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Issue Resolver catalog: title with its detection status. */
+.ir-catalog__title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
 /* Recommendations: a separate labelled list under the issues. */
 .dash-recommendations {
   margin-top: 12px;

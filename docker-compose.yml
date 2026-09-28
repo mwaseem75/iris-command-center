@@ -74,6 +74,7 @@ services:
       IRIS_SUPERSERVER_PORT: "1972"
       ENABLE_KNOWLEDGE_SEARCH: "true"
       PERSIST_TRACES_TO_IRIS: "true"
+      PERSIST_ISSUE_RULES_TO_IRIS: "true"
       # Run the Demo Activity once on the first successful start (a marker in
       # USER stops it from running again).
       AUTO_RUN_DEMO_ACTIVITY: "true"

@@ -2300,6 +2300,11 @@
 
               <dl class="info-list" id="operations-execute-current-list"></dl>
 
+              <div class="banner banner--warning" id="operations-execute-resolution" hidden role="status">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="operations-execute-resolution-text"></span>
+              </div>
+
               <div id="operations-execute-choose" hidden>
                 <p class="info-card__hint">Choose the new value for PurgeArchived:</p>
                 <div class="btn-row">
@@ -2310,6 +2315,10 @@
 
               <div id="operations-execute-confirm" hidden>
                 <p class="info-card__hint" id="operations-execute-confirm-text"></p>
+                <label class="ns-form-checkbox" id="operations-execute-ack" hidden>
+                  <input type="checkbox" id="operations-execute-ack-checkbox" />
+                  <span>I understand this will turn PurgeArchived on for the IRIS instance.</span>
+                </label>
                 <div class="btn-row">
                   <button class="btn btn--warning" type="button" id="operations-confirm-button">Confirm &amp; Execute</button>
                   <button class="btn" type="button" id="operations-cancel-button">Cancel</button>
@@ -2318,7 +2327,7 @@
 
               <div class="loading-state" id="operations-executing-state" hidden>
                 <span class="spinner" aria-hidden="true"></span>
-                <span>Executing&hellip;</span>
+                <span id="operations-executing-text">Executing&hellip;</span>
               </div>
 
               <div id="operations-execute-result" hidden>
@@ -2557,7 +2566,7 @@
 
           <section class="info-card ir-panel" aria-labelledby="issue-resolver-catalog-title">
             <h3 class="info-card__title" id="issue-resolver-catalog-title">Issue Types the Resolver Knows</h3>
-            <p class="info-card__hint">Every entry in the resolution catalog, whether or not it's active right now.</p>
+            <p class="info-card__hint">Every entry in the resolution catalog, whether or not it's active right now. Click one for its full definition.</p>
             <div class="table-wrapper" id="issue-resolver-catalog-wrapper" hidden>
               <table class="data-table data-table--compact">
                 <thead>
@@ -2573,6 +2582,80 @@
                 <tbody id="issue-resolver-catalog-body"></tbody>
               </table>
             </div>
+          </section>
+
+          <section class="info-card ir-panel" aria-labelledby="issue-resolver-rules-title">
+            <div class="ns-section__header">
+              <h3 class="info-card__title" id="issue-resolver-rules-title">Custom Issue Rules</h3>
+              <button class="btn" type="button" id="issue-resolver-rules-add">Add rule</button>
+            </div>
+            <p class="info-card__hint">Detection-only rules you define: each compares one live IRIS signal to a number. They're evaluated with the built-in checks, appear in Active Issues and the catalog above, and never run anything; you investigate them on the page you choose. Creating or deleting a rule needs the Manage privilege.</p>
+            <p class="info-card__hint" id="issue-resolver-rules-storage"></p>
+            <div class="banner banner--error" id="issue-resolver-rules-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="issue-resolver-rules-error-text"></span>
+            </div>
+
+            <form class="ir-rule-form" id="issue-resolver-rule-form" hidden>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-name">Name</label>
+                <input type="text" id="issue-resolver-rule-name" placeholder="serious_alerts_seen" autocomplete="off" required maxlength="40" />
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-title">Title</label>
+                <input type="text" id="issue-resolver-rule-title" placeholder="Serious alerts reported" autocomplete="off" required maxlength="80" />
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-severity">Severity</label>
+                <select id="issue-resolver-rule-severity">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-signal">Signal</label>
+                <select id="issue-resolver-rule-signal"></select>
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-operator">Operator</label>
+                <select id="issue-resolver-rule-operator"></select>
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-value">Value</label>
+                <input type="number" id="issue-resolver-rule-value" step="any" required />
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-page">Investigate on</label>
+                <select id="issue-resolver-rule-page"></select>
+              </div>
+              <div class="filter-field ir-rule-form__wide">
+                <label for="issue-resolver-rule-guidance">Guidance</label>
+                <textarea id="issue-resolver-rule-guidance" rows="2" maxlength="500" required placeholder="What to check when this is reported."></textarea>
+              </div>
+              <div class="btn-row ir-rule-form__wide">
+                <button class="btn btn--primary" type="submit" id="issue-resolver-rule-submit">Create rule</button>
+                <button class="btn" type="button" id="issue-resolver-rule-cancel">Cancel</button>
+              </div>
+            </form>
+
+            <div class="table-wrapper" id="issue-resolver-rules-wrapper" hidden>
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">Rule</th>
+                    <th scope="col">Severity</th>
+                    <th scope="col">Condition</th>
+                    <th scope="col">Investigate on</th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="issue-resolver-rules-body"></tbody>
+              </table>
+            </div>
+            <p class="empty-state" id="issue-resolver-rules-empty" hidden>No custom rules yet.</p>
           </section>
 
           <div class="ns-drawer-backdrop" id="issue-resolver-drawer-backdrop" hidden></div>

@@ -32,11 +32,16 @@ const dom = {
   reviewList: document.getElementById("operations-review-list"),
   executeLoadingState: document.getElementById("operations-execute-loading-state"),
   executeCurrentList: document.getElementById("operations-execute-current-list"),
+  executeResolution: document.getElementById("operations-execute-resolution"),
+  executeResolutionText: document.getElementById("operations-execute-resolution-text"),
   executeChoose: document.getElementById("operations-execute-choose"),
   setTrueButton: document.getElementById("operations-set-true-button"),
   setFalseButton: document.getElementById("operations-set-false-button"),
   executeConfirm: document.getElementById("operations-execute-confirm"),
   executeConfirmText: document.getElementById("operations-execute-confirm-text"),
+  executeAck: document.getElementById("operations-execute-ack"),
+  executeAckCheckbox: document.getElementById("operations-execute-ack-checkbox"),
+  executingText: document.getElementById("operations-executing-text"),
   confirmButton: document.getElementById("operations-confirm-button"),
   cancelButton: document.getElementById("operations-cancel-button"),
   executingState: document.getElementById("operations-executing-state"),
@@ -50,6 +55,46 @@ let journalOperation = null;  // registry entry, from GET /api/iris/operations
 let currentPurgeArchived = null;  // last known value, from GET /api/iris/journal/settings
 let pendingTarget = null;  // value picked but not confirmed yet
 let journalSelected = false;  // true once the journal action is opened; nothing is preselected
+// An Issue Resolver issue being resolved here ({ issueType, archiveName }), set
+// by resolveJournalIssue(). Only a change to PurgeArchived=true carries its
+// resolution_issue_type, which labels the trace; the backend checks the type.
+let pendingResolution = null;
+
+/**
+ * Called from the Issue Resolver (via app.js) for a journal_purge_archived_off
+ * issue: the next load opens the journal action with the resolution context.
+ * Nothing is preselected or run.
+ */
+export function resolveJournalIssue(issue) {
+  if (!issue || issue.kind !== "journal_purge_archived_off") return;
+  pendingResolution = { issueType: issue.kind, archiveName: issue.archive_name };
+  journalSelected = true;
+}
+
+// In the Issue Resolver flow (PurgeArchived=true for the issue), the change is
+// checked first, like Web Apps: a dry run (confirmed=true gets it past the
+// executor; it never sends the PUT), then the preview, the checkbox, and only
+// then Confirm. `checkedTarget` is the value a successful dry run validated.
+let checkedTarget = null;
+
+function isResolutionChange(target) {
+  return Boolean(pendingResolution) && target === true;
+}
+
+function updateConfirmEnabled() {
+  if (isResolutionChange(pendingTarget)) {
+    dom.confirmButton.disabled = !(checkedTarget === pendingTarget && dom.executeAckCheckbox.checked);
+  }
+}
+
+function syncResolutionBanner() {
+  dom.executeResolution.hidden = !pendingResolution;
+  dom.executeResolutionText.textContent = pendingResolution
+    ? `Issue Resolver: journal archiving is configured (ArchiveName "${textOrPlaceholder(pendingResolution.archiveName)}") ` +
+      "but PurgeArchived is off. Choose Set to Yes, then confirm, to resolve it; the change is recorded as an " +
+      "Issue Resolver resolution."
+    : "";
+}
 
 // The actions in the catalog, grouped. Only the title, description, group
 // and where it's done live here; risk and privilege come from the
@@ -366,6 +411,8 @@ export async function loadOperations() {
   renderCatalog(operations);
   markOpened(journalSelected ? JOURNAL_OPERATION_NAME : null);
   renderReview(operations);
+  if (journalSelected) dom.selectHint.hidden = true;
+  syncResolutionBanner();
   setLoading(false);
 
   // Read the current value for the execute panel, once the journal action
@@ -398,6 +445,10 @@ function formatBoolean(value) {
 // cancel and after a result, never mid-run.
 function showChooseStage() {
   pendingTarget = null;
+  checkedTarget = null;
+  dom.executeAck.hidden = true;
+  dom.executeAckCheckbox.checked = false;
+  dom.confirmButton.disabled = false;
   dom.executeChoose.hidden = false;
   dom.executeConfirm.hidden = true;
   dom.executeResult.hidden = true;
@@ -441,13 +492,21 @@ async function loadCurrentPurgeArchived() {
   showChooseStage();
 }
 
-// Picking a value only moves on to the confirm step; nothing is sent.
+function journalPrivilegesText() {
+  return journalOperation && Array.isArray(journalOperation.required_privileges)
+    ? journalOperation.required_privileges.join(" or ")
+    : PLACEHOLDER;
+}
+
+// Picking a value only moves on to the confirm step; nothing is sent. In
+// the Issue Resolver flow it runs the Check (dry run) first.
 function chooseTarget(target) {
+  if (isResolutionChange(target)) {
+    checkResolutionChange(target);
+    return;
+  }
   pendingTarget = target;
-  const privilegesText =
-    journalOperation && Array.isArray(journalOperation.required_privileges)
-      ? journalOperation.required_privileges.join(" or ")
-      : PLACEHOLDER;
+  const privilegesText = journalPrivilegesText();
   dom.executeConfirmText.textContent =
     `You are about to change PurgeArchived from ${formatBoolean(currentPurgeArchived)} to ` +
     `${formatBoolean(target)}. Required privilege: ${privilegesText}. This calls the existing ` +
@@ -456,6 +515,53 @@ function chooseTarget(target) {
   dom.executeChoose.hidden = true;
   dom.executeConfirm.hidden = false;
   dom.executeResult.hidden = true;
+}
+
+/**
+ * The Check for the Issue Resolver flow: a dry run of the same request.
+ * Only a successful dry run shows the confirm step, which then needs the
+ * checkbox; anything else is shown as the backend explained it.
+ */
+async function checkResolutionChange(target) {
+  pendingTarget = target;
+  checkedTarget = null;
+  dom.executeChoose.hidden = true;
+  dom.executeConfirm.hidden = true;
+  dom.executeResult.hidden = true;
+  dom.executingText.textContent = "Checking with IRIS (dry run)…";
+  dom.executingState.hidden = false;
+
+  let preview;
+  try {
+    preview = await IrisApi.executeJournalPurgeArchived(target, true, pendingResolution.issueType, true);
+  } catch (err) {
+    preview = {
+      operation_name: JOURNAL_OPERATION_NAME,
+      status: "request_failed",
+      detail:
+        err instanceof ApiError
+          ? "Could not reach the Command Center backend to check this change."
+          : "An unexpected error occurred while checking this change.",
+    };
+  } finally {
+    dom.executingState.hidden = true;
+    dom.executingText.textContent = "Executing…";
+  }
+
+  const handlerResult = preview && preview.handler_result;
+  if (preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success") {
+    checkedTarget = target;
+    dom.executeConfirmText.textContent =
+      `${handlerResult.detail} Required privilege: ${journalPrivilegesText()}. Tick the box, then confirm, ` +
+      "to make the change through the existing authorization and execution framework.";
+    dom.executeAckCheckbox.checked = false;
+    dom.executeAck.hidden = false;
+    dom.executeConfirm.hidden = false;
+    updateConfirmEnabled();
+  } else {
+    pendingTarget = null;
+    renderExecutionResult(preview);
+  }
 }
 
 function renderExecutionResult(result) {
@@ -508,6 +614,9 @@ function renderExecutionResult(result) {
 async function executeConfirmed() {
   if (pendingTarget === null) return;
   const target = pendingTarget;
+  // The Issue Resolver flow only executes what a successful Check validated,
+  // after the checkbox.
+  if (isResolutionChange(target) && !(checkedTarget === target && dom.executeAckCheckbox.checked)) return;
 
   // Disable right away so a double click doesn't fire two requests.
   dom.confirmButton.disabled = true;
@@ -516,8 +625,13 @@ async function executeConfirmed() {
   dom.executingState.hidden = false;
 
   try {
-    const result = await IrisApi.executeJournalPurgeArchived(target, true);
+    const issueType = pendingResolution && target === true ? pendingResolution.issueType : null;
+    const result = await IrisApi.executeJournalPurgeArchived(target, true, issueType);
     renderExecutionResult(result);
+    if (issueType && (result.status === "success" || result.status === "verification_failed")) {
+      pendingResolution = null;  // the issue was acted on
+      syncResolutionBanner();
+    }
   } catch (err) {
     const message =
       err instanceof ApiError
@@ -546,6 +660,7 @@ export function initOperationsControls() {
   dom.setTrueButton.addEventListener("click", () => chooseTarget(true));
   dom.setFalseButton.addEventListener("click", () => chooseTarget(false));
   dom.cancelButton.addEventListener("click", () => showChooseStage());
+  dom.executeAckCheckbox.addEventListener("change", updateConfirmEnabled);
   dom.confirmButton.addEventListener("click", () => {
     executeConfirmed();
   });

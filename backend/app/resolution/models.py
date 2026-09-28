@@ -1,10 +1,15 @@
 """Models for the Issue Resolution Catalog.
 
-Each catalog entry describes one kind of issue and how it's resolved: how
-it's detected, why it matters, which registered operation fixes it, the
-steps the fix goes through, how the result is verified, and what the fix
-must never do. Entries are plain data; nothing here detects issues or runs
-operations.
+Each catalog entry describes one kind of issue: how it's detected and why
+it matters. An entry is one of two kinds:
+
+- Resolvable: it names the registered operation that fixes it, the steps
+  the fix goes through, how the result is verified, and what the fix must
+  never do.
+- Detection-only: no operation; instead an `investigation` destination says
+  where in the Command Center to look into it. Nothing can be run from it.
+
+Entries are plain data; nothing here detects issues or runs operations.
 
 The operation is looked up in OPERATION_REGISTRY, so its privileges, risk
 and confirmation rule come from there instead of being repeated here.
@@ -90,8 +95,23 @@ class VerificationRule(_Frozen):
     checked_by: str    # "operation" (the handler's verify()) or "issue_detection"
 
 
+class InvestigationDestination(_Frozen):
+    """Where to look into a detection-only issue: a Command Center page
+    (its view name, e.g. "tasks") and what to check there."""
+
+    page: str
+    description: str
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "InvestigationDestination":
+        if not self.page.strip() or not self.description.strip():
+            raise ValueError("An investigation destination needs a page and a description.")
+        return self
+
+
 class IssueResolution(_Frozen):
-    """One catalog entry: an issue type and its resolution."""
+    """One catalog entry: an issue type and either its resolution (an
+    operation) or, for a detection-only issue, where to investigate it."""
 
     issue_type: str
     title: str
@@ -99,38 +119,74 @@ class IssueResolution(_Frozen):
     detection_evidence: tuple[DetectionEvidence, ...]
     explanation: str
     recommended_solution: str
-    operation: str
-    parameters: tuple[ParameterBinding, ...]
-    prerequisites: tuple[str, ...]
-    workflow_steps: tuple[WorkflowStep, ...]
-    verification_rules: tuple[VerificationRule, ...]
-    safety_restrictions: tuple[str, ...]
+    # Exactly one of these: `operation` (resolvable) or `investigation` (detection-only).
+    operation: str | None = None
+    investigation: InvestigationDestination | None = None
+    # The resolution path; required for resolvable entries, empty for detection-only ones.
+    parameters: tuple[ParameterBinding, ...] = ()
+    prerequisites: tuple[str, ...] = ()
+    workflow_steps: tuple[WorkflowStep, ...] = ()
+    verification_rules: tuple[VerificationRule, ...] = ()
+    safety_restrictions: tuple[str, ...] = ()
     excluded_databases: frozenset[str] = frozenset()
     # What else the issue affects (not needed to detect it), e.g. dependent namespaces.
     impact_evidence: tuple[DetectionEvidence, ...] = ()
 
+    @computed_field
     @property
-    def operation_definition(self) -> OperationDefinition:
-        return OPERATION_REGISTRY[self.operation]
+    def resolvable(self) -> bool:
+        """True if a registered operation resolves this issue."""
+        return self.operation is not None
+
+    @property
+    def operation_definition(self) -> OperationDefinition | None:
+        return OPERATION_REGISTRY[self.operation] if self.operation is not None else None
 
     @computed_field
     @property
     def required_privileges(self) -> frozenset[IRISPrivilege]:
-        """Any one of these is enough, as in the operation registry."""
-        return self.operation_definition.required_privileges
+        """Any one of these is enough, as in the operation registry. Empty for
+        a detection-only entry."""
+        definition = self.operation_definition
+        return definition.required_privileges if definition else frozenset()
 
     @computed_field
     @property
     def confirmation_required(self) -> bool:
-        return self.operation_definition.confirmation_required
+        definition = self.operation_definition
+        return definition.confirmation_required if definition else False
 
     @computed_field
     @property
-    def risk_level(self) -> RiskLevel:
-        return self.operation_definition.risk_level
+    def risk_level(self) -> RiskLevel | None:
+        """None for a detection-only entry (nothing is run)."""
+        definition = self.operation_definition
+        return definition.risk_level if definition else None
+
+    @model_validator(mode="after")
+    def _resolvable_or_detection_only(self) -> "IssueResolution":
+        if (self.operation is None) == (self.investigation is None):
+            raise ValueError(
+                f"{self.issue_type}: needs exactly one of `operation` (resolvable) or "
+                "`investigation` (detection-only)."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _detection_only_has_no_resolution_path(self) -> "IssueResolution":
+        if self.operation is not None:
+            return self
+        for name in ("parameters", "workflow_steps"):
+            if getattr(self, name):
+                raise ValueError(f"{self.issue_type}: a detection-only entry has no operation, so no {name}.")
+        if any(rule.checked_by == "operation" for rule in self.verification_rules):
+            raise ValueError(f"{self.issue_type}: a detection-only entry has no operation to verify.")
+        return self
 
     @model_validator(mode="after")
     def _operation_is_registered_and_mutating(self) -> "IssueResolution":
+        if self.operation is None:
+            return self
         definition = OPERATION_REGISTRY.get(self.operation)
         if definition is None:
             raise ValueError(f"{self.issue_type}: operation {self.operation!r} is not in OPERATION_REGISTRY.")
@@ -140,6 +196,8 @@ class IssueResolution(_Frozen):
 
     @model_validator(mode="after")
     def _workflow_follows_the_standard_order(self) -> "IssueResolution":
+        if self.operation is None:
+            return self
         kinds = tuple(step.kind for step in self.workflow_steps)
         if kinds != WORKFLOW_ORDER:
             raise ValueError(
@@ -150,13 +208,16 @@ class IssueResolution(_Frozen):
 
     @model_validator(mode="after")
     def _required_sections_not_empty(self) -> "IssueResolution":
-        for name in ("detection_evidence", "parameters", "verification_rules", "safety_restrictions"):
+        required = ("detection_evidence", "parameters", "verification_rules", "safety_restrictions")
+        for name in required if self.operation is not None else ("detection_evidence",):
             if not getattr(self, name):
                 raise ValueError(f"{self.issue_type}: {name} must not be empty.")
         return self
 
     @model_validator(mode="after")
     def _verification_includes_the_operation(self) -> "IssueResolution":
+        if self.operation is None:
+            return self
         if not any(rule.checked_by == "operation" for rule in self.verification_rules):
             raise ValueError(f"{self.issue_type}: at least one verification rule must be checked by the operation.")
         return self

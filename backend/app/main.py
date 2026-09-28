@@ -3,6 +3,8 @@
 Optional features switched on by settings:
 - PERSIST_TRACES_TO_IRIS: reload saved execution traces at startup and keep
   saving new ones to ^CommandCenterTrace.
+- PERSIST_ISSUE_RULES_TO_IRIS: reload saved Custom Issue Rules at startup and
+  save changes to ^CommandCenterIssueRule.
 - ENABLE_KNOWLEDGE_SEARCH: create/reindex CommandCenter.Knowledge at startup.
 - AUTO_RUN_DEMO_ACTIVITY: run the Demo Activity rehearsal once in the
   background (a marker in USER stops it from repeating).
@@ -12,11 +14,15 @@ Nothing here talks to IRIS until a route or one of these features needs it.
 
 import asyncio
 import logging
+import math
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.embedded_python.diagnostics import EmbeddedPythonDiagnostics
@@ -31,6 +37,8 @@ from app.routes.databases import router as databases_router
 from app.routes.demo import router as demo_router
 from app.routes.health import router as health_router
 from app.routes.iris import router as iris_router
+from app.resolution import custom_rules
+from app.routes.issue_rules import router as issue_rules_router
 from app.routes.issues import router as issues_router
 from app.routes.security_access import router as security_access_router
 from app.routes.security_users import router as security_users_router
@@ -63,6 +71,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         observability_store.hydrate_traces(persisted)
         observability_store.set_trace_persister(trace_writer)
 
+    rule_writer: custom_rules.IRISIssueRuleWriter | None = None
+    if settings.persist_issue_rules_to_iris:
+        rule_writer = custom_rules.IRISIssueRuleWriter(settings)
+        saved = await asyncio.get_running_loop().run_in_executor(None, rule_writer.load_all_sync)
+        custom_rules.hydrate_rules(saved)
+        custom_rules.set_rule_persister(rule_writer)
+
     knowledge_store: IRISKnowledgeStore | None = None
     if settings.enable_knowledge_search:
         knowledge_store = IRISKnowledgeStore(settings)
@@ -93,9 +108,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if trace_writer is not None:
             trace_writer.close()
             observability_store.set_trace_persister(None)
+        if rule_writer is not None:
+            rule_writer.close()
+            custom_rules.set_rule_persister(None)
 
 
 app = FastAPI(title="IRIS Command Center", lifespan=lifespan)
+
+
+def _json_safe(value: Any) -> Any:
+    """NaN and +/-Infinity as strings: JSON can't encode them as numbers."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """FastAPI's own 422 response, except that a rejected NaN/Infinity in the
+    echoed input no longer turns it into a 500 (the body must be valid JSON)."""
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
 
 app.add_middleware(
     CORSMiddleware,
@@ -122,3 +158,4 @@ app.include_router(capabilities_router)
 app.include_router(python_router)
 app.include_router(knowledge_router)
 app.include_router(issues_router)
+app.include_router(issue_rules_router)

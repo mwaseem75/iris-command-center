@@ -261,3 +261,66 @@ def test_mount_route_rejects_the_web_app_issue_type() -> None:
     response, fake = _mount({"Directory": DIRECTORY, "confirmed": True, "dry_run": True,
                              "resolution_issue_type": "web_app_namespace_missing"})
     assert response.status_code == 422 and fake.posts == []
+
+
+
+# --- journal_purge_archived_off and the purge-archived route ---
+
+
+def test_journal_trace_context_comes_from_the_catalog() -> None:
+    context = trace_context("journal_purge_archived_off", "journal.update_purge_archived", {"PurgeArchived": True})
+    assert context == ResolutionContext(
+        issue_type="journal_purge_archived_off", issue_title="Archived journal files are not purged",
+        severity="low", resource=None,  # the only parameter is fixed, not a resource
+    )
+    assert trace_context("journal_purge_archived_off", "web_app.set_enabled", {"Name": "/x"}) is None
+
+
+def _purge_archived(body: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> tuple[Any, _Handler]:
+    from app.dependencies import get_caller_privileges
+
+    handler = _Handler()
+    monkeypatch.setattr("app.routes.journal.JournalUpdatePurgeArchivedHandler", lambda client: handler)
+    app.dependency_overrides[get_iris_client] = lambda: object()
+    app.dependency_overrides[get_caller_privileges] = lambda: frozenset({"Manage"})
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/iris/journal/purge-archived", json=body)
+    finally:
+        app.dependency_overrides.pop(get_caller_privileges, None)
+    return response, handler
+
+
+def test_purge_archived_route_labels_a_journal_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    response, handler = _purge_archived({"PurgeArchived": True, "confirmed": True,
+                                         "resolution_issue_type": "journal_purge_archived_off"}, monkeypatch)
+    assert response.status_code == 200 and response.json()["status"] == "success"
+    assert handler.parameters == [{"PurgeArchived": True}]  # the label is never a parameter
+    (trace,) = store.list_traces()
+    assert trace.resolution is not None and trace.resolution.issue_type == "journal_purge_archived_off"
+
+
+def test_purge_archived_route_without_the_field_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    response, _ = _purge_archived({"PurgeArchived": True, "confirmed": True}, monkeypatch)
+    assert response.status_code == 200
+    (trace,) = store.list_traces()
+    assert trace.resolution is None
+
+
+@pytest.mark.parametrize("issue_type", ["made_up", "web_app_namespace_missing"])
+def test_purge_archived_route_rejects_an_issue_type_it_does_not_resolve(
+    issue_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response, handler = _purge_archived({"PurgeArchived": True, "confirmed": True,
+                                         "resolution_issue_type": issue_type}, monkeypatch)
+    assert response.status_code == 422
+    assert handler.parameters == [] and store.list_traces() == []
+
+
+def test_purge_archived_route_labels_the_check_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    response, handler = _purge_archived({"PurgeArchived": True, "confirmed": True, "dry_run": True,
+                                         "resolution_issue_type": "journal_purge_archived_off"}, monkeypatch)
+    assert response.status_code == 200 and response.json()["status"] == "dry_run"
+    assert handler.parameters == [{"PurgeArchived": True}]  # only the handler's dry_run ran
+    (trace,) = store.list_traces()
+    assert trace.resolution is not None and trace.resolution.issue_type == "journal_purge_archived_off"

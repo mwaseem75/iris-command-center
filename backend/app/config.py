@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # backend connects from the host by default.
     iris_superserver_port: int = 1973
 
+    # --- Optional: also save Custom Issue Rules to ^CommandCenterIssueRule in
+    # iris_namespace, so they survive a restart. Without it they're kept in
+    # memory only. ---
+    persist_issue_rules_to_iris: bool = False
+
     # --- Optional: build and search CommandCenter.Knowledge (IRIS vector
     # search) in iris_namespace. ---
     enable_knowledge_search: bool = False

@@ -1,9 +1,13 @@
 """The Issue Resolution Catalog: one entry per issue type the Command Center
 can detect and resolve.
 
-Two entries: a dismounted database, resolved with database.mount, and an
+Three entries: a dismounted database, resolved with database.mount; an
 enabled web application whose namespace doesn't exist, resolved by
-disabling it with web_app.set_enabled. The detection lives in
+disabling it with web_app.set_enabled; and archived journal files that are
+not purged while archiving is configured, resolved by turning PurgeArchived
+on with journal.update_purge_archived. Three detection-only entries (no
+operation; they name the page to investigate on): the System Monitor or the
+Task Manager not running, and a full database. The detection lives in
 app/routes/issues.py and the fixes in the operation handlers; each entry
 describes both so they can be explained and checked in one place.
 """
@@ -14,6 +18,7 @@ from app.execution.database_dismount_handler import _SYSTEM_DATABASES
 from app.observability.models import ResolutionContext
 from app.resolution.models import (
     DetectionEvidence,
+    InvestigationDestination,
     IssueResolution,
     IssueSeverity,
     ParameterBinding,
@@ -242,8 +247,198 @@ WEB_APP_NAMESPACE_MISSING = IssueResolution(
     ),
 )
 
+JOURNAL_PURGE_ARCHIVED_OFF = IssueResolution(
+    issue_type="journal_purge_archived_off",
+    title="Archived journal files are not purged",
+    severity=IssueSeverity.LOW,
+    detection_evidence=(
+        DetectionEvidence(
+            source="GET /v2/journal/settings",
+            field="ArchiveName",
+            condition="Journal archiving is configured (ArchiveName is not empty).",
+            issue_field="archive_name",
+        ),
+        DetectionEvidence(
+            source="GET /v2/journal/settings",
+            field="PurgeArchived",
+            condition="PurgeArchived is false.",
+            issue_field="purge_archived",
+        ),
+    ),
+    explanation=(
+        "Journal archiving is configured, but IRIS keeps journal files in the journal directory after they "
+        "are archived, so they use disk space there. PurgeArchived only has an effect when archiving is "
+        "configured, so this is never reported without an ArchiveName."
+    ),
+    recommended_solution="Turn PurgeArchived on with journal.update_purge_archived.",
+    operation="journal.update_purge_archived",
+    parameters=(
+        ParameterBinding(name="PurgeArchived", value=True),
+    ),
+    prerequisites=(
+        "The caller holds one of the operation's required privileges.",
+        "IRIS still reports PurgeArchived as false when the change is made.",
+    ),
+    workflow_steps=(
+        WorkflowStep(
+            kind=WorkflowStepKind.DETECTED,
+            title="Detected issue",
+            description="GET /api/iris/issues reports archiving configured with PurgeArchived off.",
+        ),
+        WorkflowStep(
+            kind=WorkflowStepKind.RECOMMENDED,
+            title="Recommended fix",
+            description="journal.update_purge_archived with PurgeArchived true.",
+        ),
+        WorkflowStep(
+            kind=WorkflowStepKind.DRY_RUN,
+            title="Dry-run check",
+            description="journal.update_purge_archived dry run: reads the current value and sends nothing.",
+        ),
+        WorkflowStep(
+            kind=WorkflowStepKind.CONFIRMATION,
+            title="Confirmation",
+            description="The user explicitly confirms the change.",
+        ),
+        WorkflowStep(
+            kind=WorkflowStepKind.EXECUTION,
+            title="Execution",
+            description="The executor authorizes the request and the handler sends only {\"PurgeArchived\": true} to IRIS.",
+        ),
+        WorkflowStep(
+            kind=WorkflowStepKind.VERIFICATION,
+            title="Verification",
+            description="The handler re-reads the journal settings and checks PurgeArchived is true.",
+        ),
+        WorkflowStep(
+            kind=WorkflowStepKind.TRACE,
+            title="Trace",
+            description="The attempt is recorded as an execution trace in Observability.",
+        ),
+    ),
+    verification_rules=(
+        VerificationRule(
+            source="GET /v2/journal/settings",
+            condition="PurgeArchived is true.",
+            checked_by="operation",
+        ),
+        VerificationRule(
+            source="GET /api/iris/issues",
+            condition="The issue is no longer reported.",
+            checked_by="issue_detection",
+        ),
+    ),
+    safety_restrictions=(
+        "Only PurgeArchived is sent; no other journal setting is changed.",
+        "It can be turned back off with the same operation; the original value is recorded in the result.",
+        "Nothing is sent to IRIS before the user confirms.",
+        "Goes through the normal authorization, confirmation and verification; there's no bypass.",
+    ),
+)
+
+# --- Detection-only entries: no operation resolves them; they say where to look. ---
+
+_GONE_WHEN_NOT_REPORTED = VerificationRule(
+    source="GET /api/iris/issues",
+    condition="The issue is no longer reported.",
+    checked_by="issue_detection",
+)
+
+SYSTEM_MONITOR_NOT_RUNNING = IssueResolution(
+    issue_type="system_monitor_not_running",
+    title="System Monitor not running",
+    severity=IssueSeverity.MEDIUM,
+    detection_evidence=(
+        DetectionEvidence(
+            source="GET /v2/monitor/dashboard/main",
+            field="Status.SystemMonitor",
+            condition="IRIS reports SystemMonitor as false.",
+            issue_field="system_monitor",
+        ),
+    ),
+    explanation=(
+        "IRIS's System Monitor is not running, so the health indicators IRIS reports (database space, "
+        "journal space, lock table, write daemon) and its alert counts are not being updated and may be "
+        "out of date."
+    ),
+    recommended_solution=(
+        "Look into it on the System page. The Command Center has no operation for this; nothing is run from here."
+    ),
+    investigation=InvestigationDestination(
+        page="system",
+        description="Check the instance state; the Dashboard's System Health shows the indicators that depend on it.",
+    ),
+    verification_rules=(_GONE_WHEN_NOT_REPORTED,),
+)
+
+TASK_MANAGER_NOT_RUNNING = IssueResolution(
+    issue_type="task_manager_not_running",
+    title="Task Manager not running",
+    severity=IssueSeverity.HIGH,
+    detection_evidence=(
+        DetectionEvidence(
+            source="GET /v2/task/manager",
+            field="Status",
+            condition="The Task Manager status is not \"Running\".",
+            issue_field="status",
+        ),
+    ),
+    explanation=(
+        "IRIS's Task Manager is not running, so no scheduled task runs, including IRIS's own maintenance "
+        "tasks such as switching and purging journals."
+    ),
+    recommended_solution=(
+        "Look into it on the Tasks page. The Command Center has no operation for this; nothing is run from here."
+    ),
+    investigation=InvestigationDestination(
+        page="tasks",
+        description="Check the Task Manager status and which scheduled tasks are affected.",
+    ),
+    verification_rules=(_GONE_WHEN_NOT_REPORTED,),
+)
+
+DATABASE_FULL = IssueResolution(
+    issue_type="database_full",
+    title="Database full",
+    severity=IssueSeverity.HIGH,
+    detection_evidence=(
+        DetectionEvidence(
+            source="POST /v2/database-dir/info",
+            field="Full",
+            condition="IRIS reports the mounted database as Full.",
+            issue_field="full",
+        ),
+        DetectionEvidence(
+            source="GET /v2/database-dirs",
+            field="Size, MaxSize",
+            condition="MaxSize is a number (not \"Unlimited\") and Size has reached it.",
+            issue_field="size",
+        ),
+    ),
+    explanation=(
+        "The database can't grow: IRIS reports it as full, or it has reached its configured maximum size. "
+        "Writes that need new space in it will fail."
+    ),
+    recommended_solution=(
+        "Look into it on the Databases page. The Command Center has no operation for this; nothing is run from here."
+    ),
+    investigation=InvestigationDestination(
+        page="databases",
+        description="Check the database's size, maximum size and free space.",
+    ),
+    verification_rules=(_GONE_WHEN_NOT_REPORTED,),
+)
+
 ISSUE_CATALOG: dict[str, IssueResolution] = {
-    entry.issue_type: entry for entry in (DATABASE_DISMOUNTED, WEB_APP_NAMESPACE_MISSING)
+    entry.issue_type: entry
+    for entry in (
+        DATABASE_DISMOUNTED,
+        WEB_APP_NAMESPACE_MISSING,
+        JOURNAL_PURGE_ARCHIVED_OFF,
+        SYSTEM_MONITOR_NOT_RUNNING,
+        TASK_MANAGER_NOT_RUNNING,
+        DATABASE_FULL,
+    )
 }
 
 

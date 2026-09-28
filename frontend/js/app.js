@@ -18,7 +18,7 @@ import { initSecurityAuthControls, refreshSecurityAuthIfLoaded } from "./securit
 import { initSecurityWalletControls, refreshSecurityWalletIfLoaded } from "./security-wallet.js";
 import { initSecurityX509Controls, refreshSecurityX509IfLoaded } from "./security-x509.js";
 import { loadJournal, initJournalControls } from "./journal.js";
-import { loadOperations, initOperationsControls } from "./operations.js";
+import { loadOperations, initOperationsControls, resolveJournalIssue } from "./operations.js";
 import { askAssistant, initAiAssistantControls, loadAssistantContext } from "./ai-assistant.js";
 import {
   loadExecutionTraces,
@@ -105,6 +105,12 @@ function init() {
       resolveWebAppIssue(issue);
       navigateTo("web-apps");
     },
+    onOpenOperations: (issue) => {
+      resolveJournalIssue(issue);
+      navigateTo("operations");
+    },
+    // Detection-only issues: just open the page named by their catalog entry.
+    onInvestigate: (page) => navigateTo(page),
     onOpenTrace: openTrace,
     // After the rehearsal, reload the traces wherever they're shown.
     onRehearsalFinished: () => {

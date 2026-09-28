@@ -431,6 +431,22 @@ function issueResource(issue) {
   if (issue.kind === "web_app_namespace_missing") {
     return [issue.web_app, `namespace ${textOrPlaceholder(issue.namespace)} (missing) · ${issue.enabled ? "Enabled" : "Disabled"}`];
   }
+  if (issue.kind === "journal_purge_archived_off") {
+    return ["Journal settings", `ArchiveName ${textOrPlaceholder(issue.archive_name)} · PurgeArchived off`];
+  }
+  if (issue.kind === "system_monitor_not_running") {
+    return ["System Monitor", `not running · instance up ${textOrPlaceholder(issue.up_time)}`];
+  }
+  if (issue.kind === "task_manager_not_running") {
+    return ["Task Manager", `status ${textOrPlaceholder(issue.status)}`];
+  }
+  if (typeof issue.kind === "string" && issue.kind.startsWith("custom:")) {
+    return [issue.title, `custom rule · ${textOrPlaceholder(issue.signal_label)} is ${textOrPlaceholder(issue.value)}`];
+  }
+  if (issue.kind === "database_full") {
+    return [issue.database || issue.directory,
+      `${textOrPlaceholder(issue.directory)} · ${issue.full ? "IRIS reports Full" : "maximum size reached"}`];
+  }
   return [issue.database, `${textOrPlaceholder(issue.directory)} · ${textOrPlaceholder(issue.status)}`];
 }
 
@@ -509,7 +525,8 @@ function renderIssues(settled) {
     const review = document.createElement("button");
     review.className = "dash-panel__link dash-issue__action";
     review.type = "button";
-    review.textContent = "Review & Resolve →";
+    // Detection-only issues have nothing to resolve from here, only to review.
+    review.textContent = resolution?.resolvable === false ? "Review →" : "Review & Resolve →";
     review.addEventListener("click", () => navigateTo("issue-resolver"));
 
     item.append(badge, body_, review);

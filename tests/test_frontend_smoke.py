@@ -1111,8 +1111,10 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
 
     js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
     calls = set(re.findall(r"IrisApi\.(\w+)", js))
-    check(calls == {"getIssues", "runDemoRehearsal", "getExecutionTraces"},
-          f"issue-resolver.js calls only getIssues(), the existing rehearsal and the trace list (found {sorted(calls)})")
+    check(calls == {"getIssues", "runDemoRehearsal", "getExecutionTraces",
+                    "getIssueRules", "createIssueRule", "deleteIssueRule"},
+          "issue-resolver.js calls only getIssues(), the existing rehearsal, the trace list and the custom "
+          f"rule routes (found {sorted(calls)})")
     check("fetch(" not in js, "issue-resolver.js makes no raw fetch() call")
     for word in ("mountDatabase", "dismountDatabase", "confirmed", "dry_run:", "dryRun"):
         check(word not in js, f"issue-resolver.js never references {word!r}")  # never builds its own request
@@ -1666,7 +1668,7 @@ def test_dashboard_shows_recommendations_separately_from_issues() -> None:
     check('issueStatusItem("Unavailable"' in code and "unavailable.length" in code,
           "an unavailable state is shown when recommendation checks couldn't run")
     check("renderRecommendations(null)" in code, "recommendations are hidden when the issue check fails")
-    check('review.textContent = "Review & Resolve →";' in code, "issue rendering (Review & Resolve) is unchanged")
+    check('"Review & Resolve →"' in code, "resolvable issues still show Review & Resolve")
     recs = code[code.index("function recommendationItem"):code.index("function renderRecommendations")]
     for word in ("IrisApi.", "confirmed", "fetch("):
         check(word not in recs, f"recommendations never run anything ({word!r})")
@@ -1716,6 +1718,157 @@ def test_web_app_issues_resolve_through_web_apps() -> None:
           "the Dashboard shows each issue by its resource")
 
 
+def test_journal_issue_resolves_through_operations() -> None:
+    print("Checking the journal issue is shown by resource and resolves on the Operations page...")
+    no_comments = lambda text: re.sub(r"//[^\n]*", "", text)  # noqa: E731
+    js_dir = FRONTEND_DIR / "js"
+    resolver = no_comments((js_dir / "issue-resolver.js").read_text(encoding="utf-8"))
+    operations = no_comments((js_dir / "operations.js").read_text(encoding="utf-8"))
+    app_js = no_comments((js_dir / "app.js").read_text(encoding="utf-8"))
+    api_js = no_comments((js_dir / "api.js").read_text(encoding="utf-8"))
+    dashboard = no_comments((js_dir / "dashboard.js").read_text(encoding="utf-8"))
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    entry = resolver.split("  journal_purge_archived_off: {", 1)[-1].split("\n  },", 1)[0]
+    check('page: "operations"' in entry and "issue.archive_name" in entry,
+          "journal issues are shown by ArchiveName and resolve on the Operations page")
+    check('if (page === "operations") return onOpenOperations;' in resolver,
+          "the drawer action opens the Operations page for journal issues")
+    check("resolveJournalIssue(issue);" in app_js and 'navigateTo("operations");' in app_js,
+          "app.js opens journal issues on the Operations page")
+
+    check("export function resolveJournalIssue(issue)" in operations, "operations.js accepts an Issue Resolver issue")
+    check("pendingResolution && target === true ? pendingResolution.issueType : null" in operations,
+          "only a change to PurgeArchived=true carries resolution_issue_type")
+    check(operations.count("IrisApi.executeJournalPurgeArchived(") == 2
+          and "IrisApi.executeJournalPurgeArchived(target, true, issueType)" in operations,
+          "the label goes through the existing confirmed execute call (plus its Check)")
+
+    # The Check step, matching Web Apps: dry run -> preview -> checkbox -> Confirm.
+    check("IrisApi.executeJournalPurgeArchived(target, true, pendingResolution.issueType, true)" in operations,
+          "the Issue Resolver flow checks the change with a labelled dry run first")
+    check('preview.status === "dry_run" && handlerResult && handlerResult.outcome === "success"' in operations
+          and "checkedTarget = target;" in operations,
+          "only a successful dry run leads to the confirm step")
+    check("if (isResolutionChange(target) && !(checkedTarget === target && dom.executeAckCheckbox.checked)) return;"
+          in operations, "the Issue Resolver change only executes after a successful Check and the checkbox")
+    check("dom.confirmButton.disabled = !(checkedTarget === pendingTarget && dom.executeAckCheckbox.checked);"
+          in operations, "Confirm stays disabled until the Check passed and the checkbox is ticked")
+    check("if (isResolutionChange(target)) {" in operations and "return Boolean(pendingResolution) && target === true;"
+          in operations, "the plain journal flow (no issue, or Set to No) is unchanged")
+    check('id="operations-execute-ack-checkbox"' in html, "the confirm step has an acknowledgement checkbox")
+    check("...(dryRun ? { dry_run: true } : {})" in api_js, "api.js only sends dry_run when asked")
+    check('id="operations-execute-resolution"' in html, "the journal action shows the resolution context")
+    check("...(resolutionIssueType ? { resolution_issue_type: resolutionIssueType } : {})" in api_js,
+          "api.js only sends resolution_issue_type when there is one")
+    check('issue.kind === "journal_purge_archived_off"' in dashboard, "the Dashboard shows the journal issue by resource")
+
+
+def test_issue_resolver_catalog_entries_open_their_definition() -> None:
+    print("Checking Issue Resolver catalog entries open their definition, read-only, active or not...")
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    check('el("tr", "data-table__row--clickable")' in code and "row.dataset.issueType = entry.issue_type;" in code
+          and "row.tabIndex = 0;" in code, "catalog rows are clickable and keyboard-focusable")
+    check('dom.catalogBody.addEventListener("click"' in code and 'dom.catalogBody.addEventListener("keydown"' in code
+          and code.count("openCatalogEntry(row.dataset.issueType)") == 2,
+          "a click or Enter/Space on a catalog row opens its definition")
+
+    view = code.split("function openCatalogEntry(issueType) {", 1)[-1].split("\n}\n", 1)[0]
+    check("const resolution = resolutions[issueType];" in view,
+          "the definition comes from the existing catalog data (resolutions)")
+    for title in ("Issue type", "Detection evidence", "Explanation", "Recommended solution", "Privilege and risk",
+                  "Prerequisites", "Safety restrictions", "Workflow", "Verification"):
+        check(re.search(rf'section\(\s*"{title}"', view) is not None, f"the definition shows {title!r}")
+    for field in ("resolution.severity", "resolution.operation", "privilegeText(resolution)",
+                  "resolution.risk_level", "resolution.prerequisites", "resolution.safety_restrictions",
+                  "workflowList(resolution)", "resolution.verification_rules", "evidenceTable(null, resolution)"):
+        check(field in view, f"the definition reads {field!r}")
+    check('"Not currently detected"' in code and "detectionBadge(detected)" in view
+          and "detectedCount(issueType)" in view,
+          "entries that aren't active are clearly marked Not currently detected")
+    check("showDrawer();" in view and "dom.openDatabasesButton.hidden = true;" in view and "drawerIssue = null;" in view,
+          "it opens the existing detail workspace, read-only, with no resolve action")
+    check('class="ns-drawer ns-drawer--wide" id="issue-resolver-drawer"' in html,
+          "the detail workspace is the existing shared .ns-drawer")
+    check('...(issue ? ["Live value"] : [])' in code, "the catalog evidence has no live-value column")
+    for word in ("IrisApi.", "fetch(", "confirmed"):
+        check(word not in view, f"the catalog definition never calls anything ({word!r})")
+
+
+def test_detection_only_issues_are_investigated_not_resolved() -> None:
+    print("Checking detection-only issues show where to investigate and never an operation...")
+    no_comments = lambda text: re.sub(r"//[^\n]*", "", text)  # noqa: E731
+    js_dir = FRONTEND_DIR / "js"
+    resolver = no_comments((js_dir / "issue-resolver.js").read_text(encoding="utf-8"))
+    app_js = no_comments((js_dir / "app.js").read_text(encoding="utf-8"))
+    dashboard = no_comments((js_dir / "dashboard.js").read_text(encoding="utf-8"))
+    databases = no_comments((js_dir / "databases.js").read_text(encoding="utf-8"))
+
+    for kind in ("system_monitor_not_running", "task_manager_not_running", "database_full"):
+        check(f"  {kind}: {{" in resolver, f"the Issue Resolver shows {kind} by its resource")
+        check(f'issue.kind === "{kind}"' in dashboard, f"the Dashboard shows {kind} by its resource")
+    check("resolution.resolvable === false && resolution.investigation" in resolver,
+          "detection-only comes from the catalog entry (resolvable false, with an investigation)")
+    check("() => onInvestigate(resolution.investigation.page)" in resolver,
+          "the drawer action opens the catalog's investigation page")
+    check("onInvestigate: (page) => navigateTo(page)," in app_js,
+          "app.js investigates by navigating to the existing page")
+    check('"Investigate in ${pageLabel(resolution.investigation.page)} →"'.replace('"', "`") in resolver,
+          "the action reads Investigate in <page>")
+    check('section(\n    "Investigation",' in resolver and "Detection-only: the Command Center has no operation for this." in resolver,
+          "detection-only drawers and definitions show an Investigation section instead of an operation")
+    check('isDetectionOnly(entry) ? "Detection-only" : entry.operation' in resolver
+          and "entry.risk_level ? riskBadge(entry.risk_level) : PLACEHOLDER" in resolver,
+          "the catalog table shows Detection-only with no operation or risk")
+    check('resolution?.resolvable === false ? "Review →" : "Review & Resolve →"' in dashboard,
+          "the Dashboard offers Review (not Resolve) for detection-only issues")
+    check('issue.kind === "database_dismounted"' in databases,
+          "database_full is not listed in the Databases page's Resolve Issues")
+    investigate = resolver.split("function investigationSection(resolution) {", 1)[-1].split("\n}\n", 1)[0]
+    for word in ("IrisApi.", "fetch(", "confirmed"):
+        check(word not in investigate, f"the investigation section never calls anything ({word!r})")
+
+
+def test_custom_issue_rules_panel() -> None:
+    print("Checking the Custom Issue Rules panel: fixed vocabulary, no code, confirmed delete...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    dashboard = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+
+    view = re.search(r'<section[^>]*id="view-issue-resolver".*?</section>\s*\n\s*<section class="view"', html, re.S)
+    text = view.group(0) if view else ""
+    check('id="issue-resolver-rules-title">Custom Issue Rules</h3>' in text, "the Issue Resolver has a Custom Issue Rules panel")
+    for field in ("name", "title", "severity", "signal", "operator", "value", "page", "guidance"):
+        check(f'id="issue-resolver-rule-{field}"' in text, f"the rule form has a {field} field")
+    for field in ("signal", "operator", "page"):
+        check(re.search(rf'<select id="issue-resolver-rule-{field}"></select>', text) is not None,
+              f"{field} is a select filled from the backend's fixed options")
+    check('<input type="number" id="issue-resolver-rule-value"' in text, "the value is a number input")
+
+    check("IrisApi.getIssueRules()" in code and "response.signals" in code and "response.operators" in code
+          and "response.pages" in code, "the options come from GET /api/iris/issue-rules")
+    check(code.count("IrisApi.createIssueRule(") == 1 and 'dom.ruleForm.addEventListener("submit", submitRule);' in code,
+          "a rule is only created from the form's submit")
+    check(code.count("IrisApi.deleteIssueRule(") == 1
+          and 'button.dataset.action === "delete-confirm" && pendingDeleteRule === name' in code,
+          "a rule is only deleted from its inline Confirm delete")
+    check('postIssueRule("/api/iris/issue-rules/delete", { name, confirmed: true })' in api_js,
+          "the delete request is a POST that carries confirmed=true")
+    for word in ("eval(", "new Function", "innerHTML", "operation:", "fetch("):
+        check(word not in code, f"the rules panel never uses {word!r}")
+    check("function isCustomKind(kind)" in code and "CUSTOM_RULE_RESOURCE" in code,
+          "custom-rule issues are shown by their rule, and investigated like other detection-only issues")
+    check('badge("Custom rule", "status-badge--neutral")' in code, "custom entries are marked in the catalog")
+    check("PERSIST_ISSUE_RULES_TO_IRIS is off" in code and "^CommandCenterIssueRule" in code,
+          "the panel says whether rules are saved in IRIS or kept in memory")
+    check('issue.kind.startsWith("custom:")' in dashboard, "the Dashboard shows custom-rule issues by their rule")
+
+
 def test_theme_selector_offers_four_persisted_themes() -> None:
     print("Checking the theme selector offers Midnight/Slate/Professional/Light and persists the choice...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
@@ -1747,7 +1900,7 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     # postJournalPurgeArchived, postNamespaceCreate, postDatabaseCreate,
     # postDatabaseMount, postDatabaseDismount, postWebAppSetEnabled,
     # postWebAppUpdateDescription, postUserSetEnabled, postTaskRunNow,
-    # postDemoRehearsal.
+    # postDemoRehearsal, and postIssueRule (Custom Issue Rules create/delete).
     # PUT and PATCH aren't allowed anywhere (the backend has no such routes).
     allowed_post_file = "api.js"
 
@@ -1771,6 +1924,11 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
 
     # Each POST must go to its own existing route.
     api_js = (js_dir / "api.js").read_text(encoding="utf-8")
+    check(
+        'postIssueRule("/api/iris/issue-rules", rule)' in api_js
+        and 'postIssueRule("/api/iris/issue-rules/delete", { name, confirmed: true })' in api_js,
+        "api.js's Custom Issue Rules POSTs are scoped to /api/iris/issue-rules and /api/iris/issue-rules/delete",
+    )
     check(
         '"/api/iris/journal/purge-archived"' in api_js,
         "api.js's first sanctioned POST is scoped to the existing /api/iris/journal/purge-archived route",
@@ -2008,6 +2166,10 @@ def main() -> None:
         test_dashboard_links_to_processes_and_issue_resolver,
         test_dashboard_shows_recommendations_separately_from_issues,
         test_web_app_issues_resolve_through_web_apps,
+        test_journal_issue_resolves_through_operations,
+        test_issue_resolver_catalog_entries_open_their_definition,
+        test_detection_only_issues_are_investigated_not_resolved,
+        test_custom_issue_rules_panel,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

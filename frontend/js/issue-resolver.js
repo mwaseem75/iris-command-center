@@ -49,6 +49,24 @@ const dom = {
   drawerBody: document.getElementById("issue-resolver-drawer-body"),
   openDatabasesButton: document.getElementById("issue-resolver-open-databases"),
   drawerHint: document.getElementById("issue-resolver-drawer-hint"),
+  rulesAdd: document.getElementById("issue-resolver-rules-add"),
+  rulesStorage: document.getElementById("issue-resolver-rules-storage"),
+  rulesError: document.getElementById("issue-resolver-rules-error"),
+  rulesErrorText: document.getElementById("issue-resolver-rules-error-text"),
+  ruleForm: document.getElementById("issue-resolver-rule-form"),
+  ruleName: document.getElementById("issue-resolver-rule-name"),
+  ruleTitle: document.getElementById("issue-resolver-rule-title"),
+  ruleSeverity: document.getElementById("issue-resolver-rule-severity"),
+  ruleSignal: document.getElementById("issue-resolver-rule-signal"),
+  ruleOperator: document.getElementById("issue-resolver-rule-operator"),
+  ruleValue: document.getElementById("issue-resolver-rule-value"),
+  rulePage: document.getElementById("issue-resolver-rule-page"),
+  ruleGuidance: document.getElementById("issue-resolver-rule-guidance"),
+  ruleSubmit: document.getElementById("issue-resolver-rule-submit"),
+  ruleCancel: document.getElementById("issue-resolver-rule-cancel"),
+  rulesWrapper: document.getElementById("issue-resolver-rules-wrapper"),
+  rulesBody: document.getElementById("issue-resolver-rules-body"),
+  rulesEmpty: document.getElementById("issue-resolver-rules-empty"),
   rehearsalStart: document.getElementById("issue-resolver-rehearsal-start"),
   demoResolve: document.getElementById("issue-resolver-demo-resolve"),
   rehearsalWarning: document.getElementById("issue-resolver-rehearsal-warning"),
@@ -73,6 +91,8 @@ let activeIssues = [];
 let resolutions = {};
 let onOpenDatabases = null;
 let onOpenWebApps = null;
+let onOpenOperations = null;
+let onInvestigate = null;  // app.js: navigateTo(page), for detection-only issues
 let drawerIssue = null;  // the issue shown in the drawer
 let onOpenTrace = null;
 let onRehearsalFinished = null;
@@ -188,7 +208,86 @@ const RESOURCES = {
     action: "Resolve in Web Apps →",
     hint: "Read-only. Resolving runs through the web application's Enabled State on the Web Apps page.",
   },
+  journal_purge_archived_off: {
+    name: () => "Journal settings",
+    detail: (issue) => `ArchiveName ${textOrPlaceholder(issue.archive_name)}`,
+    status: (issue) => (issue.purge_archived ? "PurgeArchived on" : "PurgeArchived off"),
+    rows: (issue) => [
+      ["Resource", "Journal settings"],
+      ["ArchiveName", issue.archive_name, { mono: true }],
+      ["PurgeArchived", issue.purge_archived],
+    ],
+    page: "operations",
+    action: "Resolve in Operations →",
+    hint: "Read-only. Resolving runs through Update Journal Settings on the Operations page.",
+  },
+  // Detection-only kinds: no operation. The page to investigate on comes from
+  // the catalog entry's `investigation`, not from here.
+  system_monitor_not_running: {
+    name: () => "System Monitor",
+    detail: (issue) => `instance up ${textOrPlaceholder(issue.up_time)}`,
+    status: () => "Not running",
+    rows: (issue) => [
+      ["Resource", "IRIS System Monitor"],
+      ["SystemMonitor", issue.system_monitor],
+      ["Instance uptime", issue.up_time],
+    ],
+  },
+  task_manager_not_running: {
+    name: () => "Task Manager",
+    detail: (issue) => `status ${textOrPlaceholder(issue.status)}`,
+    status: (issue) => textOrPlaceholder(issue.status),
+    rows: (issue) => [
+      ["Resource", "IRIS Task Manager"],
+      ["Status", issue.status],
+    ],
+  },
+  database_full: {
+    name: (issue) => issue.database || issue.directory,
+    detail: (issue) => `${textOrPlaceholder(issue.directory)} · ${textOrPlaceholder(issue.size)} MB of ${textOrPlaceholder(issue.max_size)}`,
+    status: (issue) => (issue.full ? "Full" : "At maximum size"),
+    rows: (issue) => [
+      ["Affected database", issue.database],
+      ["Directory", issue.directory, { mono: true }],
+      ["Size (MB)", issue.size],
+      ["Maximum size (MB)", issue.max_size],
+      ["IRIS reports Full", issue.full],
+      ["Why", (issue.reasons || []).map((r) => (r === "iris_reports_full" ? "IRIS reports Full" : "Maximum size reached")).join(", ")],
+    ],
+  },
 };
+
+const PAGE_LABELS = {
+  dashboard: "Dashboard", system: "System", processes: "Processes", databases: "Databases",
+  "web-apps": "Web Apps", tasks: "Tasks", security: "Security", journal: "Journal",
+  observability: "Observability", investigation: "Investigation",
+};
+
+// A catalog entry with no operation: it says where to investigate instead.
+function isDetectionOnly(resolution) {
+  return Boolean(resolution && resolution.resolvable === false && resolution.investigation);
+}
+
+function pageLabel(page) {
+  return PAGE_LABELS[page] || page;
+}
+
+function investigateAction(resolution) {
+  return `Investigate in ${pageLabel(resolution.investigation.page)} →`;
+}
+
+// The Investigation section: where to look and what to check. Nothing runs.
+function investigationSection(resolution) {
+  return section(
+    "Investigation",
+    el("p", "ir-solution", resolution.recommended_solution),
+    infoList([
+      ["Resolution", "Detection-only: the Command Center has no operation for this."],
+      ["Where", `${pageLabel(resolution.investigation.page)} page`],
+      ["What to check", resolution.investigation.description],
+    ]),
+  );
+}
 
 // An issue kind without an entry is shown by its kind, with no resolve action.
 const UNKNOWN_RESOURCE = {
@@ -201,15 +300,38 @@ const UNKNOWN_RESOURCE = {
   hint: "Read-only.",
 };
 
+// A Custom Issue Rule's issue (kind "custom:<name>"): shown by its rule.
+const CUSTOM_RULE_RESOURCE = {
+  name: (issue) => issue.title,
+  detail: (issue) => `${textOrPlaceholder(issue.signal_label)} is ${textOrPlaceholder(issue.value)}`,
+  status: () => "Custom rule",
+  rows: (issue) => [
+    ["Rule", issue.rule, { mono: true }],
+    ["Signal", issue.signal_label],
+    ["Condition", `${textOrPlaceholder(issue.signal_label)} ${textOrPlaceholder(issue.operator)} ${textOrPlaceholder(issue.threshold)}`],
+    ["Live value", issue.value],
+  ],
+};
+
+function isCustomKind(kind) {
+  return typeof kind === "string" && kind.startsWith("custom:");
+}
+
 function resourceOf(issue) {
+  if (isCustomKind(issue?.kind)) return CUSTOM_RULE_RESOURCE;
   return RESOURCES[issue?.kind] || UNKNOWN_RESOURCE;
 }
 
 // The app.js callback that opens the page where this issue is resolved.
 function resolveHandler(issue) {
+  const resolution = resolutions[issue?.kind];
+  if (isDetectionOnly(resolution)) {
+    return onInvestigate ? () => onInvestigate(resolution.investigation.page) : null;
+  }
   const page = resourceOf(issue).page;
   if (page === "databases") return onOpenDatabases;
   if (page === "web-apps") return onOpenWebApps;
+  if (page === "operations") return onOpenOperations;
   return null;
 }
 
@@ -246,7 +368,12 @@ function renderIssueCard(issue, index) {
     el("span", "ir-mono", textOrPlaceholder(res.detail(issue))));
 
   const meta = el("div", "ir-issue__meta");
-  if (resolution) {
+  if (isDetectionOnly(resolution)) {
+    meta.append(
+      el("span", "db-chip", "Detection-only"),
+      el("span", "ir-issue__privilege", `Investigate in ${pageLabel(resolution.investigation.page)}`),
+    );
+  } else if (resolution) {
     meta.append(
       el("span", "db-chip ir-mono", resolution.operation),
       el("span", "ir-issue__privilege", `Requires ${privilegeText(resolution)}`),
@@ -275,20 +402,27 @@ function renderCatalog() {
   dom.catalogBody.replaceChildren();
   dom.catalogWrapper.hidden = entries.length === 0;
   for (const entry of entries) {
-    const row = el("tr");
+    const row = el("tr", "data-table__row--clickable");
+    row.dataset.issueType = entry.issue_type;
+    row.tabIndex = 0;
+    row.setAttribute("aria-label", `View the catalog definition of ${textOrPlaceholder(entry.title)}`);
     const cell = (content, mono = false) => {
       const td = el("td", mono ? "data-table__cell data-table__cell--mono" : "data-table__cell");
       if (content instanceof Node) td.append(content);
       else td.textContent = textOrPlaceholder(content);
       return td;
     };
+    const detected = detectedCount(entry.issue_type);
+    const title = el("span", "ir-catalog__title");
+    title.append(el("span", null, textOrPlaceholder(entry.title)), detectionBadge(detected));
+    if (isCustomKind(entry.issue_type)) title.append(badge("Custom rule", "status-badge--neutral"));
     row.append(
-      cell(entry.title),
+      cell(title),
       cell(severityBadge(entry.severity)),
       cell(entry.recommended_solution),
-      cell(entry.operation, true),
+      cell(isDetectionOnly(entry) ? "Detection-only" : entry.operation, !isDetectionOnly(entry)),
       cell(privilegeText(entry)),
-      cell(riskBadge(entry.risk_level)),
+      cell(entry.risk_level ? riskBadge(entry.risk_level) : PLACEHOLDER),
     );
     dom.catalogBody.append(row);
   }
@@ -300,10 +434,11 @@ function liveValue(issue, field) {
   return field ? issue[field] : undefined;
 }
 
+// `issue` is null for the catalog view: no Live value column.
 function evidenceTable(issue, resolution) {
   const table = el("table", "data-table data-table--compact");
   const head = el("tr");
-  for (const title of ["Check", "Source", "Live value"]) {
+  for (const title of ["Check", "Source", ...(issue ? ["Live value"] : [])]) {
     const th = el("th", null, title);
     th.setAttribute("scope", "col");
     head.append(th);
@@ -313,12 +448,13 @@ function evidenceTable(issue, resolution) {
   const tbody = el("tbody");
   for (const evidence of resolution.detection_evidence) {
     const row = el("tr");
-    const value = liveValue(issue, evidence.issue_field);
     row.append(
       el("td", "data-table__cell", evidence.condition),
       el("td", "data-table__cell data-table__cell--mono", `${evidence.source} · ${evidence.field}`),
-      el("td", "data-table__cell data-table__cell--mono", textOrPlaceholder(value)),
     );
+    if (issue) {
+      row.append(el("td", "data-table__cell data-table__cell--mono", textOrPlaceholder(liveValue(issue, evidence.issue_field))));
+    }
     tbody.append(row);
   }
   table.append(thead, tbody);
@@ -348,7 +484,9 @@ function affectedNamespaces(issue, resolution) {
 
 function parameterRows(issue, resolution) {
   return resolution.parameters.map((binding) => {
-    const value = binding.from_issue_field ? issue[binding.from_issue_field] : binding.value;
+    const value = binding.from_issue_field
+      ? (issue ? issue[binding.from_issue_field] : "(from the detected issue)")
+      : binding.value;
     const source = binding.from_issue_field ? `from the issue's ${binding.from_issue_field}` : "fixed";
     return [binding.name, `${textOrPlaceholder(value)}  (${source})`, { mono: true }];
   });
@@ -395,8 +533,11 @@ function openDrawer(index) {
   const res = resourceOf(issue);
   drawerIssue = issue;
   dom.drawerTitle.textContent = `${textOrPlaceholder(res.name(issue))} · ${resolution ? resolution.title : textOrPlaceholder(issue.kind)}`;
-  dom.drawerHint.textContent = res.hint;
-  dom.openDatabasesButton.textContent = res.action;
+  const detectionOnly = isDetectionOnly(resolution);
+  dom.drawerHint.textContent = detectionOnly
+    ? `Read-only. Detection-only: investigate it on the ${pageLabel(resolution.investigation.page)} page.`
+    : res.hint;
+  dom.openDatabasesButton.textContent = detectionOnly ? investigateAction(resolution) : res.action;
   dom.openDatabasesButton.hidden = !resolveHandler(issue);
   const severity = resolution ? resolution.severity : null;
   dom.drawerSeverity.className = `status-badge ${SEVERITY_BADGES[severity] || "status-badge--neutral"}`;
@@ -409,6 +550,16 @@ function openDrawer(index) {
 
   if (!resolution) {
     dom.drawerBody.replaceChildren(summary, el("p", "empty-state", "No catalog entry for this issue type."));
+  } else if (detectionOnly) {
+    dom.drawerBody.replaceChildren(
+      summary,
+      section("Live evidence", evidenceTable(issue, resolution)),
+      section("Explanation",
+        ...(issue.explanation ? [el("p", "ir-why__text", issue.explanation)] : []),
+        el("p", "ir-why__text", resolution.explanation)),
+      investigationSection(resolution),
+      section("Verification", bulletList(resolution.verification_rules.map((rule) => `${rule.condition} (${rule.source})`))),
+    );
   } else {
     dom.drawerBody.replaceChildren(
       summary,
@@ -429,10 +580,93 @@ function openDrawer(index) {
     );
   }
 
+  showDrawer();
+}
+
+// Opens the (shared, centered) detail workspace.
+function showDrawer() {
   const wasHidden = dom.drawer.hidden;
   dom.drawerBackdrop.hidden = false;
   dom.drawer.hidden = false;
   if (wasHidden) dom.drawerClose.focus();
+}
+
+// --- catalog definitions (read-only, active or not) ---
+
+function detectedCount(issueType) {
+  return activeIssues.filter((issue) => issue.kind === issueType).length;
+}
+
+function detectionBadge(count) {
+  return count
+    ? badge(`Detected (${count})`, "status-badge--warning")
+    : badge("Not currently detected", "status-badge--neutral");
+}
+
+/** The catalog entry for `issueType`, shown in the detail workspace. */
+function openCatalogEntry(issueType) {
+  const resolution = resolutions[issueType];
+  if (!resolution) return;
+  const detected = detectedCount(issueType);
+
+  drawerIssue = null;  // no resolve action from a definition
+  dom.drawerTitle.textContent = `${textOrPlaceholder(resolution.title)} · Catalog definition`;
+  dom.drawerSeverity.className = `status-badge ${SEVERITY_BADGES[resolution.severity] || "status-badge--neutral"}`;
+  dom.drawerSeverity.textContent = resolution.severity ? capitalize(resolution.severity) : "Unknown";
+  dom.drawerHint.textContent = detected
+    ? "Read-only catalog definition. This issue is detected now; open it from Active Issues to resolve it."
+    : "Read-only catalog definition. Not currently detected.";
+  dom.openDatabasesButton.hidden = true;
+
+  const impact = resolution.impact_evidence || [];
+  if (isDetectionOnly(resolution)) {
+    dom.drawerBody.replaceChildren(
+      section("Issue type", infoList([
+        ["Issue type", resolution.issue_type, { mono: true }],
+        ["Title", resolution.title],
+        ["Severity", severityBadge(resolution.severity)],
+        ["Status", detectionBadge(detected)],
+      ])),
+      section("Detection evidence", evidenceTable(null, resolution)),
+      section("Explanation", el("p", "ir-why__text", resolution.explanation)),
+      investigationSection(resolution),
+      section("Verification", bulletList(resolution.verification_rules.map(
+        (rule) => `${rule.condition} (${rule.source}; checked by issue detection)`,
+      ))),
+    );
+    showDrawer();
+    return;
+  }
+  dom.drawerBody.replaceChildren(
+    section("Issue type", infoList([
+      ["Issue type", resolution.issue_type, { mono: true }],
+      ["Title", resolution.title],
+      ["Severity", severityBadge(resolution.severity)],
+      ["Status", detectionBadge(detected)],
+    ])),
+    section("Detection evidence", evidenceTable(null, resolution)),
+    ...(impact.length
+      ? [section("Impact evidence", bulletList(impact.map((e) => `${e.condition} (${e.source} · ${e.field})`)))]
+      : []),
+    section("Explanation", el("p", "ir-why__text", resolution.explanation)),
+    section(
+      "Recommended solution",
+      el("p", "ir-solution", resolution.recommended_solution),
+      infoList([["Operation", resolution.operation, { mono: true }], ...parameterRows(null, resolution)]),
+    ),
+    section("Privilege and risk", infoList([
+      ["Required privilege", privilegeText(resolution)],
+      ["Risk", riskBadge(resolution.risk_level)],
+      ["Confirmation", resolution.confirmation_required ? "Required" : "Not required"],
+    ])),
+    section("Prerequisites", bulletList(resolution.prerequisites)),
+    section("Safety restrictions", bulletList(resolution.safety_restrictions)),
+    section("Workflow", workflowList(resolution)),
+    section("Verification", bulletList(resolution.verification_rules.map(
+      (rule) => `${rule.condition} (${rule.source}; checked by ${rule.checked_by === "operation" ? "the operation" : "issue detection"})`,
+    ))),
+  );
+  showDrawer();
 }
 
 function closeDrawer() {
@@ -858,23 +1092,196 @@ export async function loadIssueResolver() {
   renderIssues();
   renderCatalog();
   renderRehearsal();
+  await loadRules();
   setLoading(false);
+}
+
+// --- Custom Issue Rules (V1): detection-only rules the user defines ---
+//
+// The form only offers the backend's fixed vocabulary (signals, operators,
+// pages from GET /api/iris/issue-rules); the backend validates every field
+// again and checks the Manage privilege. Rules never run anything.
+
+let ruleOptions = null;  // { signals, operators, pages, max_rules, persisted_to_iris }
+let customRules = [];
+let pendingDeleteRule = null;  // the rule whose inline "Confirm delete" is showing
+
+function setRulesError(message) {
+  dom.rulesError.hidden = !message;
+  dom.rulesErrorText.textContent = message || "";
+}
+
+function fillSelect(select, options) {
+  const current = select.value;
+  select.replaceChildren(...options.map(([value, label]) => {
+    const option = el("option", null, label);
+    option.value = value;
+    return option;
+  }));
+  if (options.some(([value]) => value === current)) select.value = current;
+}
+
+function ruleSignal(key) {
+  return (ruleOptions?.signals || []).find((s) => s.key === key);
+}
+
+function ruleCondition(rule) {
+  const signal = ruleSignal(rule.signal);
+  return `${signal ? signal.label : rule.signal} ${rule.operator} ${rule.value}${signal && signal.unit ? ` ${signal.unit}` : ""}`;
+}
+
+async function loadRules() {
+  try {
+    const response = await IrisApi.getIssueRules();
+    ruleOptions = response;
+    customRules = Array.isArray(response?.rules) ? response.rules : [];
+    fillSelect(dom.ruleSignal, (response.signals || []).map((s) => [s.key, `${s.label} (${s.field})`]));
+    fillSelect(dom.ruleOperator, (response.operators || []).map((op) => [op, op]));
+    fillSelect(dom.rulePage, (response.pages || []).map((p) => [p.key, p.label]));
+    setRulesError(null);
+  } catch {
+    ruleOptions = null;
+    customRules = [];
+    setRulesError("Could not load custom issue rules. The Command Center backend may be unreachable.");
+  }
+  renderRules();
+}
+
+function renderRules() {
+  dom.rulesAdd.disabled = !ruleOptions || customRules.length >= (ruleOptions.max_rules || 0);
+  dom.rulesStorage.textContent = !ruleOptions ? "" : `${customRules.length} of ${ruleOptions.max_rules} rules. ` + (
+    ruleOptions.persisted_to_iris
+      ? "Rules are saved in IRIS (^CommandCenterIssueRule) and survive a backend restart."
+      : "Rules are kept in memory only and are lost when the backend restarts (PERSIST_ISSUE_RULES_TO_IRIS is off)."
+  );
+  dom.rulesWrapper.hidden = customRules.length === 0;
+  dom.rulesEmpty.hidden = customRules.length !== 0 || !ruleOptions;
+  dom.rulesBody.replaceChildren(...customRules.map((rule) => {
+    const row = el("tr");
+    row.dataset.rule = rule.name;
+    const cell = (content, className = "data-table__cell") => {
+      const td = el("td", className);
+      if (content instanceof Node) td.append(content);
+      else td.textContent = textOrPlaceholder(content);
+      return td;
+    };
+    const name = el("span", "ir-catalog__title");
+    name.append(el("span", null, rule.title), el("span", "ir-mono", rule.name));
+    const actions = el("span", "btn-row");
+    if (pendingDeleteRule === rule.name) {
+      const yes = el("button", "btn btn--warning", "Confirm delete");
+      yes.type = "button";
+      yes.dataset.action = "delete-confirm";
+      const no = el("button", "btn", "Cancel");
+      no.type = "button";
+      no.dataset.action = "delete-cancel";
+      actions.append(yes, no);
+    } else {
+      const remove = el("button", "btn", "Delete");
+      remove.type = "button";
+      remove.dataset.action = "delete";
+      actions.append(remove);
+    }
+    row.append(
+      cell(name),
+      cell(severityBadge(rule.severity)),
+      cell(ruleCondition(rule), "data-table__cell data-table__cell--mono"),
+      cell(`${pageLabel(rule.investigation_page)} page`),
+      cell(detectionBadge(detectedCount(`custom:${rule.name}`))),
+      cell(actions),
+    );
+    return row;
+  }));
+}
+
+function showRuleForm(show) {
+  dom.ruleForm.hidden = !show;
+  dom.rulesAdd.hidden = show;
+  if (show) {
+    dom.ruleForm.reset();
+    dom.ruleName.focus();
+  }
+}
+
+// Only reached from the form's submit; the backend validates everything again.
+async function submitRule(event) {
+  event.preventDefault();
+  if (dom.ruleValue.value.trim() === "" || !Number.isFinite(Number(dom.ruleValue.value))) {
+    setRulesError("Value must be a number.");
+    return;
+  }
+  const rule = {
+    name: dom.ruleName.value.trim(),
+    title: dom.ruleTitle.value.trim(),
+    severity: dom.ruleSeverity.value,
+    signal: dom.ruleSignal.value,
+    operator: dom.ruleOperator.value,
+    value: Number(dom.ruleValue.value),
+    investigation_page: dom.rulePage.value,
+    guidance: dom.ruleGuidance.value.trim(),
+  };
+  dom.ruleSubmit.disabled = true;
+  try {
+    const result = await IrisApi.createIssueRule(rule);
+    showRuleForm(false);
+    setRulesError(result && result.persisted === false && ruleOptions?.persisted_to_iris
+      ? "The rule was created but couldn't be saved to IRIS; it will be lost when the backend restarts."
+      : null);
+    await loadIssueResolver();  // evaluate it with the other checks
+  } catch (err) {
+    setRulesError(err instanceof ApiError ? err.message : "Could not create the rule.");
+  } finally {
+    dom.ruleSubmit.disabled = false;
+  }
+}
+
+// Only reached from a rule's inline "Confirm delete" button.
+async function deleteRule(name) {
+  pendingDeleteRule = null;
+  try {
+    await IrisApi.deleteIssueRule(name);
+    setRulesError(null);
+    await loadIssueResolver();
+  } catch (err) {
+    setRulesError(err instanceof ApiError ? err.message : "Could not delete the rule.");
+    renderRules();
+  }
+}
+
+function handleRulesClick(event) {
+  const button = event.target.closest("button[data-action]");
+  const row = event.target.closest("tr[data-rule]");
+  if (!button || !row) return;
+  const name = row.dataset.rule;
+  if (button.dataset.action === "delete") pendingDeleteRule = name;
+  else if (button.dataset.action === "delete-cancel") pendingDeleteRule = null;
+  else if (button.dataset.action === "delete-confirm" && pendingDeleteRule === name) {
+    deleteRule(name);
+    return;
+  }
+  renderRules();
 }
 
 /**
  * Wired by app.js: `onOpenDatabases(issue)` goes to Resolve Issues on the
  * Databases page, `onOpenWebApps(issue)` opens the issue's web application
- * on the Web Apps page, `onOpenTrace(id)` opens a trace in Observability,
+ * on the Web Apps page, `onOpenOperations(issue)` opens the journal action on
+ * the Operations page, `onInvestigate(page)` opens the page a detection-only
+ * issue is investigated on, `onOpenTrace(id)` opens a trace in Observability,
  * and `onRehearsalFinished()` refreshes the other pages that show traces.
  */
 export function initIssueResolverControls({
   onOpenDatabases: openDatabases,
   onOpenWebApps: openWebApps,
+  onOpenOperations: openOperations,
+  onInvestigate: investigate,
   onOpenTrace: openTrace,
   onRehearsalFinished: finished,
 } = {}) {
   onOpenDatabases = typeof openDatabases === "function" ? openDatabases : null;
   onOpenWebApps = typeof openWebApps === "function" ? openWebApps : null;
+  onOpenOperations = typeof openOperations === "function" ? openOperations : null;
+  onInvestigate = typeof investigate === "function" ? investigate : null;
   onOpenTrace = typeof openTrace === "function" ? openTrace : null;
   onRehearsalFinished = typeof finished === "function" ? finished : null;
   dom.openDatabasesButton.hidden = true;  // set per issue when the drawer opens
@@ -892,6 +1299,21 @@ export function initIssueResolverControls({
 
   dom.refreshButton.addEventListener("click", () => {
     loadIssueResolver();
+  });
+  dom.rulesAdd.addEventListener("click", () => showRuleForm(true));
+  dom.ruleCancel.addEventListener("click", () => showRuleForm(false));
+  dom.ruleForm.addEventListener("submit", submitRule);
+  dom.rulesBody.addEventListener("click", handleRulesClick);
+  dom.catalogBody.addEventListener("click", (event) => {
+    const row = event.target.closest("tr[data-issue-type]");
+    if (row) openCatalogEntry(row.dataset.issueType);
+  });
+  dom.catalogBody.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("tr[data-issue-type]");
+    if (!row) return;
+    event.preventDefault();
+    openCatalogEntry(row.dataset.issueType);
   });
   dom.list.addEventListener("click", (event) => {
     const card = event.target.closest(".ir-issue");

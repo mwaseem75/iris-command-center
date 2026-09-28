@@ -60,16 +60,24 @@ async function fetchIris(path) {
 /**
  * POST /api/iris/journal/purge-archived. Sends PurgeArchived and the
  * user's `confirmed` flag; the backend decides whether it's allowed. There's
- * no force/bypass option.
+ * no force/bypass option. `resolutionIssueType` (optional) only labels the
+ * trace as an Issue Resolver resolution; the backend checks it. `dryRun`
+ * (optional) asks for the handler's dry run, which only reads the current
+ * value and never sends the PUT.
  */
-async function postJournalPurgeArchived(purgeArchived, confirmed) {
+async function postJournalPurgeArchived(purgeArchived, confirmed, resolutionIssueType = null, dryRun = false) {
   const path = "/api/iris/journal/purge-archived";
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ PurgeArchived: purgeArchived, confirmed }),
+      body: JSON.stringify({
+        PurgeArchived: purgeArchived,
+        confirmed,
+        ...(resolutionIssueType ? { resolution_issue_type: resolutionIssueType } : {}),
+        ...(dryRun ? { dry_run: true } : {}),
+      }),
     });
   } catch {
     setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
@@ -189,6 +197,42 @@ async function postTaskRunNow(fields, confirmed, dryRun = false) {
  * normal framework and restores everything. Returns
  * { status, confirmed, detail, steps }. 409 means one is already running.
  */
+/**
+ * Custom Issue Rules: POST /api/iris/issue-rules (create) and
+ * /api/iris/issue-rules/delete. A 4xx is thrown as an ApiError whose message
+ * is the backend's explanation (a validation message, a missing privilege, a
+ * duplicate name...), so the form can show it. Only field messages are used,
+ * never the values sent.
+ */
+async function postIssueRule(path, body) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = data && data.detail;
+    const message = typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((item) => item && item.msg).filter(Boolean).join(" ")
+        : "";
+    throw new ApiError(message || `Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+  setHeaderConnectionStatus("connected", "Connected to backend");
+  return data;
+}
+
 async function postDemoRehearsal(confirmed, scenario = "standard") {
   const path = "/api/iris/demo/rehearsal";
   let response;
@@ -354,8 +398,8 @@ export const IrisApi = {
   queryAssistant: (message) =>
     fetchIris(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`),
   // Returns an OperationResult (backend/app/execution/models.py).
-  executeJournalPurgeArchived: (purgeArchived, confirmed) =>
-    postJournalPurgeArchived(purgeArchived, confirmed),
+  executeJournalPurgeArchived: (purgeArchived, confirmed, resolutionIssueType = null, dryRun = false) =>
+    postJournalPurgeArchived(purgeArchived, confirmed, resolutionIssueType, dryRun),
   // Returns an OperationResult. Pass dryRun=true for a preview.
   createNamespace: (fields, confirmed, dryRun = false) =>
     postNamespaceCreate(fields, confirmed, dryRun),
@@ -379,6 +423,11 @@ export const IrisApi = {
   runDemoRehearsal: (confirmed, scenario = "standard") => postDemoRehearsal(confirmed, scenario),
   // Our own execution traces (no IRIS call).
   getExecutionTraces: () => fetchIris("/api/iris/observability/traces"),
+  // Custom Issue Rules (detection-only). Deleting is only called from the
+  // Issue Resolver's inline "Confirm delete" button, so it sends confirmed=true.
+  getIssueRules: () => fetchIris("/api/iris/issue-rules"),
+  createIssueRule: (rule) => postIssueRule("/api/iris/issue-rules", rule),
+  deleteIssueRule: (name) => postIssueRule("/api/iris/issue-rules/delete", { name, confirmed: true }),
   // Our own capability registry (no IRIS call); `available` says whether
   // the route exists.
   getCapabilities: () => fetchIris("/api/iris/capabilities"),

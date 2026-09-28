@@ -14,7 +14,10 @@ from app.execution.database_dismount_handler import _SYSTEM_DATABASES
 from app.resolution.catalog import DATABASE_DISMOUNTED, ISSUE_CATALOG, get_issue_resolution
 from app.resolution.models import (
     WORKFLOW_ORDER,
+    DetectionEvidence,
+    InvestigationDestination,
     IssueResolution,
+    IssueSeverity,
     ParameterBinding,
     VerificationRule,
     WorkflowStepKind,
@@ -22,6 +25,11 @@ from app.resolution.models import (
 from app.routes.issues import DatabaseMountIssue
 
 OK = {"errors": [], "summary": ""}
+
+
+def _dashboard() -> dict[str, Any]:
+    from tests.test_issues_route import _dashboard as dashboard
+    return dashboard()
 
 
 def _entry_data(**overrides: Any) -> dict[str, Any]:
@@ -34,8 +42,11 @@ def _entry_data(**overrides: Any) -> dict[str, Any]:
 # --- the catalog ---
 
 
-def test_catalog_has_the_dismounted_database_and_web_app_namespace_issues() -> None:
-    assert list(ISSUE_CATALOG) == ["database_dismounted", "web_app_namespace_missing"]
+def test_catalog_has_the_built_in_issue_types() -> None:
+    assert list(ISSUE_CATALOG) == [
+        "database_dismounted", "web_app_namespace_missing", "journal_purge_archived_off",
+        "system_monitor_not_running", "task_manager_not_running", "database_full",
+    ]
     assert get_issue_resolution("database_dismounted") is DATABASE_DISMOUNTED
 
 
@@ -99,7 +110,9 @@ def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_ir
                "DaysBeforePurge": 2, "FileSizeLimit": 1024, "FreezeOnError": False, "JournalFilePrefix": "",
                "JournalcspSession": False, "PurgeArchived": False, "CompressFiles": True, "wijdir": "", "targwijsz": 0}
     bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": [],
-              "/v2/journal/settings": journal, "/v2/web-apps": []}  # read for recommendations
+              "/v2/journal/settings": journal, "/v2/web-apps": [],  # read by the other issue checks
+              "/v2/task/manager": {"Status": "Running"},
+              "/v2/monitor/dashboard/main": _dashboard()}
     mock_iris_client.get.side_effect = lambda path, **_: {"status": OK, "console": [], "result": bodies[path]}
 
     (issue,) = client.get("/api/iris/issues").json()["issues"]
@@ -217,3 +230,169 @@ def test_every_web_app_evidence_field_exists_on_the_detected_issue() -> None:
 
     linked = [e.issue_field for e in entry.detection_evidence]
     assert all(linked) and set(linked) <= set(WebAppNamespaceIssue.model_fields)
+
+
+# --- journal_purge_archived_off ---
+
+
+def test_journal_entry_uses_the_registered_purge_archived_operation() -> None:
+    from app.resolution.catalog import JOURNAL_PURGE_ARCHIVED_OFF as entry
+
+    definition = OPERATION_REGISTRY["journal.update_purge_archived"]
+    assert entry.operation == "journal.update_purge_archived"
+    assert definition.kind is OperationKind.MUTATING
+    assert entry.required_privileges == definition.required_privileges
+    assert entry.risk_level is definition.risk_level and entry.confirmation_required is True
+    assert entry.severity.value == "low"
+
+
+def test_journal_entry_only_turns_purge_archived_on() -> None:
+    from app.resolution.catalog import JOURNAL_PURGE_ARCHIVED_OFF as entry
+
+    (binding,) = entry.parameters
+    assert binding.name == "PurgeArchived" and binding.value is True and binding.from_issue_field is None
+
+
+def test_every_journal_evidence_field_exists_on_the_detected_issue() -> None:
+    from app.resolution.catalog import JOURNAL_PURGE_ARCHIVED_OFF as entry
+    from app.routes.issues import JournalPurgeArchivedIssue
+
+    linked = [e.issue_field for e in entry.detection_evidence]
+    assert all(linked) and set(linked) <= set(JournalPurgeArchivedIssue.model_fields)
+
+
+# --- detection-only entries ---
+
+
+def _detection_only(**overrides: Any) -> IssueResolution:
+    data: dict[str, Any] = {
+        "issue_type": "example_detection_only",
+        "title": "Example detection-only issue",
+        "severity": IssueSeverity.MEDIUM,
+        "detection_evidence": (
+            DetectionEvidence(source="GET /v2/example", field="Status", condition="Status isn't Normal."),
+        ),
+        "explanation": "Something IRIS reports that no registered operation fixes.",
+        "recommended_solution": "Look into it on the Tasks page.",
+        "investigation": InvestigationDestination(page="tasks", description="Check the task's last result."),
+    }
+    data.update(overrides)
+    return IssueResolution(**data)
+
+
+RESOLVABLE = ("database_dismounted", "web_app_namespace_missing", "journal_purge_archived_off")
+DETECTION_ONLY = {"system_monitor_not_running": "system", "task_manager_not_running": "tasks", "database_full": "databases"}
+
+
+def test_existing_entries_stay_resolvable() -> None:
+    for entry in (ISSUE_CATALOG[name] for name in RESOLVABLE):
+        assert entry.resolvable is True
+        assert entry.operation is not None and entry.investigation is None
+        dumped = entry.model_dump(mode="json")
+        assert dumped["resolvable"] is True and dumped["investigation"] is None
+        assert dumped["risk_level"] and dumped["required_privileges"] and dumped["confirmation_required"] is True
+
+
+def test_detection_only_entry_has_an_investigation_and_no_operation() -> None:
+    entry = _detection_only()
+
+    assert entry.resolvable is False and entry.operation is None
+    assert entry.investigation.page == "tasks"
+    assert entry.operation_definition is None
+    dumped = entry.model_dump(mode="json")
+    assert dumped["resolvable"] is False
+    assert dumped["required_privileges"] == [] and dumped["risk_level"] is None
+    assert dumped["confirmation_required"] is False
+    assert dumped["parameters"] == [] and dumped["workflow_steps"] == []
+
+
+def test_detection_only_entry_is_never_resolved_by_an_operation() -> None:
+    from app.resolution import catalog
+
+    entry = _detection_only()
+    original = catalog.ISSUE_CATALOG
+    catalog.ISSUE_CATALOG = {**original, entry.issue_type: entry}
+    try:
+        for operation in ("database.mount", "web_app.set_enabled", "journal.update_purge_archived"):
+            assert not catalog.resolves_with(entry.issue_type, operation)
+            assert catalog.trace_context(entry.issue_type, operation, {}) is None
+    finally:
+        catalog.ISSUE_CATALOG = original
+
+
+def test_an_entry_needs_exactly_one_of_operation_or_investigation() -> None:
+    with pytest.raises(ValidationError, match="exactly one of"):
+        _detection_only(investigation=None)  # neither
+    with pytest.raises(ValidationError, match="exactly one of"):
+        IssueResolution(**_entry_data(investigation=InvestigationDestination(page="databases", description="x")))
+
+
+@pytest.mark.parametrize("field, value", [
+    ("parameters", (ParameterBinding(name="Directory", value="/x/"),)),
+    ("workflow_steps", DATABASE_DISMOUNTED.workflow_steps),
+])
+def test_detection_only_entry_rejects_a_resolution_path(field: str, value: Any) -> None:
+    with pytest.raises(ValidationError, match=f"no operation, so no {field}"):
+        _detection_only(**{field: value})
+
+
+def test_detection_only_entry_rejects_an_operation_verification() -> None:
+    rules = (VerificationRule(source="GET /x", condition="fixed", checked_by="operation"),)
+    with pytest.raises(ValidationError, match="no operation to verify"):
+        _detection_only(verification_rules=rules)
+    # Re-detection is fine: the issue is gone when it's no longer reported.
+    ok = (VerificationRule(source="GET /api/iris/issues", condition="gone", checked_by="issue_detection"),)
+    assert _detection_only(verification_rules=ok).verification_rules == ok
+
+
+def test_detection_only_entry_still_needs_detection_evidence() -> None:
+    with pytest.raises(ValidationError, match="detection_evidence must not be empty"):
+        _detection_only(detection_evidence=())
+
+
+def test_investigation_destination_needs_a_page_and_description() -> None:
+    with pytest.raises(ValidationError, match="needs a page and a description"):
+        InvestigationDestination(page=" ", description="Check it.")
+    with pytest.raises(ValidationError, match="needs a page and a description"):
+        InvestigationDestination(page="tasks", description="")
+
+
+def test_resolvable_entry_without_its_resolution_path_is_still_rejected() -> None:
+    # Omitting the (now optional) sections must not bypass the resolvable checks.
+    with pytest.raises(ValidationError, match="parameters must not be empty"):
+        IssueResolution(**_entry_data(parameters=()))
+    with pytest.raises(ValidationError, match="workflow steps must be"):
+        IssueResolution(**_entry_data(workflow_steps=()))
+
+
+# --- the built-in detection-only entries ---
+
+
+@pytest.mark.parametrize("issue_type, page", DETECTION_ONLY.items())
+def test_detection_only_entries_investigate_the_right_page(issue_type: str, page: str) -> None:
+    entry = ISSUE_CATALOG[issue_type]
+    assert entry.resolvable is False and entry.operation is None
+    assert entry.investigation.page == page
+    assert entry.parameters == () and entry.workflow_steps == ()
+    assert all(rule.checked_by == "issue_detection" for rule in entry.verification_rules)
+    assert "nothing is run" in entry.recommended_solution
+
+
+@pytest.mark.parametrize("issue_type", DETECTION_ONLY)
+def test_detection_only_evidence_fields_exist_on_the_detected_issue(issue_type: str) -> None:
+    from app.routes.issues import DatabaseFullIssue, SystemMonitorIssue, TaskManagerIssue
+
+    model = {"system_monitor_not_running": SystemMonitorIssue, "task_manager_not_running": TaskManagerIssue,
+             "database_full": DatabaseFullIssue}[issue_type]
+    linked = [e.issue_field for e in ISSUE_CATALOG[issue_type].detection_evidence]
+    assert all(linked) and set(linked) <= set(model.model_fields)
+
+
+@pytest.mark.parametrize("issue_type", DETECTION_ONLY)
+def test_no_operation_resolves_a_detection_only_entry(issue_type: str) -> None:
+    from app.authorization.operations import OPERATION_REGISTRY
+    from app.resolution.catalog import resolves_with, trace_context
+
+    for operation in OPERATION_REGISTRY:
+        assert not resolves_with(issue_type, operation)
+        assert trace_context(issue_type, operation, {}) is None
