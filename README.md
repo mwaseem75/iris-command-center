@@ -32,6 +32,7 @@ It combines live IRIS system information with controlled administrative workflow
 | Area | What you can do |
 |---|---|
 | 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, alerts, Issues & Recommendations, and recent activity |
+| 🩺 **Issue Resolver** | Detect supported issues from live IRIS evidence, distinguish resolvable and detection-only issues, define custom detection rules, investigate or resolve safely, verify results, and follow the execution trace |
 | 🗂️ **Namespaces** | Explore namespaces, relationships, and create namespaces safely |
 | 💾 **Databases** | Inspect databases, storage, integrity, and perform controlled create, mount, and dismount workflows |
 | ⚙️ **Processes** | Search, filter, and investigate live IRIS processes |
@@ -42,7 +43,6 @@ It combines live IRIS system information with controlled administrative workflow
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
-| 🩺 **Issue Resolver** | Detect supported issues from live evidence, see their impact, resolve them safely through the existing operations, verify the result, and follow the execution trace |
 | 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
@@ -131,14 +131,23 @@ The dashboard provides a live operational snapshot.
 <img width="2172"  alt="image" src="https://github.com/user-attachments/assets/ca0ac865-94f7-46f1-99f5-712364961983" />
 
 ### 🩺 Issue Resolver
-Issue Resolver provides deterministic detection and guided resolution for supported IRIS operational issues.
-The resolver currently detects:
-Dismounted Database — detects a database reported as dismounted and resolves it through the existing database.mount operation.
-Enabled Web Application with Missing Namespace — detects an enabled web application whose configured namespace no longer exists and resolves it by safely disabling the affected application through the existing web_app.set_enabled operation.
-Each issue is based on live IRIS API evidence rather than simulated data. The resolver presents the affected resource, evidence, explanation, recommended solution, required privilege, risk level, and resolution workflow.
-Resolution always follows the same controlled lifecycle: authorization → explicit confirmation → execution → verification. The resulting operation is captured in Observability and can be associated with the issue that initiated the resolution.
-The issue catalog is intentionally curated: Command Center reports conditions where it has a deterministic detection rule and a safe, verified resolution path.
-<img width="2172"  alt="image" src="https://github.com/user-attachments/assets/e3ce708b-1e69-4d08-b7ae-b187c1adeded" />
+Issue Resolver provides deterministic detection, investigation, and guided resolution for supported IRIS operational issues.
+It uses live IRIS evidence to identify conditions and clearly separates issues that Command Center can safely resolve from conditions that require investigation.
+Current built-in checks include:
+- **Dismounted Database** — detects a database reported as dismounted and resolves it through the existing `database.mount` operation.
+- **Enabled Web Application with Missing Namespace** — detects an enabled web application whose configured namespace no longer exists and safely disables the affected application through `web_app.set_enabled`.
+- **Archived Journal Files Not Purged** — detects when archived journal purging is disabled and enables it through `journal.update_purge_archived`.
+- **System Monitor Not Running** — detects when the IRIS System Monitor is stopped and directs the operator to investigate in System.
+- **Task Manager Not Running** — detects when the IRIS Task Manager is not running and directs the operator to investigate in Tasks.
+- **Database Full** — detects databases reported as full and directs the operator to investigate in Databases.
+Users can also create **Custom Issue Rules** using a controlled set of live IRIS metrics. Custom rules are detection-only and can direct the operator to the relevant investigation page; they cannot execute arbitrary code or define their own remediation.
+Each issue provides the available live evidence, explanation, severity, affected resource, and either a safe resolution path or an investigation path. For resolvable issues, the workflow follows the existing safety model: authorization → dry run → review → explicit confirmation → execution → verification. The resulting operation is captured in Observability and can be associated with the issue that initiated the resolution.
+The issue catalog is intentionally curated: Command Center only offers deterministic resolution where a supported operation has been explicitly registered and verified. Detection-only conditions remain read-only and are never automatically modified.
+**Issue Resolver — main view**
+<img width="2178"  alt="image" src="https://github.com/user-attachments/assets/990e8f35-ac01-4229-93d4-bfce217d0e95" />
+**Issue Resolver — issue details**
+<img width="1274"  alt="image" src="https://github.com/user-attachments/assets/017dfb32-7b92-4ee7-88c4-60fd8cbf869a" />
+
 
 ### 🛠️ IRIS System Administration (Operations)
 Monitor an IRIS instance, explore its configuration, and perform supported administrative tasks from one operational console.
