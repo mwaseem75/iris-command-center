@@ -32,17 +32,17 @@ It combines live IRIS system information with controlled administrative workflow
 | Area | What you can do |
 |---|---|
 | 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, alerts, Issues & Recommendations, and recent activity |
+| 🩺 **Issue Resolver** | Detect supported issues from live IRIS evidence, distinguish resolvable and detection-only issues, define custom detection rules, investigate or resolve safely, verify results, and follow the execution trace |
 | 🗂️ **Namespaces** | Explore namespaces, relationships, and create namespaces safely |
 | 💾 **Databases** | Inspect databases, storage, integrity, and perform controlled create, mount, and dismount workflows |
 | ⚙️ **Processes** | Search, filter, and investigate live IRIS processes |
 | 🌐 **Web Applications** | Inspect configuration, REST applications, sessions, enable/disable apps, and update descriptions |
 | 🔍 **REST API Explorer** | Explore generated REST API definitions, endpoints, methods, parameters, and implementation details |
-| ⏱️ **Tasks** | Inspect task state, schedules, settings, execution information, and supported Run Now workflows |
+| ⏱️ **Tasks** | Monitor live task state, upcoming runs, schedules, and most recent run information, with task details and supported Run Now workflows |
 | 🔐 **Security** | Explore users, roles, resources, authentication posture, wallets, X.509, and OAuth2 |
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
-| 🩺 **Issue Resolver** | Detect supported issues from live evidence, see their impact, resolve them safely through the existing operations, verify the result, and follow the execution trace |
 | 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
@@ -131,14 +131,27 @@ The dashboard provides a live operational snapshot.
 <img width="2172"  alt="image" src="https://github.com/user-attachments/assets/ca0ac865-94f7-46f1-99f5-712364961983" />
 
 ### 🩺 Issue Resolver
-Issue Resolver provides deterministic detection and guided resolution for supported IRIS operational issues.
-The resolver currently detects:
-Dismounted Database — detects a database reported as dismounted and resolves it through the existing database.mount operation.
-Enabled Web Application with Missing Namespace — detects an enabled web application whose configured namespace no longer exists and resolves it by safely disabling the affected application through the existing web_app.set_enabled operation.
-Each issue is based on live IRIS API evidence rather than simulated data. The resolver presents the affected resource, evidence, explanation, recommended solution, required privilege, risk level, and resolution workflow.
-Resolution always follows the same controlled lifecycle: authorization → explicit confirmation → execution → verification. The resulting operation is captured in Observability and can be associated with the issue that initiated the resolution.
-The issue catalog is intentionally curated: Command Center reports conditions where it has a deterministic detection rule and a safe, verified resolution path.
-<img width="2172"  alt="image" src="https://github.com/user-attachments/assets/e3ce708b-1e69-4d08-b7ae-b187c1adeded" />
+Issue Resolver provides deterministic detection, investigation, and guided resolution for supported IRIS operational issues.
+It uses live IRIS evidence to identify conditions and clearly separates issues that Command Center can safely resolve from conditions that require investigation.
+Current built-in checks include:
+- **Dismounted Database** — detects a database reported as dismounted and resolves it through the existing `database.mount` operation.
+- **Enabled Web Application with Missing Namespace** — detects an enabled web application whose configured namespace no longer exists and safely disables the affected application through `web_app.set_enabled`.
+- **Archived Journal Files Not Purged** — detects when archived journal purging is disabled and enables it through `journal.update_purge_archived`.
+- **System Monitor Not Running** — detects when the IRIS System Monitor is stopped and directs the operator to investigate in System.
+- **Task Manager Not Running** — detects when the IRIS Task Manager is not running and directs the operator to investigate in Tasks.
+- **Database Full** — detects databases reported as full and directs the operator to investigate in Databases.
+Users can also create **Custom Issue Rules** using a controlled set of live IRIS metrics. Custom rules are detection-only and can direct the operator to the relevant investigation page; they cannot execute arbitrary code or define their own remediation.
+Each issue provides the available live evidence, explanation, severity, affected resource, and either a safe resolution path or an investigation path. For resolvable issues, the workflow follows the existing safety model: authorization → dry run → review → explicit confirmation → execution → verification. The resulting operation is captured in Observability and can be associated with the issue that initiated the resolution.
+The issue catalog is intentionally curated: Command Center only offers deterministic resolution where a supported operation has been explicitly registered and verified. Detection-only conditions remain read-only and are never automatically modified.
+
+**Issue Resolver — main view**
+  
+<img width="2178"  alt="image" src="https://github.com/user-attachments/assets/990e8f35-ac01-4229-93d4-bfce217d0e95" />
+
+**Issue Resolver — issue details**
+
+<img width="1274"  alt="image" src="https://github.com/user-attachments/assets/017dfb32-7b92-4ee7-88c4-60fd8cbf869a" />
+
 
 ### 🛠️ IRIS System Administration (Operations)
 Monitor an IRIS instance, explore its configuration, and perform supported administrative tasks from one operational console.
@@ -157,12 +170,21 @@ Execution Traces capture Command Center operations from request through authoriz
 <img width="2183" alt="image" src="https://github.com/user-attachments/assets/131b5172-4491-4303-9907-a258dda623e8" />
 
 ### 🚨 Investigation
-Audit Investigation provides a dedicated view of the native IRIS security audit trail. Administrators can investigate real audit events using filters such as date range, event type, event, username, namespace, and free-text search. Events can be explored in a timeline and detailed workspace, with related Command Center traces surfaced when they occur within the relevant time window.
-Together, these views answer two complementary questions:
-Execution Traces: What did Command Center do?
-Audit Investigation: What did IRIS record?
-This separation provides an operational view of Command Center activity alongside the underlying IRIS audit evidence.
-<img width="2177"  alt="image" src="https://github.com/user-attachments/assets/88b48323-fba2-4eed-ad3d-ef086f6206a4" />
+Investigation provides two complementary views of native IRIS operational evidence.
+
+**Audit Investigation** provides a dedicated view of the native IRIS security audit trail. Administrators can investigate real audit events using filters such as date range, event type, event, username, namespace, and free-text search. Events can be explored in a timeline and detailed workspace, with related Command Center traces surfaced when they occur within the relevant time window. Audit results are paginated for focused investigation.
+<img width="2207" alt="image" src="https://github.com/user-attachments/assets/63d0621e-e51b-4851-b559-c8512e0ae5fa" />
+
+**Message Log** provides a read-only view of the native IRIS `messages.log`. Administrators can search messages, filter by severity level, browse paginated results, and open individual entries for their full metadata and message content. The log is read directly from IRIS using a fixed read-only path and is never modified by Command Center.
+<img width="2196" alt="image" src="https://github.com/user-attachments/assets/04649d90-fb72-4ad6-9fa1-4a3b5fba242f" />
+
+Together, these views answer two complementary operational questions:
+
+- **Execution Traces:** What did Command Center do?
+- **Audit Investigation:** What did IRIS record as a security/audit event?
+- **Message Log:** What messages and diagnostic information did IRIS report?
+
+This separation provides a focused operational view of Command Center activity alongside the underlying IRIS audit and message evidence.
 
 ### 🤖 AI-Assisted 
 Ask natural-language questions about live IRIS data while keeping the assistant inside the same controlled application API boundary.
@@ -203,10 +225,35 @@ Sensitive information is protected. The application deliberately withholds or fi
 - Sensitive personal fields
 
 ### 🗓️ Tasks
-Tasks provides a live view of scheduled IRIS tasks, including their current state and configuration. Administrators can search and filter tasks, open a detailed view, and inspect task settings while sensitive configuration values are automatically redacted.
-For eligible user tasks, Command Center also provides a controlled Run Now operation with authorization, explicit confirmation, and post-execution verification. System tasks are protected from manual execution.
+Tasks provides a live view of scheduled IRIS tasks, including their current state, configuration, upcoming runs, schedules, and most recent run information. Administrators can search and filter tasks, open a detailed view, and inspect task settings while sensitive configuration values are automatically redacted.
+
+The Tasks page provides four complementary views:
+
+- **All Tasks** — search and filter the complete live task list.
+- **Upcoming** — view the next scheduled runs reported by IRIS, ordered by time and grouped by date.
+- **Schedule** — inspect the configured schedule for each task, including period, time of day, date range, and next run.
+- **Last Runs** — review the most recent run information reported for each task. This is intentionally not presented as a full execution history.
+
+For eligible user tasks, Command Center also provides a controlled **Run Now** operation with authorization, explicit confirmation, and post-execution verification. System tasks are protected from manual execution.
+
 Task execution follows the same authorization → confirmation → execution → verification workflow used by other administrative operations.
-<img width="2175"  alt="image" src="https://github.com/user-attachments/assets/3a929158-9c59-4123-aafa-e8c33456fe38" />
+
+<img width="2172" alt="image" src="https://github.com/user-attachments/assets/d98404e0-cbff-44a8-865a-5a83c26fe0fc" />
+
+**Upcoming**
+
+<img width="2172"  alt="image" src="https://github.com/user-attachments/assets/24557671-d213-484a-af3b-a9fd81777ae3" />
+
+
+**Schedule**
+
+<img width="2161"  alt="image" src="https://github.com/user-attachments/assets/b1419160-fed6-476f-9d83-2877e7511e76" />
+
+
+**Last Runs**
+
+<img width="2156"  alt="image" src="https://github.com/user-attachments/assets/0902e9e8-9cbb-4efc-a0ed-379c27a386ac" />
+
 
 ### 📖 Journal
 Journal provides a live view of IRIS journal configuration, allowing administrators to inspect key journal settings and understand the current journaling posture of the connected instance.
@@ -219,29 +266,62 @@ Changes are validated before execution and verified against the live IRIS config
 ## Advanced Capabilities
 
 ### 🩺 Deterministic Issue Resolver
-The **Issue Resolver** provides a controlled operational path from a detected issue to a verified resolution. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
-<img width="1827"  alt="image" src="https://github.com/user-attachments/assets/9b2de03f-cda5-4e54-b073-3a24eca312b2" />
-The resolver currently supports two curated issue types:
-#### `database_dismounted` — Dismounted Database
-- **Detection:** live evidence from IRIS (`GET /v2/databases`, `GET /v2/database-dirs`) shows the database reported as `Dismounted`.
-- **Impact:** the namespaces that use the database for **Globals** or **Routines** are identified using `GET /v2/namespaces`.
-- **Recommendation:** the catalog-defined solution is to mount the database read-write with **`database.mount`**, with the required **Operate** privilege and its defined risk level.
-- **Resolve:** the operation runs through the normal **authorization → explicit confirmation → execution** path. There is no bypass.
-- **Verification:** the operation verifies that the database is mounted, and issue detection confirms that the issue is gone.
-- **Observe:** the resolution is recorded as an execution trace, labelled with the issue it resolved, and can be opened in Observability.
 
-#### `web_app_namespace_missing` — Enabled Web Application with Missing Namespace
-- **Detection:** live IRIS data compares enabled web applications from `GET /v2/web-apps` with the namespaces returned by `GET /v2/namespaces`. An issue is reported when an enabled web application references a namespace that does not exist.
-- **Impact:** the affected web application, its configured namespace, and enabled state are shown as live evidence.
-- **Recommendation:** the catalog-defined solution is to disable the affected web application with **`web_app.set_enabled`**. This prevents a broken endpoint from remaining enabled; it does not recreate the missing namespace.
-- **Resolve:** the operation follows the same **authorization → explicit confirmation → execution** workflow and uses the existing web application safety restrictions.
-- **Verification:** the web application is re-read and issue detection confirms that the missing-namespace condition is no longer reported.
+The **Issue Resolver** provides a controlled operational path from detecting an IRIS condition to either a safe resolution or guided investigation. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
+<img width="2068" alt="image" src="https://github.com/user-attachments/assets/4db1e9a5-3d80-48af-b2a8-666ac8176570" />
+
+The resolver separates issues into two categories:
+
+- **Resolvable issues** — Command Center has a deterministic detection rule and a registered, authorized, verified operation that can safely resolve the condition.
+- **Detection-only issues** — Command Center can reliably detect and explain the condition, but does not have a supported remediation operation. The operator is directed to the appropriate investigation area instead.
+
+The current built-in issue catalog includes:
+
+#### `database_dismounted` — Dismounted Database
+
+- **Detection:** live IRIS database information reports the database as dismounted.
+- **Impact:** namespaces that depend on the database for Globals or Routines are identified from live namespace information.
+- **Recommendation:** the catalog-defined solution is `database.mount`, subject to the required IRIS **Operate** privilege and safety checks.
+- **Resolution:** the existing database mount workflow performs authorization, dry-run, review, explicit confirmation, execution, and verification.
+- **Verification:** the database is read back from IRIS and the issue detector confirms that the issue is gone.
 - **Observe:** the resolution is recorded as an execution trace and associated with the issue that initiated the resolution.
 
-#### Evidence-driven Resolution
-Every resolution is backed by a chain of real evidence:
+#### `web_app_namespace_missing` — Enabled Web Application with Missing Namespace
+
+- **Detection:** an enabled web application references a namespace that is not present in the live namespace list.
+- **Impact:** the affected web application and its missing namespace relationship are shown as evidence.
+- **Recommendation:** the catalog-defined solution is `web_app.set_enabled` with `Enabled=false`.
+- **Resolution:** the affected application is safely disabled through the normal authorization, confirmation, execution, and verification workflow. Command Center does not attempt to recreate the missing namespace.
+- **Verification:** the web application state is read back and the issue detector confirms that the condition is no longer active.
+- **Observe:** the resolution is captured in Observability with the issue context.
+
+#### `journal_purge_archived_off` — Archived Journal Files Not Purged
+
+- **Detection:** live journal configuration shows an archive location while archived journal purging is disabled.
+- **Recommendation:** the catalog-defined solution is `journal.update_purge_archived` with `PurgeArchived=true`.
+- **Resolution:** the setting is changed only through the existing authorized journal workflow with confirmation and verification.
+- **Observe:** the controlled operation is captured in Observability with the issue context.
+
+### Detection-only checks
+
+The catalog also includes conditions where Command Center intentionally provides detection and investigation rather than remediation:
+
+- `system_monitor_not_running` — detects when the IRIS System Monitor is not running and directs the operator to **System**.
+- `task_manager_not_running` — detects when the IRIS Task Manager is not running and directs the operator to **Tasks**.
+- `database_full` — detects databases reported as full and directs the operator to **Databases**.
+
+These checks remain read-only. Command Center does not invent a remediation operation simply because an issue has been detected.
+
+### Custom Issue Rules
+
+Administrators can also define **Custom Issue Rules** using a controlled set of live IRIS metrics and comparison operators.
+
+Custom rules can identify conditions such as unusually high process counts or application errors and direct the operator to the appropriate investigation area. They are intentionally **detection-only**: users cannot provide arbitrary code, expressions, API calls, or remediation logic.
+
+When enabled, custom rules can be persisted in IRIS using:
+
 ```text
-Detection Evidence → Impact Evidence → Resolution Operation → Verification Evidence → Execution Trace
+^CommandCenterIssueRule("rule", <name>)
 ```
 
 ### 💾 Persisting traces in IRIS
