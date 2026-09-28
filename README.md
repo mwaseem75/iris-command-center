@@ -228,29 +228,62 @@ Changes are validated before execution and verified against the live IRIS config
 ## Advanced Capabilities
 
 ### 🩺 Deterministic Issue Resolver
-The **Issue Resolver** provides a controlled operational path from a detected issue to a verified resolution. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
-<img width="1827"  alt="image" src="https://github.com/user-attachments/assets/9b2de03f-cda5-4e54-b073-3a24eca312b2" />
-The resolver currently supports two curated issue types:
-#### `database_dismounted` — Dismounted Database
-- **Detection:** live evidence from IRIS (`GET /v2/databases`, `GET /v2/database-dirs`) shows the database reported as `Dismounted`.
-- **Impact:** the namespaces that use the database for **Globals** or **Routines** are identified using `GET /v2/namespaces`.
-- **Recommendation:** the catalog-defined solution is to mount the database read-write with **`database.mount`**, with the required **Operate** privilege and its defined risk level.
-- **Resolve:** the operation runs through the normal **authorization → explicit confirmation → execution** path. There is no bypass.
-- **Verification:** the operation verifies that the database is mounted, and issue detection confirms that the issue is gone.
-- **Observe:** the resolution is recorded as an execution trace, labelled with the issue it resolved, and can be opened in Observability.
 
-#### `web_app_namespace_missing` — Enabled Web Application with Missing Namespace
-- **Detection:** live IRIS data compares enabled web applications from `GET /v2/web-apps` with the namespaces returned by `GET /v2/namespaces`. An issue is reported when an enabled web application references a namespace that does not exist.
-- **Impact:** the affected web application, its configured namespace, and enabled state are shown as live evidence.
-- **Recommendation:** the catalog-defined solution is to disable the affected web application with **`web_app.set_enabled`**. This prevents a broken endpoint from remaining enabled; it does not recreate the missing namespace.
-- **Resolve:** the operation follows the same **authorization → explicit confirmation → execution** workflow and uses the existing web application safety restrictions.
-- **Verification:** the web application is re-read and issue detection confirms that the missing-namespace condition is no longer reported.
+The **Issue Resolver** provides a controlled operational path from detecting an IRIS condition to either a safe resolution or guided investigation. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
+<img width="2068" alt="image" src="https://github.com/user-attachments/assets/4db1e9a5-3d80-48af-b2a8-666ac8176570" />
+
+The resolver separates issues into two categories:
+
+- **Resolvable issues** — Command Center has a deterministic detection rule and a registered, authorized, verified operation that can safely resolve the condition.
+- **Detection-only issues** — Command Center can reliably detect and explain the condition, but does not have a supported remediation operation. The operator is directed to the appropriate investigation area instead.
+
+The current built-in issue catalog includes:
+
+#### `database_dismounted` — Dismounted Database
+
+- **Detection:** live IRIS database information reports the database as dismounted.
+- **Impact:** namespaces that depend on the database for Globals or Routines are identified from live namespace information.
+- **Recommendation:** the catalog-defined solution is `database.mount`, subject to the required IRIS **Operate** privilege and safety checks.
+- **Resolution:** the existing database mount workflow performs authorization, dry-run, review, explicit confirmation, execution, and verification.
+- **Verification:** the database is read back from IRIS and the issue detector confirms that the issue is gone.
 - **Observe:** the resolution is recorded as an execution trace and associated with the issue that initiated the resolution.
 
-#### Evidence-driven Resolution
-Every resolution is backed by a chain of real evidence:
+#### `web_app_namespace_missing` — Enabled Web Application with Missing Namespace
+
+- **Detection:** an enabled web application references a namespace that is not present in the live namespace list.
+- **Impact:** the affected web application and its missing namespace relationship are shown as evidence.
+- **Recommendation:** the catalog-defined solution is `web_app.set_enabled` with `Enabled=false`.
+- **Resolution:** the affected application is safely disabled through the normal authorization, confirmation, execution, and verification workflow. Command Center does not attempt to recreate the missing namespace.
+- **Verification:** the web application state is read back and the issue detector confirms that the condition is no longer active.
+- **Observe:** the resolution is captured in Observability with the issue context.
+
+#### `journal_purge_archived_off` — Archived Journal Files Not Purged
+
+- **Detection:** live journal configuration shows an archive location while archived journal purging is disabled.
+- **Recommendation:** the catalog-defined solution is `journal.update_purge_archived` with `PurgeArchived=true`.
+- **Resolution:** the setting is changed only through the existing authorized journal workflow with confirmation and verification.
+- **Observe:** the controlled operation is captured in Observability with the issue context.
+
+### Detection-only checks
+
+The catalog also includes conditions where Command Center intentionally provides detection and investigation rather than remediation:
+
+- `system_monitor_not_running` — detects when the IRIS System Monitor is not running and directs the operator to **System**.
+- `task_manager_not_running` — detects when the IRIS Task Manager is not running and directs the operator to **Tasks**.
+- `database_full` — detects databases reported as full and directs the operator to **Databases**.
+
+These checks remain read-only. Command Center does not invent a remediation operation simply because an issue has been detected.
+
+### Custom Issue Rules
+
+Administrators can also define **Custom Issue Rules** using a controlled set of live IRIS metrics and comparison operators.
+
+Custom rules can identify conditions such as unusually high process counts or application errors and direct the operator to the appropriate investigation area. They are intentionally **detection-only**: users cannot provide arbitrary code, expressions, API calls, or remediation logic.
+
+When enabled, custom rules can be persisted in IRIS using:
+
 ```text
-Detection Evidence → Impact Evidence → Resolution Operation → Verification Evidence → Execution Trace
+^CommandCenterIssueRule("rule", <name>)
 ```
 
 ### 💾 Persisting traces in IRIS
