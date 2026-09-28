@@ -1176,7 +1176,7 @@ def test_issue_resolver_shows_the_rehearsal_evidence_chain() -> None:
 def test_issue_resolver_presents_create_demo_issue() -> None:
     print("Checking the rehearsal is presented as an explicit Create Demo Issue experience...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
-    panel = re.search(r'<section class="info-card ir-panel ir-rehearsal".*?</section>', html, re.S)
+    panel = re.search(r'<section class="info-card ir-panel ir-rehearsal[^"]*".*?</section>', html, re.S)
     check(panel is not None, "the Create Demo Issue panel exists on the Issue Resolver page")
     text = panel.group(0) if panel else ""
     check('id="issue-resolver-rehearsal-title">Demo Issue</h3>' in text, "the panel is titled Demo Issue")
@@ -1211,7 +1211,7 @@ def test_issue_resolver_presents_create_demo_issue() -> None:
 def test_issue_resolver_demo_issue_has_separate_create_and_resolve_steps() -> None:
     print("Checking the demo issue runs as two explicit steps: Create, then Resolve...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
-    panel = re.search(r'<section class="info-card ir-panel ir-rehearsal".*?</section>', html, re.S)
+    panel = re.search(r'<section class="info-card ir-panel ir-rehearsal[^"]*".*?</section>', html, re.S)
     text = panel.group(0) if panel else ""
     check(re.search(r'id="issue-resolver-demo-resolve"[^>]*disabled[^>]*>\s*Resolve Demo Issue\s*</button>', text)
           is not None, "a Resolve Demo Issue button exists, disabled until the issue is active")
@@ -1820,9 +1820,9 @@ def test_detection_only_issues_are_investigated_not_resolved() -> None:
           "the action reads Investigate in <page>")
     check('section(\n    "Investigation",' in resolver and "Detection-only: the Command Center has no operation for this." in resolver,
           "detection-only drawers and definitions show an Investigation section instead of an operation")
-    check('isDetectionOnly(entry) ? "Detection-only" : entry.operation' in resolver
-          and "entry.risk_level ? riskBadge(entry.risk_level) : PLACEHOLDER" in resolver,
-          "the catalog table shows Detection-only with no operation or risk")
+    check("cell(typeBadge(entry))" in resolver and 'action.append(el("span", null, catalogAction(entry)), chevron);' in resolver
+          and "if (isDetectionOnly(entry)) return `Investigate in ${pageLabel(entry.investigation.page)}`;" in resolver,
+          "the catalog table shows Detection-only entries with where to investigate, not an operation")
     check('resolution?.resolvable === false ? "Review →" : "Review & Resolve →"' in dashboard,
           "the Dashboard offers Review (not Resolve) for detection-only issues")
     check('issue.kind === "database_dismounted"' in databases,
@@ -1867,6 +1867,70 @@ def test_custom_issue_rules_panel() -> None:
     check("PERSIST_ISSUE_RULES_TO_IRIS is off" in code and "^CommandCenterIssueRule" in code,
           "the panel says whether rules are saved in IRIS or kept in memory")
     check('issue.kind.startsWith("custom:")' in dashboard, "the Dashboard shows custom-rule issues by their rule")
+
+
+def test_issue_resolver_layout_separates_active_catalog_and_rules() -> None:
+    print("Checking the Issue Resolver layout: tabs, three separate sections, Resolvable vs Detection-only...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    css = (FRONTEND_DIR / "css" / "styles.css").read_text(encoding="utf-8")
+    view = re.search(r'<section[^>]*id="view-issue-resolver".*?</section>\s*\n\s*<section class="view"', html, re.S)
+    text = view.group(0) if view else ""
+
+    # Three clearly separated sections, reachable from in-page tabs, in this order.
+    sections = ["issue-resolver-active-section", "issue-resolver-catalog-section", "issue-resolver-rules-section"]
+    positions = [text.find(f'id="{sid}"') for sid in sections]
+    check(all(p > 0 for p in positions) and positions == sorted(positions),
+          "Active Issues, Issue Catalog and Custom Issue Rules are separate sections, in that order")
+    for sid, block in zip(sections, ("active", "catalog", "rules")):
+        check(re.search(rf'class="info-card ir-block ir-block--{block}" id="{sid}"', text) is not None,
+              f"the {block} section has its own tinted block")
+        check(f'data-ir-target="{sid}"' in text, f"a tab jumps to the {block} section")
+    check('.ir-tabs__tab[aria-current="true"]' in css and 'tab.setAttribute("aria-current", "true");' in code,
+          "the current tab is marked with aria-current")
+    check(text.find('id="issue-resolver-rehearsal-title"') > positions[-1], "the Demo Issue panel is kept, after the sections")
+    check('class="info-card ir-panel ir-rehearsal ir-secondary"' in text and "Secondary &middot; Demonstration" in text,
+          "the Demo Issue panel is marked as secondary content")
+    counters = text.split('class="ir-counters"', 1)[-1].split("</div>\n              </div>", 1)[0]
+    check(all(f"ir-counter--{kind}" in counters for kind in ("active", "resolvable", "detection"))
+          and "kpi-severity" not in counters,
+          "Active, Resolvable and Detection-only are the primary counters; highest severity is secondary")
+    check(text.count('id="issue-resolver-drawer"') == 1, "the centered detail workspace is kept")
+
+    # Active Issues summary counters (plus the kept highest-severity and catalog counts).
+    for kpi in ("active", "resolvable", "detection", "severity", "catalog"):
+        check(f'id="issue-resolver-kpi-{kpi}"' in text, f"the {kpi} count is shown")
+    check("resolutions[issue.kind]?.resolvable === true" in code and "isDetectionOnly(resolutions[issue.kind])" in code,
+          "Resolvable and Detection-only counts come from the catalog entries")
+    check('id="issue-resolver-updated"' in text and "dom.updated.textContent = new Date().toLocaleString();" in code,
+          "Active Issues shows when it was last updated")
+    check('id="issue-resolver-refresh-button"' in text, "the refresh button is kept")
+
+    # Resolvable vs Detection-only is obvious on cards, catalog rows and rule rows.
+    check('badge("Detection-only", "ir-badge--detection")' in code and 'badge("Resolvable", "status-badge--accent")' in code,
+          "Resolvable and Detection-only have distinct badges")
+    check("typeBadge(resolution)" in code and "cell(typeBadge(entry))" in code,
+          "cards and catalog rows show the Resolvable/Detection-only badge")
+    check("card.dataset.severity = " in code and '.ir-issue[data-severity="high"]' in css,
+          "issue cards carry a severity edge")
+    check("if (runCardAction(event)) return;" in code
+          and 'if (event.target.closest(".ir-issue__action")) return;' in code,
+          "a card's action button opens its page without also opening the drawer")
+    catalog = text.split('id="issue-resolver-catalog-section"', 1)[-1].split("</table>", 1)[0]
+    check(re.findall(r'<th scope="col">([^<]*)</th>', catalog) == ["Issue Type", "Description", "Type", "Severity", "Action"],
+          "the catalog has exactly Issue Type, Description, Type, Severity and Action columns")
+    check("cell(action)," in code and code.count("row.append(") >= 1 and "cell(chevron)" not in code,
+          "the catalog row has five cells, with the chevron inside the Action cell")
+    check("if (detected) title.append(detectionBadge(detected));" in code,
+          "only detected catalog entries are flagged in the table")
+    for column in ("Name", "Title", "Signal", "Condition", "Type", "Status", "Investigate", "Actions"):
+        check(f'<th scope="col">{column}</th>' in text, f"the rules table has a {column!r} column")
+    check('"ir-rule-status--detected"' in code or "ir-rule-status--detected" in code,
+          "custom rules show Detected / Not detected")
+    for token in ("--color-error", "--color-accent", "--color-success", "--color-chart-2"):
+        check(f"var({token})" in css.split("/* --- Issue Resolver layout", 1)[-1].split("/* Issue Resolver: Custom Issue Rules form", 1)[0],
+              f"the section styling uses the theme token {token}")
 
 
 def test_theme_selector_offers_four_persisted_themes() -> None:
@@ -2170,6 +2234,7 @@ def main() -> None:
         test_issue_resolver_catalog_entries_open_their_definition,
         test_detection_only_issues_are_investigated_not_resolved,
         test_custom_issue_rules_panel,
+        test_issue_resolver_layout_separates_active_catalog_and_rules,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

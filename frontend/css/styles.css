@@ -5579,16 +5579,118 @@ html.detail-workspace-open {
   gap: 10px;
 }
 
+/* Issue card: severity edge | icon | what & where | type, severity, action |
+   detected status | chevron. One column on narrow screens. */
 .ir-issue {
+  --ir-severity: var(--color-warning);
   display: grid;
-  gap: 6px;
+  grid-template-columns: 26px minmax(0, 1.3fr) minmax(0, 1fr) minmax(120px, 0.6fr) 14px;
+  align-items: center;
+  gap: 8px 14px;
   padding: 12px 14px;
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-warning);
+  border-left: 4px solid var(--ir-severity);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   cursor: pointer;
   transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.ir-issue[data-severity="critical"],
+.ir-issue[data-severity="high"] {
+  --ir-severity: var(--color-error);
+}
+
+.ir-issue[data-severity="low"] {
+  --ir-severity: var(--color-accent);
+}
+
+.ir-issue__icon {
+  color: var(--ir-severity);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ir-issue__main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ir-issue__plan {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.ir-issue__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ir-issue__action {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ir-issue__action:hover {
+  text-decoration: underline;
+}
+
+.ir-issue__action:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+.ir-issue__status {
+  display: grid;
+  gap: 2px;
+  align-self: stretch;
+  align-content: center;
+  padding-left: 14px;
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.ir-issue__detected {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-error-text);
+}
+
+.ir-issue__chevron {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--color-text-faint);
+}
+
+@media (max-width: 760px) {
+  .ir-issue {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .ir-issue__plan,
+  .ir-issue__status {
+    grid-column: 2;
+  }
+
+  .ir-issue__status {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .ir-issue__chevron {
+    display: none;
+  }
 }
 
 .ir-issue:hover,
@@ -5819,6 +5921,278 @@ html.detail-workspace-open {
 .dash-issue__action {
   grid-column: 2;
   justify-self: start;
+}
+
+/* --- Issue Resolver layout: header, section tabs, and three tinted
+   blocks (Active Issues, Issue Catalog, Custom Issue Rules). Tints come from
+   the theme tokens so every theme keeps its own palette. --- */
+
+.ir-header__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.ir-glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+}
+
+.ir-glyph svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ir-glyph--lg {
+  width: 44px;
+  height: 44px;
+}
+
+.ir-glyph--lg svg {
+  width: 38px;
+  height: 38px;
+}
+
+.ir-glyph--warning {
+  color: var(--color-error);
+}
+
+.ir-glyph--warning svg > path:first-child {
+  fill: currentColor;
+}
+
+.ir-glyph--warning .ir-glyph__mark {
+  stroke: var(--color-surface);
+  stroke-width: 2.2;
+}
+
+.ir-glyph--catalog {
+  color: var(--color-accent);
+}
+
+.ir-glyph--rules {
+  color: var(--color-success);
+}
+
+.ir-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.ir-tabs__tab {
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ir-tabs__tab:hover {
+  color: var(--color-text);
+}
+
+.ir-tabs__tab[aria-current="true"] {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.ir-tabs__tab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.ir-block {
+  margin-bottom: 18px;
+  scroll-margin-top: 16px;
+}
+
+.ir-block--active {
+  border-color: color-mix(in srgb, var(--color-error) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-error) 5%, var(--color-surface));
+}
+
+.ir-block--catalog {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface));
+}
+
+.ir-block--rules {
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success) 5%, var(--color-surface));
+}
+
+.ir-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.ir-block__intro {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.ir-block__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--color-text);
+}
+
+.ir-block__subtitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.ir-block__status {
+  display: grid;
+  gap: 1px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.ir-block__stamp {
+  color: var(--color-text);
+}
+
+.ir-icon-btn {
+  padding: 6px 10px;
+}
+
+.ir-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The three primary KPIs; highest severity and last updated are smaller meta. */
+.ir-counter {
+  display: grid;
+  justify-items: center;
+  min-width: 112px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+}
+
+.ir-counter__value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.ir-counter__label {
+  font-size: 12px;
+}
+
+.ir-counter--active {
+  background: var(--color-error-soft);
+  color: var(--color-error-text);
+}
+
+.ir-counter--resolvable {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.ir-counter--detection,
+.ir-badge--detection {
+  background: color-mix(in srgb, var(--color-chart-2) 16%, transparent);
+  color: var(--color-chart-2);
+}
+
+/* Catalog Action cell: the action or investigation, chevron at the right. */
+.ir-catalog__action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Demo Issue: secondary content below the three sections, visually quieter. */
+.ir-secondary {
+  margin-top: 28px;
+  border-style: dashed;
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+.ir-secondary__eyebrow {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+/* Catalog descriptions wrap instead of being cut off. */
+.ir-table .ir-cell--wrap {
+  max-width: 360px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.ir-catalog__name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Custom rule status: a dot, red when the rule's condition holds. */
+.ir-rule-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.ir-rule-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-faint);
+}
+
+.ir-rule-status--detected {
+  color: var(--color-error-text);
+}
+
+.ir-rule-status--detected::before {
+  background: var(--color-error);
+}
+
+.ir-danger-btn {
+  color: var(--color-error-text);
+}
+
+@media (max-width: 640px) {
+  .ir-counter {
+    min-width: 0;
+    flex: 1 1 0;
+  }
 }
 
 /* Issue Resolver: Custom Issue Rules form (two columns, one on phones). */

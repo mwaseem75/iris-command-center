@@ -2460,16 +2460,21 @@
         </section>
 
         <section class="view" id="view-issue-resolver" data-view="issue-resolver" aria-labelledby="issue-resolver-title" hidden>
-          <div class="view__header">
-            <div>
-              <h2 class="view__title" id="issue-resolver-title">Issue Resolver</h2>
-              <p class="view__subtitle view__subtitle--wide">Issues detected in live IRIS data, each with the catalog's deterministic solution. Read-only: nothing on this page changes IRIS.</p>
+          <div class="view__header ir-header">
+            <div class="ir-header__title">
+              <span class="ir-glyph ir-glyph--warning ir-glyph--lg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2 1.8 20.8h20.4z"/><path class="ir-glyph__mark" d="M12 9.5v5M12 17.6h.01"/></svg></span>
+              <div>
+                <h2 class="view__title" id="issue-resolver-title">Issue Resolver</h2>
+                <p class="view__subtitle view__subtitle--wide">Detect, understand, and safely resolve operational issues. This page only reads live IRIS data; every fix runs on the page that owns the resource, after your explicit confirmation.</p>
+              </div>
             </div>
-            <button class="btn btn--primary" type="button" id="issue-resolver-refresh-button">
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Refresh
-            </button>
           </div>
+
+          <nav class="ir-tabs" aria-label="Issue Resolver sections">
+            <button class="ir-tabs__tab" type="button" data-ir-target="issue-resolver-active-section" aria-current="true">Active Issues</button>
+            <button class="ir-tabs__tab" type="button" data-ir-target="issue-resolver-catalog-section">Issue Catalog</button>
+            <button class="ir-tabs__tab" type="button" data-ir-target="issue-resolver-rules-section">Custom Issue Rules</button>
+          </nav>
 
           <div class="banner banner--error" id="issue-resolver-error-banner" hidden role="alert">
             <span class="banner__icon" aria-hidden="true">&#9888;</span>
@@ -2481,32 +2486,145 @@
             <span>Checking for issues&hellip;</span>
           </div>
 
-          <div class="stat-grid ir-kpis" aria-label="Issue summary">
-            <article class="stat-card" data-card="ir-active">
-              <p class="stat-card__label">Active Issues</p>
-              <p class="stat-card__value" id="issue-resolver-kpi-active">&mdash;</p>
-              <p class="stat-card__meta">from GET /api/iris/issues</p>
-            </article>
-            <article class="stat-card" data-card="ir-severity">
-              <p class="stat-card__label">Highest Severity</p>
-              <p class="stat-card__value" id="issue-resolver-kpi-severity">&mdash;</p>
-              <p class="stat-card__meta">across active issues</p>
-            </article>
-            <article class="stat-card" data-card="ir-catalog">
-              <p class="stat-card__label">Known Issue Types</p>
-              <p class="stat-card__value" id="issue-resolver-kpi-catalog">&mdash;</p>
-              <p class="stat-card__meta">in the resolution catalog</p>
-            </article>
-          </div>
-
-          <section class="info-card ir-panel" aria-labelledby="issue-resolver-active-title">
-            <h3 class="info-card__title" id="issue-resolver-active-title">Active Issues</h3>
-            <p class="info-card__hint">Click an issue for its evidence, solution, workflow and reasoning.</p>
+          <section class="info-card ir-block ir-block--active" id="issue-resolver-active-section" aria-labelledby="issue-resolver-active-title">
+            <header class="ir-block__head">
+              <span class="ir-glyph ir-glyph--warning"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2 1.8 20.8h20.4z"/><path class="ir-glyph__mark" d="M12 9.5v5M12 17.6h.01"/></svg></span>
+              <div class="ir-block__intro">
+                <h3 class="ir-block__title" id="issue-resolver-active-title">Active Issues</h3>
+                <p class="ir-block__subtitle">Issues currently detected on this IRIS instance. Click one for its evidence, solution and workflow.</p>
+              </div>
+              <div class="ir-counters" aria-label="Issue summary">
+                <div class="ir-counter ir-counter--active">
+                  <span class="ir-counter__value" id="issue-resolver-kpi-active">&mdash;</span>
+                  <span class="ir-counter__label">Active Issues</span>
+                </div>
+                <div class="ir-counter ir-counter--resolvable">
+                  <span class="ir-counter__value" id="issue-resolver-kpi-resolvable">&mdash;</span>
+                  <span class="ir-counter__label">Resolvable</span>
+                </div>
+                <div class="ir-counter ir-counter--detection">
+                  <span class="ir-counter__value" id="issue-resolver-kpi-detection">&mdash;</span>
+                  <span class="ir-counter__label">Detection-only</span>
+                </div>
+              </div>
+              <div class="ir-block__status">
+                <span class="ir-block__meta">Last updated</span>
+                <span class="ir-block__stamp" id="issue-resolver-updated">&mdash;</span>
+                <span class="ir-block__meta">Highest severity: <strong id="issue-resolver-kpi-severity">&mdash;</strong></span>
+              </div>
+              <button class="btn ir-icon-btn" type="button" id="issue-resolver-refresh-button" aria-label="Refresh issues" title="Refresh">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+              </button>
+            </header>
             <div class="ir-list" id="issue-resolver-list"></div>
             <p class="empty-state" id="issue-resolver-empty" hidden>No active issues detected.</p>
           </section>
 
-          <section class="info-card ir-panel ir-rehearsal" aria-labelledby="issue-resolver-rehearsal-title">
+          <section class="info-card ir-block ir-block--catalog" id="issue-resolver-catalog-section" aria-labelledby="issue-resolver-catalog-title">
+            <header class="ir-block__head">
+              <span class="ir-glyph ir-glyph--catalog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5c3-1.3 6-1.3 9 .6v13.4c-3-1.9-6-1.9-9-.6z"/><path d="M21 5.5c-3-1.3-6-1.3-9 .6v13.4c3-1.9 6-1.9 9-.6z"/></svg></span>
+              <div class="ir-block__intro">
+                <h3 class="ir-block__title" id="issue-resolver-catalog-title">Issue Catalog</h3>
+                <p class="ir-block__subtitle">Every issue type the resolver knows, built in or custom, whether or not it's active right now. <span id="issue-resolver-kpi-catalog">&mdash;</span> types. Click one for its full definition.</p>
+              </div>
+            </header>
+            <div class="table-wrapper" id="issue-resolver-catalog-wrapper" hidden>
+              <table class="data-table data-table--compact ir-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Issue Type</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Severity</th>
+                    <th scope="col">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="issue-resolver-catalog-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="info-card ir-block ir-block--rules" id="issue-resolver-rules-section" aria-labelledby="issue-resolver-rules-title">
+            <header class="ir-block__head">
+              <span class="ir-glyph ir-glyph--rules"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></span>
+              <div class="ir-block__intro">
+                <h3 class="ir-block__title" id="issue-resolver-rules-title">Custom Issue Rules</h3>
+                <p class="ir-block__subtitle">Detection-only rules you define on live IRIS metrics. They're evaluated with the built-in checks and never run anything. Creating or deleting a rule needs the Manage privilege.</p>
+              </div>
+              <button class="btn btn--primary" type="button" id="issue-resolver-rules-add">+ Add Rule</button>
+            </header>
+            <p class="info-card__hint" id="issue-resolver-rules-storage"></p>
+            <div class="banner banner--error" id="issue-resolver-rules-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="issue-resolver-rules-error-text"></span>
+            </div>
+
+            <form class="ir-rule-form" id="issue-resolver-rule-form" hidden>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-name">Name</label>
+                <input type="text" id="issue-resolver-rule-name" placeholder="serious_alerts_seen" autocomplete="off" required maxlength="40" />
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-title">Title</label>
+                <input type="text" id="issue-resolver-rule-title" placeholder="Serious alerts reported" autocomplete="off" required maxlength="80" />
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-severity">Severity</label>
+                <select id="issue-resolver-rule-severity">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-signal">Signal</label>
+                <select id="issue-resolver-rule-signal"></select>
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-operator">Operator</label>
+                <select id="issue-resolver-rule-operator"></select>
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-value">Value</label>
+                <input type="number" id="issue-resolver-rule-value" step="any" required />
+              </div>
+              <div class="filter-field">
+                <label for="issue-resolver-rule-page">Investigate on</label>
+                <select id="issue-resolver-rule-page"></select>
+              </div>
+              <div class="filter-field ir-rule-form__wide">
+                <label for="issue-resolver-rule-guidance">Guidance</label>
+                <textarea id="issue-resolver-rule-guidance" rows="2" maxlength="500" required placeholder="What to check when this is reported."></textarea>
+              </div>
+              <div class="btn-row ir-rule-form__wide">
+                <button class="btn btn--primary" type="submit" id="issue-resolver-rule-submit">Create rule</button>
+                <button class="btn" type="button" id="issue-resolver-rule-cancel">Cancel</button>
+              </div>
+            </form>
+
+            <div class="table-wrapper" id="issue-resolver-rules-wrapper" hidden>
+              <table class="data-table data-table--compact ir-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Title</th>
+                    <th scope="col">Signal</th>
+                    <th scope="col">Condition</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Investigate</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="issue-resolver-rules-body"></tbody>
+              </table>
+            </div>
+            <p class="empty-state" id="issue-resolver-rules-empty" hidden>No custom rules yet.</p>
+          </section>
+
+          <section class="info-card ir-panel ir-rehearsal ir-secondary" aria-labelledby="issue-resolver-rehearsal-title">
+            <p class="ir-secondary__eyebrow">Secondary &middot; Demonstration</p>
             <div class="ir-rehearsal__head">
               <span class="ir-rehearsal__icon" aria-hidden="true">&#9654;</span>
               <div class="ir-rehearsal__intro">
@@ -2562,100 +2680,6 @@
               <h4 class="ns-drawer__section-title">Step results</h4>
               <ol class="ir-stage-list" id="issue-resolver-rehearsal-stages"></ol>
             </div>
-          </section>
-
-          <section class="info-card ir-panel" aria-labelledby="issue-resolver-catalog-title">
-            <h3 class="info-card__title" id="issue-resolver-catalog-title">Issue Types the Resolver Knows</h3>
-            <p class="info-card__hint">Every entry in the resolution catalog, whether or not it's active right now. Click one for its full definition.</p>
-            <div class="table-wrapper" id="issue-resolver-catalog-wrapper" hidden>
-              <table class="data-table data-table--compact">
-                <thead>
-                  <tr>
-                    <th scope="col">Issue Type</th>
-                    <th scope="col">Severity</th>
-                    <th scope="col">Solution</th>
-                    <th scope="col">Operation</th>
-                    <th scope="col">Privilege</th>
-                    <th scope="col">Risk</th>
-                  </tr>
-                </thead>
-                <tbody id="issue-resolver-catalog-body"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="info-card ir-panel" aria-labelledby="issue-resolver-rules-title">
-            <div class="ns-section__header">
-              <h3 class="info-card__title" id="issue-resolver-rules-title">Custom Issue Rules</h3>
-              <button class="btn" type="button" id="issue-resolver-rules-add">Add rule</button>
-            </div>
-            <p class="info-card__hint">Detection-only rules you define: each compares one live IRIS signal to a number. They're evaluated with the built-in checks, appear in Active Issues and the catalog above, and never run anything; you investigate them on the page you choose. Creating or deleting a rule needs the Manage privilege.</p>
-            <p class="info-card__hint" id="issue-resolver-rules-storage"></p>
-            <div class="banner banner--error" id="issue-resolver-rules-error" hidden role="alert">
-              <span class="banner__icon" aria-hidden="true">&#9888;</span>
-              <span id="issue-resolver-rules-error-text"></span>
-            </div>
-
-            <form class="ir-rule-form" id="issue-resolver-rule-form" hidden>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-name">Name</label>
-                <input type="text" id="issue-resolver-rule-name" placeholder="serious_alerts_seen" autocomplete="off" required maxlength="40" />
-              </div>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-title">Title</label>
-                <input type="text" id="issue-resolver-rule-title" placeholder="Serious alerts reported" autocomplete="off" required maxlength="80" />
-              </div>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-severity">Severity</label>
-                <select id="issue-resolver-rule-severity">
-                  <option value="low">Low</option>
-                  <option value="medium" selected>Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </div>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-signal">Signal</label>
-                <select id="issue-resolver-rule-signal"></select>
-              </div>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-operator">Operator</label>
-                <select id="issue-resolver-rule-operator"></select>
-              </div>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-value">Value</label>
-                <input type="number" id="issue-resolver-rule-value" step="any" required />
-              </div>
-              <div class="filter-field">
-                <label for="issue-resolver-rule-page">Investigate on</label>
-                <select id="issue-resolver-rule-page"></select>
-              </div>
-              <div class="filter-field ir-rule-form__wide">
-                <label for="issue-resolver-rule-guidance">Guidance</label>
-                <textarea id="issue-resolver-rule-guidance" rows="2" maxlength="500" required placeholder="What to check when this is reported."></textarea>
-              </div>
-              <div class="btn-row ir-rule-form__wide">
-                <button class="btn btn--primary" type="submit" id="issue-resolver-rule-submit">Create rule</button>
-                <button class="btn" type="button" id="issue-resolver-rule-cancel">Cancel</button>
-              </div>
-            </form>
-
-            <div class="table-wrapper" id="issue-resolver-rules-wrapper" hidden>
-              <table class="data-table data-table--compact">
-                <thead>
-                  <tr>
-                    <th scope="col">Rule</th>
-                    <th scope="col">Severity</th>
-                    <th scope="col">Condition</th>
-                    <th scope="col">Investigate on</th>
-                    <th scope="col">Status</th>
-                    <th scope="col"><span class="visually-hidden">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody id="issue-resolver-rules-body"></tbody>
-              </table>
-            </div>
-            <p class="empty-state" id="issue-resolver-rules-empty" hidden>No custom rules yet.</p>
           </section>
 
           <div class="ns-drawer-backdrop" id="issue-resolver-drawer-backdrop" hidden></div>

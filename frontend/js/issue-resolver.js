@@ -37,6 +37,10 @@ const dom = {
   kpiActive: document.getElementById("issue-resolver-kpi-active"),
   kpiSeverity: document.getElementById("issue-resolver-kpi-severity"),
   kpiCatalog: document.getElementById("issue-resolver-kpi-catalog"),
+  kpiResolvable: document.getElementById("issue-resolver-kpi-resolvable"),
+  kpiDetection: document.getElementById("issue-resolver-kpi-detection"),
+  updated: document.getElementById("issue-resolver-updated"),
+  tabs: document.querySelectorAll(".ir-tabs__tab[data-ir-target]"),
   list: document.getElementById("issue-resolver-list"),
   empty: document.getElementById("issue-resolver-empty"),
   catalogWrapper: document.getElementById("issue-resolver-catalog-wrapper"),
@@ -302,7 +306,7 @@ const UNKNOWN_RESOURCE = {
 
 // A Custom Issue Rule's issue (kind "custom:<name>"): shown by its rule.
 const CUSTOM_RULE_RESOURCE = {
-  name: (issue) => issue.title,
+  name: (issue) => `Rule ${textOrPlaceholder(issue.rule)}`,
   detail: (issue) => `${textOrPlaceholder(issue.signal_label)} is ${textOrPlaceholder(issue.value)}`,
   status: () => "Custom rule",
   rows: (issue) => [
@@ -339,6 +343,10 @@ function resolveHandler(issue) {
 
 function renderKpis() {
   dom.kpiActive.textContent = String(activeIssues.length);
+  const detectionOnly = activeIssues.filter((issue) => isDetectionOnly(resolutions[issue.kind])).length;
+  const resolvable = activeIssues.filter((issue) => resolutions[issue.kind]?.resolvable === true).length;
+  dom.kpiResolvable.textContent = String(resolvable);
+  dom.kpiDetection.textContent = String(detectionOnly);
   dom.kpiCatalog.textContent = String(Object.keys(resolutions).length);
   const severities = activeIssues
     .map((issue) => resolutions[issue.kind]?.severity)
@@ -347,54 +355,97 @@ function renderKpis() {
   dom.kpiSeverity.textContent = highest ? capitalize(highest) : "None";
 }
 
+// Resolvable (a registered operation fixes it) or Detection-only (investigate).
+function typeBadge(resolution) {
+  if (isDetectionOnly(resolution)) return badge("Detection-only", "ir-badge--detection");
+  if (resolution) return badge("Resolvable", "status-badge--accent");
+  return badge("Unknown", "status-badge--neutral");
+}
+
+// The card: severity edge | what & where | type, severity, action | status | chevron.
 function renderIssueCard(issue, index) {
   const resolution = resolutions[issue.kind];
   const card = el("article", "ir-issue");
   card.dataset.index = String(index);
+  card.dataset.severity = resolution?.severity || "unknown";
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   const res = resourceOf(issue);
   card.setAttribute("aria-label", `View resolution for ${textOrPlaceholder(res.name(issue))}`);
 
-  const head = el("div", "ir-issue__head");
-  head.append(
-    resolution ? severityBadge(resolution.severity) : badge("Unknown", "status-badge--neutral"),
-    el("span", "ir-issue__title", resolution ? resolution.title : textOrPlaceholder(issue.kind)),
-    badge(textOrPlaceholder(res.status(issue)), "status-badge--neutral"),
-  );
+  const icon = el("span", "ir-issue__icon", "⚠");
+  icon.setAttribute("aria-hidden", "true");
 
+  const main = el("div", "ir-issue__main");
   const resource = el("p", "ir-issue__resource");
   resource.append(el("strong", null, textOrPlaceholder(res.name(issue))), document.createTextNode(" · "),
     el("span", "ir-mono", textOrPlaceholder(res.detail(issue))));
+  main.append(el("span", "ir-issue__title", resolution ? resolution.title : textOrPlaceholder(issue.kind)), resource);
+  if (Array.isArray(issue.affected_namespaces) && issue.affected_namespaces.length) {
+    main.append(el("p", "ir-issue__privilege",
+      `Affects namespaces: ${issue.affected_namespaces.map((a) => a.namespace).join(", ")}`));
+  }
 
-  const meta = el("div", "ir-issue__meta");
-  if (isDetectionOnly(resolution)) {
-    meta.append(
-      el("span", "db-chip", "Detection-only"),
-      el("span", "ir-issue__privilege", `Investigate in ${pageLabel(resolution.investigation.page)}`),
-    );
-  } else if (resolution) {
+  const plan = el("div", "ir-issue__plan");
+  const badges = el("div", "ir-issue__badges");
+  badges.append(typeBadge(resolution),
+    resolution ? severityBadge(resolution.severity) : badge("Unknown", "status-badge--neutral"));
+  plan.append(badges);
+  if (resolution && !isDetectionOnly(resolution)) {
+    const meta = el("div", "ir-issue__meta");
     meta.append(
       el("span", "db-chip ir-mono", resolution.operation),
       el("span", "ir-issue__privilege", `Requires ${privilegeText(resolution)}`),
       riskBadge(resolution.risk_level),
     );
-  } else {
-    meta.append(el("span", "ir-issue__privilege", "No catalog entry for this issue type."));
+    plan.append(meta);
+  } else if (!resolution) {
+    plan.append(el("span", "ir-issue__privilege", "No catalog entry for this issue type."));
+  }
+  // The same action as the drawer's button: open the page where it's resolved or investigated.
+  if (resolveHandler(issue)) {
+    const action = el("button", "ir-issue__action",
+      isDetectionOnly(resolution) ? investigateAction(resolution) : res.action);
+    action.type = "button";
+    plan.append(action);
   }
 
-  card.append(head, resource, meta);
-  if (Array.isArray(issue.affected_namespaces) && issue.affected_namespaces.length) {
-    card.append(el("p", "ir-issue__privilege",
-      `Affects namespaces: ${issue.affected_namespaces.map((a) => a.namespace).join(", ")}`));
-  }
-  card.append(el("span", "stat-card__link", "View resolution →"));
+  const status = el("div", "ir-issue__status");
+  status.append(el("span", "ir-issue__detected", "Detected"),
+    el("span", "ir-issue__privilege", textOrPlaceholder(res.status(issue))));
+
+  const chevron = el("span", "ir-issue__chevron", "›");
+  chevron.setAttribute("aria-hidden", "true");
+  card.append(icon, main, plan, status, chevron);
   return card;
+}
+
+// A card's action button opens the resolve/investigate page instead of the drawer.
+function runCardAction(event) {
+  const button = event.target.closest(".ir-issue__action");
+  if (!button) return false;
+  const card = button.closest(".ir-issue");
+  const issue = activeIssues[Number(card?.dataset.index)];
+  const open = resolveHandler(issue);
+  if (open) open(issue);
+  return true;
 }
 
 function renderIssues() {
   dom.list.replaceChildren(...activeIssues.map(renderIssueCard));
   dom.empty.hidden = activeIssues.length !== 0;
+}
+
+function firstSentence(text) {
+  const value = String(text || "");
+  const end = value.search(/[.!?](\s|$)/);
+  return end === -1 ? value : value.slice(0, end + 1);
+}
+
+// Resolvable: the operation that fixes it. Detection-only: where to look.
+function catalogAction(entry) {
+  if (isDetectionOnly(entry)) return `Investigate in ${pageLabel(entry.investigation.page)}`;
+  return entry.operation ? `Resolve with ${entry.operation}` : PLACEHOLDER;
 }
 
 function renderCatalog() {
@@ -412,17 +463,27 @@ function renderCatalog() {
       else td.textContent = textOrPlaceholder(content);
       return td;
     };
+    const cellWrap = (text) => {
+      const td = cell(text);
+      td.classList.add("ir-cell--wrap");
+      return td;
+    };
+    // Only a detected entry is flagged here; the definition shows "Not currently detected".
     const detected = detectedCount(entry.issue_type);
     const title = el("span", "ir-catalog__title");
-    title.append(el("span", null, textOrPlaceholder(entry.title)), detectionBadge(detected));
+    title.append(el("span", "ir-catalog__name", textOrPlaceholder(entry.title)));
+    if (detected) title.append(detectionBadge(detected));
     if (isCustomKind(entry.issue_type)) title.append(badge("Custom rule", "status-badge--neutral"));
+    const action = el("span", "ir-catalog__action");
+    const chevron = el("span", "ir-issue__chevron", "›");
+    chevron.setAttribute("aria-hidden", "true");
+    action.append(el("span", null, catalogAction(entry)), chevron);
     row.append(
       cell(title),
+      cellWrap(firstSentence(entry.explanation)),
+      cell(typeBadge(entry)),
       cell(severityBadge(entry.severity)),
-      cell(entry.recommended_solution),
-      cell(isDetectionOnly(entry) ? "Detection-only" : entry.operation, !isDetectionOnly(entry)),
-      cell(privilegeText(entry)),
-      cell(entry.risk_level ? riskBadge(entry.risk_level) : PLACEHOLDER),
+      cell(action),
     );
     dom.catalogBody.append(row);
   }
@@ -1077,6 +1138,7 @@ export async function loadIssueResolver() {
     const response = await IrisApi.getIssues();
     activeIssues = Array.isArray(response?.issues) ? response.issues : [];
     resolutions = response?.resolutions && typeof response.resolutions === "object" ? response.resolutions : {};
+    dom.updated.textContent = new Date().toLocaleString();
     const unavailable = Array.isArray(response?.issue_checks_unavailable) ? response.issue_checks_unavailable : [];
     if (unavailable.length) {
       const names = unavailable.map((kind) => resolutions[kind]?.title || kind).join(", ");
@@ -1165,8 +1227,10 @@ function renderRules() {
       else td.textContent = textOrPlaceholder(content);
       return td;
     };
-    const name = el("span", "ir-catalog__title");
-    name.append(el("span", null, rule.title), el("span", "ir-mono", rule.name));
+    const signal = ruleSignal(rule.signal);
+    const detected = detectedCount(`custom:${rule.name}`) > 0;
+    const status = el("span", `ir-rule-status${detected ? " ir-rule-status--detected" : ""}`,
+      detected ? "Detected" : "Not detected");
     const actions = el("span", "btn-row");
     if (pendingDeleteRule === rule.name) {
       const yes = el("button", "btn btn--warning", "Confirm delete");
@@ -1177,17 +1241,20 @@ function renderRules() {
       no.dataset.action = "delete-cancel";
       actions.append(yes, no);
     } else {
-      const remove = el("button", "btn", "Delete");
+      const remove = el("button", "btn ir-danger-btn", "Delete");
       remove.type = "button";
       remove.dataset.action = "delete";
+      remove.setAttribute("aria-label", `Delete rule ${rule.name}`);
       actions.append(remove);
     }
     row.append(
-      cell(name),
-      cell(severityBadge(rule.severity)),
-      cell(ruleCondition(rule), "data-table__cell data-table__cell--mono"),
-      cell(`${pageLabel(rule.investigation_page)} page`),
-      cell(detectionBadge(detectedCount(`custom:${rule.name}`))),
+      cell(rule.name, "data-table__cell data-table__cell--mono"),
+      cell(rule.title),
+      cell(signal ? signal.label : rule.signal),
+      cell(`${rule.operator} ${rule.value}${signal && signal.unit ? ` ${signal.unit}` : ""}`, "data-table__cell data-table__cell--mono"),
+      cell(badge("Detection-only", "ir-badge--detection")),
+      cell(status),
+      cell(pageLabel(rule.investigation_page)),
       cell(actions),
     );
     return row;
@@ -1300,6 +1367,14 @@ export function initIssueResolverControls({
   dom.refreshButton.addEventListener("click", () => {
     loadIssueResolver();
   });
+  // In-page tabs: jump to a section and mark it current. All sections stay visible.
+  dom.tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      dom.tabs.forEach((other) => other.removeAttribute("aria-current"));
+      tab.setAttribute("aria-current", "true");
+      document.getElementById(tab.dataset.irTarget)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
   dom.rulesAdd.addEventListener("click", () => showRuleForm(true));
   dom.ruleCancel.addEventListener("click", () => showRuleForm(false));
   dom.ruleForm.addEventListener("submit", submitRule);
@@ -1316,11 +1391,13 @@ export function initIssueResolverControls({
     openCatalogEntry(row.dataset.issueType);
   });
   dom.list.addEventListener("click", (event) => {
+    if (runCardAction(event)) return;
     const card = event.target.closest(".ir-issue");
     if (card) openDrawer(Number(card.dataset.index));
   });
   dom.list.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.target.closest(".ir-issue__action")) return;  // the button handles its own keys
     const card = event.target.closest(".ir-issue");
     if (!card) return;
     event.preventDefault();
