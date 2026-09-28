@@ -398,6 +398,8 @@
           </section>
 
           <div class="info-grid system-grid">
+            <!-- Left column: IRIS Information and Namespaces, stacked with an even gap. -->
+            <div class="system-stack">
             <section class="info-card" aria-labelledby="system-info-title">
               <h3 class="info-card__title" id="system-info-title">IRIS Information</h3>
               <dl class="info-list">
@@ -424,10 +426,47 @@
               </dl>
             </section>
 
-            <section class="info-card" aria-labelledby="system-namespaces-title">
+            <section class="info-card system-stack__fill" aria-labelledby="system-namespaces-title">
               <h3 class="info-card__title" id="system-namespaces-title">Namespaces <span class="system-count" id="system-namespaces-count"></span></h3>
               <ul class="tag-list" id="system-namespaces-list"></ul>
               <p class="info-card__empty" id="system-namespaces-empty" hidden>No namespaces reported.</p>
+            </section>
+            </div>
+
+            <!-- Right column: instance & server identity (existing live reads only). -->
+            <section class="info-card" aria-labelledby="system-identity-title">
+              <h3 class="info-card__title" id="system-identity-title">Instance &amp; Server</h3>
+              <dl class="info-list" id="system-identity-list">
+                <div class="info-list__row">
+                  <dt>Hostname</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-identity-hostname">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>Platform</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-identity-platform">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>IRIS Build Target</dt>
+                  <dd class="info-list__value" id="system-identity-os">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>CPUs</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-identity-cpus">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>Manager Directory</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-identity-mgr">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>Uptime</dt>
+                  <dd class="info-list__value info-list__value--mono" id="system-identity-uptime">&mdash;</dd>
+                </div>
+                <div class="info-list__row">
+                  <dt>Instance Name</dt>
+                  <dd class="info-list__value" id="system-identity-instance">Not exposed by the IRIS REST API</dd>
+                </div>
+              </dl>
+              <p class="info-card__hint" id="system-identity-source">Hostname, platform, CPUs and manager directory come from Embedded Python inside IRIS (GET /api/iris/python/diagnostics); the build target from the server version; uptime from the System Dashboard.</p>
             </section>
 
             <section class="info-card info-card--wide" aria-labelledby="system-privileges-title">
@@ -438,6 +477,67 @@
               <ul class="privilege-list" id="system-privileges-list"></ul>
               <p class="info-card__empty" id="system-privileges-empty" hidden>No privilege information available.</p>
             </section>
+
+            <!-- Secondary documentation, collapsed: IRIS API gaps and the read-only workarounds. -->
+            <details class="info-card info-card--wide system-notes" id="system-api-findings">
+              <summary class="system-notes__summary">
+                <span class="system-notes__title" id="system-api-findings-title">API Integration Notes</span>
+                <span class="system-notes__hint">IRIS Admin REST API gaps found on this IRIS 2026.2 instance, and the read-only way the Command Center works with each. None of these workarounds changes IRIS.</span>
+              </summary>
+              <div class="table-wrapper">
+                <table class="data-table data-table--compact system-findings">
+                  <thead>
+                    <tr>
+                      <th scope="col">Area</th>
+                      <th scope="col">IRIS API behavior</th>
+                      <th scope="col">Command Center (read-only)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="data-table__cell">Message log</td>
+                      <td class="data-table__cell">No messages.log endpoint in /api/admin/v2.</td>
+                      <td class="data-table__cell">Reads only the tail of messages.log inside IRIS through Embedded Python, from a fixed path (Investigation &rarr; Message Log).</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">Instance identity</td>
+                      <td class="data-table__cell">/info gives product, version, API version, mode and user, but not the instance name, hostname or host platform.</td>
+                      <td class="data-table__cell">Hostname and platform come from fixed Embedded Python probes; the instance name isn&rsquo;t shown.</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">Task state</td>
+                      <td class="data-table__cell">The task list&rsquo;s Suspended flag reported false for suspended tasks.</td>
+                      <td class="data-table__cell">Task state is taken from /v2/task/info instead.</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">Task timing</td>
+                      <td class="data-table__cell">NextScheduled can be text (&ldquo;Runs After #1:00&rdquo;), times carry no timezone, and /v2/task/info keeps only the latest run.</td>
+                      <td class="data-table__cell">Times are shown as IRIS reports them and never parsed as dates; Last Runs is labelled as each task&rsquo;s most recent run, not a history.</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">Database info</td>
+                      <td class="data-table__cell">/v2/database-dir/info returns EndFree as &ldquo;&rdquo; for read-only databases, not the documented integer.</td>
+                      <td class="data-table__cell">The Database full check reads only IRIS&rsquo;s Full flag. The Databases page&rsquo;s info view can fail for those databases.</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">API Management</td>
+                      <td class="data-table__cell">/api/mgmnt rejects the /api/admin JWT; only HTTP Basic authentication works.</td>
+                      <td class="data-table__cell">REST route maps are read with Basic authentication, GET only.</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">Web application updates</td>
+                      <td class="data-table__cell">PUT /v2/web-app always resets Type to CSP, which would clear a System application&rsquo;s flag.</td>
+                      <td class="data-table__cell">Web application changes refuse System applications (and /api/admin, /api/mgmnt).</td>
+                    </tr>
+                    <tr>
+                      <td class="data-table__cell">Alerts</td>
+                      <td class="data-table__cell">The System Dashboard reports alert counts only, not the alert entries.</td>
+                      <td class="data-table__cell">The Dashboard shows the counts; the Message Log shows the underlying warnings and errors.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
           </div>
         </section>
 

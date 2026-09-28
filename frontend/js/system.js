@@ -1,8 +1,13 @@
-// System page: one call to GET /api/iris/info, shown in detail.
+// System page: GET /api/iris/info, shown in detail, plus the Instance &
+// Server card from two existing reads loaded alongside it: Embedded Python
+// diagnostics (hostname, platform, CPUs, manager directory) and the System
+// Dashboard (uptime). Either can fail on its own; its values then show
+// "Unavailable". The API Findings table is static documentation.
 //
-// The fields are the ones InfoResult defines in backend/app/models/iris.py
-// (apiVersion, username, serverVersion, systemMode, product, namespaces,
-// privileges).
+// The /info fields are the ones InfoResult defines in
+// backend/app/models/iris.py (apiVersion, username, serverVersion,
+// systemMode, product, namespaces, privileges). /info has no instance name,
+// so none is shown.
 
 import { IrisApi, ApiError } from "./api.js";
 
@@ -33,7 +38,15 @@ const dom = {
   kpiPrivilegesMeta: document.getElementById("system-kpi-privileges-meta"),
   namespacesCount: document.getElementById("system-namespaces-count"),
   privilegesCount: document.getElementById("system-privileges-count"),
+  identityHostname: document.getElementById("system-identity-hostname"),
+  identityPlatform: document.getElementById("system-identity-platform"),
+  identityOs: document.getElementById("system-identity-os"),
+  identityCpus: document.getElementById("system-identity-cpus"),
+  identityMgr: document.getElementById("system-identity-mgr"),
+  identityUptime: document.getElementById("system-identity-uptime"),
 };
+
+const UNAVAILABLE = "Unavailable";
 
 function setLoading(isLoading) {
   dom.loadingState.hidden = !isLoading;
@@ -159,11 +172,48 @@ function renderPrivileges(privileges) {
   }
 }
 
-/** Load GET /api/iris/info and render it. */
+// What IRIS was built for, from serverVersion ("IRIS for UNIX (Ubuntu Server
+// LTS for x86-64 Containers) 2026.2 (Build 221U) ..." -> "UNIX (Ubuntu ...)").
+// Null if it isn't in that shape; the full string is shown above anyway.
+function buildTargetOf(serverVersion) {
+  if (typeof serverVersion !== "string") return null;
+  const match = /^.+? for (.+?) \d{4}\.\d/.exec(serverVersion);
+  return match ? match[1] : null;
+}
+
+function valueOrUnavailable(value) {
+  return value === null || value === undefined || value === "" ? UNAVAILABLE : String(value);
+}
+
+/**
+ * Instance & Server card. `diagnostics` / `monitor` are the fulfilled
+ * responses or null if that read failed; `info` is /info's result or null.
+ */
+function renderIdentity(info, diagnostics, monitor) {
+  dom.identityHostname.textContent = diagnostics ? valueOrUnavailable(diagnostics.hostname) : UNAVAILABLE;
+  dom.identityPlatform.textContent = diagnostics ? valueOrUnavailable(diagnostics.platform) : UNAVAILABLE;
+  dom.identityCpus.textContent = diagnostics ? valueOrUnavailable(diagnostics.cpu_count) : UNAVAILABLE;
+  dom.identityMgr.textContent = diagnostics ? valueOrUnavailable(diagnostics.manager_directory) : UNAVAILABLE;
+  dom.identityOs.textContent = info ? buildTargetOf(info.serverVersion) || PLACEHOLDER : UNAVAILABLE;
+  const upTime = monitor && monitor.result && monitor.result.Status ? monitor.result.Status.UpTime : null;
+  // IRIS pads it ("0d  2h 05m"); collapse the spaces for display only.
+  dom.identityUptime.textContent = upTime ? String(upTime).replace(/\s+/g, " ").trim() : UNAVAILABLE;
+}
+
+async function settled(promise) {
+  try {
+    return await promise;
+  } catch {
+    return null;
+  }
+}
+
+/** Load GET /api/iris/info and render it, with the identity reads alongside. */
 export async function loadSystemInfo() {
   setLoading(true);
   setErrorBanner(null);
   setConnectionState("checking", "Checking connection…", "");
+  const identityReads = Promise.all([settled(IrisApi.getPythonDiagnostics()), settled(IrisApi.getMonitorDashboard())]);
 
   let response;
   try {
@@ -179,6 +229,7 @@ export async function loadSystemInfo() {
     clearFields();
     renderNamespaces(null);
     renderPrivileges(null);
+    renderIdentity(null, ...(await identityReads));
     setLoading(false);
     return;
   }
@@ -195,6 +246,7 @@ export async function loadSystemInfo() {
     clearFields();
     renderNamespaces(null);
     renderPrivileges(null);
+    renderIdentity(null, ...(await identityReads));
     setLoading(false);
     return;
   }
@@ -217,6 +269,7 @@ export async function loadSystemInfo() {
   renderNamespaces(info.namespaces);
   renderPrivileges(info.privileges);
   renderOverview(info);
+  renderIdentity(info, ...(await identityReads));
 
   setLoading(false);
 }

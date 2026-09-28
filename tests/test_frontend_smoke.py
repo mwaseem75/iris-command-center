@@ -2045,6 +2045,58 @@ def test_investigation_has_audit_and_message_log_tabs() -> None:
     check("dom.pager.hidden = false;" in inv_js, "the audit table keeps its own pagination")
 
 
+def test_system_shows_instance_identity_and_api_findings() -> None:
+    print("Checking System: instance identity from existing reads, and the API Findings documentation...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "system.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    view = re.search(r'<section[^>]*id="view-system".*?</section>\s*\n\s*<section class="view"', html, re.S)
+    text = view.group(0) if view else ""
+
+    # Instance & Server: only existing live reads.
+    for field in ("hostname", "platform", "os", "cpus", "mgr", "uptime", "instance"):
+        check(f'id="system-identity-{field}"' in text, f"the Instance & Server card shows {field}")
+    check('id="system-identity-instance">Not exposed by the IRIS REST API</dd>' in text,
+          "the instance name is honestly marked as not exposed, not invented")
+    check(set(re.findall(r"IrisApi[.](\w+)", code)) == {"getInfo", "getPythonDiagnostics", "getMonitorDashboard"},
+          "system.js uses only /info, the existing Embedded Python diagnostics and the System Dashboard")
+    for field in ("diagnostics.hostname", "diagnostics.platform", "diagnostics.cpu_count", "diagnostics.manager_directory",
+                  "monitor.result.Status.UpTime", "buildTargetOf(info.serverVersion)"):
+        check(field in code, f"the identity card reads {field}")
+    check("settled(IrisApi.getPythonDiagnostics())" in code and "settled(IrisApi.getMonitorDashboard())" in code
+          and 'const UNAVAILABLE = "Unavailable";' in code,
+          "a failed identity read shows Unavailable without breaking the page")
+    for word in ("fetch(", "innerHTML", "method:", "confirmed"):
+        check(word not in code, f"system.js never uses {word!r}")
+
+    # Layout: IRIS Information + Namespaces stacked left, Instance & Server right, even gaps.
+    stack = text.split('<div class="system-stack">', 1)[-1].split("<!-- Right column", 1)[0]
+    check('id="system-info-title"' in stack and 'id="system-namespaces-title"' in stack
+          and 'id="system-identity-title"' not in stack,
+          "IRIS Information and Namespaces share the left column; Instance & Server is on the right")
+    css = (FRONTEND_DIR / "css" / "styles.css").read_text(encoding="utf-8")
+    check("#view-system .system-stack {" in css and "#view-system .system-stack__fill {" in css
+          and "align-items: stretch;" in css.split("#view-system .system-grid {", 1)[-1].split("}", 1)[0],
+          "the two columns stretch to equal height with one gap in the left stack")
+
+    # API Integration Notes: secondary, collapsible, at the bottom, static documentation.
+    findings = text.split('id="system-api-findings"', 1)[-1]
+    check('<details class="info-card info-card--wide system-notes" id="system-api-findings">' in text
+          and "<details" in text and " open" not in text.split('id="system-api-findings"', 1)[0][-80:],
+          "the notes are a collapsed <details> section")
+    check('id="system-api-findings-title">API Integration Notes</span>' in findings and "API Findings" not in text,
+          "the section is called API Integration Notes")
+    check(text.index('id="system-api-findings"') > text.index('id="system-privileges-title"'),
+          "the notes sit at the bottom, after Session Privileges")
+    check(findings.count("<tr>") == 9, "the notes keep exactly the 8 findings (plus the header row)")
+    for column in ("Area", "IRIS API behavior", "Command Center (read-only)"):
+        check(f'<th scope="col">{column}</th>' in findings, f"the findings table has a {column!r} column")
+    for area in ("Message log", "Instance identity", "Task state", "Task timing", "Database info", "API Management",
+                 "Web application updates", "Alerts"):
+        check(f'<td class="data-table__cell">{area}</td>' in findings, f"the findings document {area!r}")
+    check("system-api-findings" not in code, "the findings are static documentation (nothing is fetched for them)")
+
+
 def test_theme_selector_offers_four_persisted_themes() -> None:
     print("Checking the theme selector offers Midnight/Slate/Professional/Light and persists the choice...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
@@ -2350,6 +2402,7 @@ def main() -> None:
         test_tasks_views_use_only_existing_live_task_data,
         test_message_log_is_read_only_with_search_levels_paging_and_detail,
         test_investigation_has_audit_and_message_log_tabs,
+        test_system_shows_instance_identity_and_api_findings,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

@@ -4090,10 +4090,76 @@ html.detail-workspace-open {
 
 /* IRIS Information (wider, long version string) beside Namespaces; both
    size to their content instead of stretching to equal height. */
+/* Two equal-height columns (IRIS Information + Namespaces stacked on the
+   left, Instance & Server on the right), then the full-width cards. The
+   left stack keeps one 16px gap and its last card fills the rest, so both
+   columns end together. */
 #view-system .system-grid {
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  align-items: start;
+  align-items: stretch;
   gap: 16px;
+}
+
+#view-system .system-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+#view-system .system-stack__fill {
+  flex: 1 1 auto;
+}
+
+/* API Integration Notes: secondary, collapsed by default. */
+#view-system .system-notes {
+  border-style: dashed;
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+#view-system .system-notes__summary {
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+}
+
+#view-system .system-notes__summary::-webkit-details-marker {
+  display: none;
+}
+
+#view-system .system-notes__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+#view-system .system-notes__title::before {
+  content: "\25B8";
+  display: inline-block;
+  margin-right: 8px;
+  transition: transform var(--transition-fast);
+}
+
+#view-system .system-notes[open] .system-notes__title::before {
+  transform: rotate(90deg);
+}
+
+#view-system .system-notes__summary:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+#view-system .system-notes__hint {
+  font-size: 12.5px;
+  color: var(--color-text-faint);
+}
+
+#view-system .system-notes[open] .system-notes__summary {
+  margin-bottom: 12px;
 }
 
 #view-system .info-card {
