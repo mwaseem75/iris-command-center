@@ -42,6 +42,11 @@ const dom = {
   kpiRelated: document.getElementById("investigation-kpi-related"),
   kpiRelatedMeta: document.getElementById("investigation-kpi-related-meta"),
   openObservability: document.getElementById("investigation-open-observability"),
+  tabs: document.getElementById("investigation-tabs"),
+  panels: {
+    audit: document.getElementById("investigation-panel-audit"),
+    messages: document.getElementById("investigation-panel-messages"),
+  },
   drawer: document.getElementById("investigation-drawer"),
   drawerBackdrop: document.getElementById("investigation-drawer-backdrop"),
   drawerTitle: document.getElementById("investigation-drawer-title"),
@@ -627,7 +632,23 @@ export async function loadInvestigation() {
  * the fetch. Other filters are cleared so an old username or event type
  * doesn't narrow the results.
  */
+// The page's two tabs: Audit Investigation and Message Log (message-log.js).
+const INVESTIGATION_TABS = ["audit", "messages"];
+let activeTab = "audit";
+
+function setInvestigationTab(tab) {
+  if (!INVESTIGATION_TABS.includes(tab)) return;
+  activeTab = tab;
+  for (const button of dom.tabs.querySelectorAll("[data-inv-tab]")) {
+    const selected = button.dataset.invTab === tab;
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  }
+  for (const [name, panel] of Object.entries(dom.panels)) panel.hidden = name !== tab;
+}
+
 export function setTimeWindow(beginDateTime, endDateTime) {
+  setInvestigationTab("audit");  // a time window is for the audit trail
   dom.filterBegin.value = beginDateTime;
   dom.filterEnd.value = endDateTime;
   for (const [select] of RECORD_FILTERS) select.value = "";
@@ -645,6 +666,20 @@ export function initInvestigationControls({ onInvestigateTraces: callback, onOpe
 
   // Just navigation: Observability shows our own traces.
   dom.openObservability.addEventListener("click", () => navigateTo("observability"));
+
+  // Tabs, with arrow-key switching (WAI-ARIA tabs pattern).
+  dom.tabs.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-inv-tab]");
+    if (tab) setInvestigationTab(tab.dataset.invTab);
+  });
+  dom.tabs.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const index = INVESTIGATION_TABS.indexOf(activeTab);
+    setInvestigationTab(INVESTIGATION_TABS[(index + step + INVESTIGATION_TABS.length) % INVESTIGATION_TABS.length]);
+    dom.tabs.querySelector(`[data-inv-tab="${activeTab}"]`).focus();
+  });
 
   // Event detail panel (modal behaviour comes from detail-workspace.js);
   // here we just open and close it.

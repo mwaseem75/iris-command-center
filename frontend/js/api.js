@@ -389,6 +389,8 @@ export const IrisApi = {
   // Embedded Python inside IRIS. Missing values are null and listed in
   // `unavailable`.
   getPythonDiagnostics: () => fetchIris("/api/iris/python/diagnostics"),
+  // The newest entries of IRIS's messages.log (read-only, no parameters).
+  getMessagesLog: () => fetchIris("/api/iris/messages-log"),
   // { issues: [...] } from our own issue check.
   getIssues: () => fetchIris("/api/iris/issues"),
   // { query, results: [{ source, title, body, score }] }: stored documents

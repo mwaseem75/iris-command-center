@@ -1,5 +1,11 @@
-// Tasks page: KPI cards, a Run State bar, search/filters, a table and a
-// detail drawer (Overview / Schedule / Execution / Settings tabs).
+// Tasks page: KPI cards, a Run State bar, four views (All Tasks with
+// search/filters and the table, Upcoming, Schedule, Last Runs) and a detail
+// drawer (Overview / Schedule / Execution / Settings tabs).
+//
+// The views only use data this page already reads: Upcoming and Last Runs
+// come from the overview (NextScheduled, and each task's most recent run in
+// its /v2/task/info), and Schedule from each task's existing detail read.
+// Last Runs is not a history: IRIS's task info keeps only the latest run.
 //
 // Reads:
 // - GET /api/iris/tasks/overview: every task with its /v2/task/info and a
@@ -66,6 +72,22 @@ const dom = {
     settings: document.getElementById("tasks-panel-settings"),
   },
   settingsList: document.getElementById("tasks-settings-list"),
+  viewTabs: document.getElementById("tasks-view-tabs"),
+  views: {
+    all: document.getElementById("tasks-view-all"),
+    upcoming: document.getElementById("tasks-view-upcoming"),
+    schedule: document.getElementById("tasks-view-schedule"),
+    lastruns: document.getElementById("tasks-view-lastruns"),
+  },
+  upcomingManager: document.getElementById("tasks-upcoming-manager"),
+  upcomingManagerText: document.getElementById("tasks-upcoming-manager-text"),
+  upcomingGroups: document.getElementById("tasks-upcoming-groups"),
+  scheduleLoading: document.getElementById("tasks-schedule-loading"),
+  scheduleWarning: document.getElementById("tasks-schedule-warning"),
+  scheduleWarningText: document.getElementById("tasks-schedule-warning-text"),
+  scheduleWrapper: document.getElementById("tasks-schedule-wrapper"),
+  scheduleBody: document.getElementById("tasks-schedule-body"),
+  lastRunsBody: document.getElementById("tasks-lastruns-body"),
 };
 
 const DRAWER_TABS = ["overview", "schedule", "execution", "settings"];
@@ -417,6 +439,296 @@ function renderTable() {
     ? `Showing ${visible.length} of ${allTasks.length}`
     : `Showing all ${allTasks.length}`;
   syncSummaryActiveState();
+}
+
+// --- Views: All Tasks | Upcoming | Schedule | Last Runs ---
+
+const VIEW_TABS = ["all", "upcoming", "schedule", "lastruns"];
+let activeView = "all";
+// Schedule view: task Id -> its detail (null if it couldn't be read). Read
+// when the Schedule tab opens, dropped on every refresh.
+let scheduleDetails = null;
+let scheduleRequestSeq = 0;
+
+// A clickable row that opens the task's drawer (Run Now stays there).
+function makeTaskRow(task) {
+  const row = document.createElement("tr");
+  row.className = "data-table__row--clickable";
+  row.dataset.taskId = String(task.Id);
+  row.tabIndex = 0;
+  row.setAttribute("aria-label", `View details for task ${textOrPlaceholder(task.Name)}`);
+  return row;
+}
+
+function makeStateCell(task) {
+  const state = stateLabel(task);
+  return makeBadgeCell(makeBadge(state, stateBadgeVariant(state)));
+}
+
+function makeViewTable(headers, rows) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "table-wrapper";
+  const table = document.createElement("table");
+  table.className = "data-table data-table--compact";
+  const head = document.createElement("tr");
+  for (const header of headers) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = header;
+    head.append(th);
+  }
+  const thead = document.createElement("thead");
+  thead.append(head);
+  const tbody = document.createElement("tbody");
+  tbody.append(...rows);
+  table.append(thead, tbody);
+  wrapper.append(table);
+  return wrapper;
+}
+
+function makeViewGroup(title, headers, rows) {
+  const section = document.createElement("section");
+  section.className = "tasks-upcoming__group";
+  const heading = document.createElement("h4");
+  heading.className = "ns-drawer__section-title";
+  heading.textContent = title;
+  section.append(heading, makeViewTable(headers, rows));
+  return section;
+}
+
+/**
+ * Upcoming: tasks with a dated NextScheduled, soonest first, grouped by the
+ * date IRIS reports (no timezone, so no "today"/"tomorrow" guessing). Text
+ * values like "Runs After #1:00" and empty ones are listed as reported.
+ */
+function renderUpcoming() {
+  const dated = [];
+  const asText = [];
+  const none = [];
+  for (const task of allTasks) {
+    const next = task.NextScheduled;
+    if (typeof next === "string" && DATETIME_PATTERN.test(next)) dated.push(task);
+    else if (typeof next === "string" && next !== "") asText.push(task);
+    else none.push(task);
+  }
+  // The fixed "YYYY-MM-DD HH:MM[:SS]" format sorts correctly as text.
+  dated.sort((a, b) => (a.NextScheduled < b.NextScheduled ? -1 : a.NextScheduled > b.NextScheduled ? 1 : 0));
+
+  const groups = [];
+  const byDate = new Map();
+  for (const task of dated) {
+    const date = task.NextScheduled.slice(0, 10);
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push(task);
+  }
+  const headers = ["Time", "Task", "State", "Type", "Namespace"];
+  for (const [date, tasks] of byDate) {
+    groups.push(makeViewGroup(date, headers, tasks.map((task) => {
+      const row = makeTaskRow(task);
+      row.append(
+        makeCell(task.NextScheduled.slice(11), { mono: true, title: task.NextScheduled }),
+        makeCell(textOrPlaceholder(task.Name)),
+        makeStateCell(task),
+        makeCell(textOrPlaceholder(task.Type)),
+        makeCell(textOrPlaceholder(task.Namespace)),
+      );
+      return row;
+    })));
+  }
+  const reported = (tasks, title, valueOf) => {
+    if (tasks.length === 0) return;
+    groups.push(makeViewGroup(title, ["Next Run (as reported)", "Task", "State", "Type", "Namespace"], tasks.map((task) => {
+      const row = makeTaskRow(task);
+      row.append(
+        makeCell(valueOf(task), { title: "Reported by IRIS as text, not a date" }),
+        makeCell(textOrPlaceholder(task.Name)),
+        makeStateCell(task),
+        makeCell(textOrPlaceholder(task.Type)),
+        makeCell(textOrPlaceholder(task.Namespace)),
+      );
+      return row;
+    })));
+  };
+  reported(asText, "Next run reported as text, not a date", (task) => task.NextScheduled);
+  reported(none, "No next run reported (on demand or not scheduled)", () => PLACEHOLDER);
+  dom.upcomingGroups.replaceChildren(...groups);
+
+  // Scheduled tasks only run while the Task Manager is running.
+  const message = managerStatus === null
+    ? "The Task Manager status couldn't be read, so it's unknown whether these tasks will run."
+    : managerStatus !== "Running"
+      ? `The Task Manager is "${managerStatus}", so none of these tasks will run until it's running again.`
+      : "";
+  dom.upcomingManager.hidden = !message;
+  dom.upcomingManagerText.textContent = message;
+}
+
+// "YYYY-MM-DD HH:MM:SS" as a UTC timestamp, only to subtract two of them
+// (both are IRIS's own local time, so the difference is right).
+const FULL_DATETIME = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
+
+function timestampOf(value) {
+  const match = typeof value === "string" ? FULL_DATETIME.exec(value) : null;
+  if (!match) return null;
+  const [, y, mo, d, h, mi, s] = match.map(Number);
+  return Date.UTC(y, mo - 1, d, h, mi, s);
+}
+
+function formatDuration(start, end) {
+  const from = timestampOf(start);
+  const to = timestampOf(end);
+  if (from === null || to === null || to < from) return PLACEHOLDER;
+  const seconds = Math.round((to - from) / 1000);
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ${seconds % 60} s`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/**
+ * Last Runs: each task's most recent run from its /v2/task/info (the only
+ * run IRIS reports there), newest first; never-run tasks last.
+ */
+function renderLastRuns() {
+  const ran = allTasks.filter((task) => task.Info && task.Info.LastStarted);
+  const rest = allTasks.filter((task) => !(task.Info && task.Info.LastStarted));
+  ran.sort((a, b) => (a.Info.LastStarted < b.Info.LastStarted ? 1 : a.Info.LastStarted > b.Info.LastStarted ? -1 : 0));
+
+  dom.lastRunsBody.replaceChildren(
+    ...ran.map((task) => {
+      const info = task.Info;
+      const row = makeTaskRow(task);
+      row.append(
+        makeCell(textOrPlaceholder(task.Name)),
+        makeCell(info.LastStarted, { mono: true }),
+        makeCell(textOrPlaceholder(info.LastFinished), { mono: true }),
+        makeCell(formatDuration(info.LastStarted, info.LastFinished), { mono: true }),
+        makeResultCell(task),
+        makeCell(textOrPlaceholder(info.LastSchedule), { mono: true }),
+      );
+      return row;
+    }),
+    ...rest.map((task) => {
+      const row = makeTaskRow(task);
+      const started = task.Info ? "Never run" : "Unknown (task info unavailable)";
+      row.append(
+        makeCell(textOrPlaceholder(task.Name)),
+        makeCell(started),
+        makeCell(PLACEHOLDER),
+        makeCell(PLACEHOLDER),
+        makeCell(PLACEHOLDER),
+        makeCell(textOrPlaceholder(task.Info ? task.Info.LastSchedule : ""), { mono: true }),
+      );
+      return row;
+    }),
+  );
+}
+
+function describePeriod(detail) {
+  const every = asPositiveInt(detail.TimePeriodEvery);
+  const period = textOrPlaceholder(detail.TimePeriod);
+  if (["Daily", "Weekly", "Monthly", "Monthly Special"].includes(detail.TimePeriod) && every) {
+    return `${period}, every ${every}`;
+  }
+  return period;
+}
+
+function describeTimeOfDay(detail) {
+  if (detail.TimePeriod === "On Demand" || detail.TimePeriod === "Run After") return PLACEHOLDER;
+  if (detail.DailyFrequency === "Several") {
+    const increment = textOrPlaceholder(detail.DailyIncrement);
+    return `Every ${increment} ${textOrPlaceholder(detail.DailyFrequencyTime)}, ${textOrPlaceholder(detail.DailyStartTime)}–${textOrPlaceholder(detail.DailyEndTime)}`;
+  }
+  return `Once at ${textOrPlaceholder(detail.DailyStartTime)}`;
+}
+
+/** Schedule: one row per task from its detail (null = couldn't be read). */
+function renderSchedule() {
+  if (!scheduleDetails) return;
+  let unreadable = 0;
+  dom.scheduleBody.replaceChildren(...allTasks.map((task) => {
+    const detail = scheduleDetails.get(task.Id);
+    const row = makeTaskRow(task);
+    const [nextText, nextTitle] = describeNextScheduled(task.NextScheduled);
+    if (!detail) {
+      unreadable += 1;
+      row.append(
+        makeCell(textOrPlaceholder(task.Name)),
+        makeCell("Schedule unavailable (the task's details couldn't be read)"),
+        makeCell(PLACEHOLDER), makeCell(PLACEHOLDER), makeCell(PLACEHOLDER),
+        makeCell(nextText, { title: nextTitle }),
+      );
+      return row;
+    }
+    const summary = describeSchedule(detail);
+    row.append(
+      makeCell(textOrPlaceholder(task.Name)),
+      makeCell(summary || "Not describable from the documented encoding — open the task for the raw fields"),
+      makeCell(describePeriod(detail)),
+      makeCell(describeTimeOfDay(detail)),
+      makeCell(`${textOrPlaceholder(detail.StartDate)} – ${detail.EndDate ? detail.EndDate : "no end"}`, { mono: true }),
+      makeCell(nextText, { mono: DATETIME_PATTERN.test(task.NextScheduled || ""), title: nextTitle }),
+    );
+    return row;
+  }));
+  dom.scheduleWrapper.hidden = false;
+  dom.scheduleWarning.hidden = unreadable === 0;
+  dom.scheduleWarningText.textContent = unreadable
+    ? `${unreadable} task${unreadable === 1 ? "'s" : "s'"} details couldn't be read.`
+    : "";
+}
+
+/** Read every task's detail (the existing GET /api/iris/tasks/detail), once per refresh. */
+async function loadScheduleDetails() {
+  if (scheduleDetails) {
+    renderSchedule();
+    return;
+  }
+  const seq = ++scheduleRequestSeq;
+  const ids = allTasks.map((task) => task.Id);
+  dom.scheduleLoading.hidden = false;
+  dom.scheduleWrapper.hidden = true;
+  dom.scheduleWarning.hidden = true;
+  const details = await Promise.all(ids.map((id) =>
+    IrisApi.getTaskDetail(id)
+      .then((response) => (response && response.result && typeof response.result === "object" ? response.result : null))
+      .catch(() => null)));
+  if (seq !== scheduleRequestSeq) return;  // a refresh replaced the list meanwhile
+  scheduleDetails = new Map(ids.map((id, i) => [id, details[i]]));
+  dom.scheduleLoading.hidden = true;
+  renderSchedule();
+}
+
+function renderActiveView() {
+  if (activeView === "upcoming") renderUpcoming();
+  else if (activeView === "schedule") loadScheduleDetails();
+  else if (activeView === "lastruns") renderLastRuns();
+}
+
+function setView(view) {
+  if (!VIEW_TABS.includes(view)) return;
+  activeView = view;
+  for (const tab of dom.viewTabs.querySelectorAll("[data-view-tab]")) {
+    const selected = tab.dataset.viewTab === view;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  for (const [name, panel] of Object.entries(dom.views)) panel.hidden = name !== view;
+  renderActiveView();
+}
+
+// Rows in every view open the task's drawer.
+function handleRowClick(event) {
+  const row = event.target.closest("tr[data-task-id]");
+  if (row) openDrawer(Number(row.dataset.taskId));
+}
+
+function handleRowKey(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const row = event.target.closest("tr[data-task-id]");
+  if (!row) return;
+  event.preventDefault();
+  openDrawer(Number(row.dataset.taskId));
 }
 
 // --- Detail drawer ---
@@ -915,6 +1227,9 @@ function renderTasks(tasks) {
   renderSummary();
   renderOverview();
   renderTable();
+  scheduleDetails = null;  // re-read on the next Schedule view
+  scheduleRequestSeq += 1;
+  renderActiveView();
 
   // After a refresh, reopen the drawer's task with fresh data, or close it if
   // the task is gone.
@@ -1024,16 +1339,23 @@ export function initTasksControls() {
     applyCardFilter(Number(card.dataset.cardIndex));
   });
 
-  dom.tableBody.addEventListener("click", (event) => {
-    const row = event.target.closest("tr[data-task-id]");
-    if (row) openDrawer(Number(row.dataset.taskId));
+  for (const container of [dom.tableBody, dom.upcomingGroups, dom.scheduleBody, dom.lastRunsBody]) {
+    container.addEventListener("click", handleRowClick);
+    container.addEventListener("keydown", handleRowKey);
+  }
+
+  // Page views, with arrow-key switching (WAI-ARIA tabs pattern).
+  dom.viewTabs.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-view-tab]");
+    if (tab) setView(tab.dataset.viewTab);
   });
-  dom.tableBody.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const row = event.target.closest("tr[data-task-id]");
-    if (!row) return;
+  dom.viewTabs.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    openDrawer(Number(row.dataset.taskId));
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const index = VIEW_TABS.indexOf(activeView);
+    setView(VIEW_TABS[(index + step + VIEW_TABS.length) % VIEW_TABS.length]);
+    dom.viewTabs.querySelector(`[data-view-tab="${activeView}"]`).focus();
   });
 
   dom.drawerClose.addEventListener("click", closeDrawer);

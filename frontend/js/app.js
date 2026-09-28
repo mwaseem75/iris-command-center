@@ -36,6 +36,7 @@ import {
   setTimeWindow as setInvestigationTimeWindow,
 } from "./investigation.js";
 import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
+import { loadMessageLog, initMessageLogControls } from "./message-log.js";
 
 function init() {
   initThemeSelector();
@@ -98,6 +99,7 @@ function init() {
     onOpenTrace: openTrace,
   });
   initCapabilitiesControls();
+  initMessageLogControls();
   initIssueResolverControls({
     onOpenDatabases: () => navigateTo("databases"),
     // Resource-aware: a web-app issue resolves on the Web Apps page.
@@ -155,6 +157,7 @@ function init() {
       loadIssueResolver();
     } else if (view === "investigation") {
       loadInvestigation();
+      loadMessageLog();
     } else if (view === "capabilities") {
       loadCapabilities();
     }

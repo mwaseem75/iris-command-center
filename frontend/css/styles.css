@@ -5923,6 +5923,110 @@ html.detail-workspace-open {
   justify-self: start;
 }
 
+/* --- Investigation: two prominent tabs (Audit Investigation, Message Log) --- */
+
+.inv-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+
+.inv-tabs__tab {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  font: inherit;
+  text-align: left;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.inv-tabs__tab:hover {
+  border-color: var(--color-accent);
+}
+
+.inv-tabs__tab[aria-selected="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+  box-shadow: inset 0 -3px 0 var(--color-accent);
+}
+
+.inv-tabs__tab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.inv-tabs__label {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.inv-tabs__hint {
+  font-size: 12.5px;
+}
+
+.inv-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.inv-panel-head .info-card__hint {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .inv-tabs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- Message Log (Investigation page) --- */
+
+.message-log__cell-message {
+  max-width: 560px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-log__text {
+  margin: 0;
+  padding: 12px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- Tasks views (All Tasks / Upcoming / Schedule / Last Runs) --- */
+
+.tasks-view-tabs {
+  margin-top: 16px;
+}
+
+.tasks-upcoming__group + .tasks-upcoming__group {
+  margin-top: 18px;
+}
+
 /* --- Issue Resolver layout: header, section tabs, and three tinted
    blocks (Active Issues, Issue Catalog, Custom Issue Rules). Tints come from
    the theme tokens so every theme keeps its own palette. --- */

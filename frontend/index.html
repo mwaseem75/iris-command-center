@@ -1396,6 +1396,14 @@
               <div id="tasks-overview-viz"></div>
             </div>
 
+            <div class="drawer-tabs tasks-view-tabs" id="tasks-view-tabs" role="tablist" aria-label="Task views">
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-view-tab-all" data-view-tab="all" aria-controls="tasks-view-all" aria-selected="true">All Tasks</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-view-tab-upcoming" data-view-tab="upcoming" aria-controls="tasks-view-upcoming" aria-selected="false" tabindex="-1">Upcoming</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-view-tab-schedule" data-view-tab="schedule" aria-controls="tasks-view-schedule" aria-selected="false" tabindex="-1">Schedule</button>
+              <button class="drawer-tabs__tab" type="button" role="tab" id="tasks-view-tab-lastruns" data-view-tab="lastruns" aria-controls="tasks-view-lastruns" aria-selected="false" tabindex="-1">Last Runs</button>
+            </div>
+
+            <div id="tasks-view-all" role="tabpanel" aria-labelledby="tasks-view-tab-all">
             <form class="filter-form filter-form--toolbar" id="tasks-filter-form" role="search" aria-label="Filter tasks">
               <div class="filter-field filter-field--wide">
                 <label for="tasks-filter-search">Search</label>
@@ -1447,6 +1455,66 @@
                 </thead>
                 <tbody id="tasks-table-body"></tbody>
               </table>
+            </div>
+            </div>
+
+            <!-- Upcoming: the overview's NextScheduled, grouped by IRIS date. -->
+            <div id="tasks-view-upcoming" role="tabpanel" aria-labelledby="tasks-view-tab-upcoming" hidden>
+              <p class="info-card__hint">Each task's next run as IRIS reports it (GET /v2/task/info, NextScheduled), soonest first, grouped by date. Times are shown exactly as IRIS sends them, with no timezone. Click a task for its details.</p>
+              <div class="banner banner--warning" id="tasks-upcoming-manager" hidden role="status">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="tasks-upcoming-manager-text"></span>
+              </div>
+              <div class="tasks-upcoming" id="tasks-upcoming-groups"></div>
+            </div>
+
+            <!-- Schedule: each task's schedule from its existing detail read. -->
+            <div id="tasks-view-schedule" role="tabpanel" aria-labelledby="tasks-view-tab-schedule" hidden>
+              <p class="info-card__hint">How each task is scheduled, from its configuration (GET /api/iris/tasks/detail, one read per task when this tab opens). A task that runs after another one is shown as such; IRIS reports that link only as a GUID, which isn't resolved to a task name.</p>
+              <div class="loading-state" id="tasks-schedule-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Reading each task's schedule&hellip;</span>
+              </div>
+              <div class="banner banner--warning" id="tasks-schedule-warning" hidden role="status">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="tasks-schedule-warning-text"></span>
+              </div>
+              <div class="table-wrapper" id="tasks-schedule-wrapper" hidden>
+                <table class="data-table data-table--compact">
+                  <thead>
+                    <tr>
+                      <th scope="col">Task</th>
+                      <th scope="col">Schedule</th>
+                      <th scope="col">Period</th>
+                      <th scope="col">Time of Day</th>
+                      <th scope="col">Date Range</th>
+                      <th scope="col">Next Run</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tasks-schedule-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Last Runs: only each task's most recent run, not a history. -->
+            <div id="tasks-view-lastruns" role="tabpanel" aria-labelledby="tasks-view-tab-lastruns" hidden>
+              <h3 class="info-card__title">Last Runs &mdash; most recent run of each task</h3>
+              <p class="info-card__hint" id="tasks-lastruns-note">This is not a run history: IRIS's task info (GET /v2/task/info) reports only each task's most recent run, so earlier runs aren't shown. Newest first; tasks that have never run are listed last.</p>
+              <div class="table-wrapper">
+                <table class="data-table data-table--compact">
+                  <thead>
+                    <tr>
+                      <th scope="col">Task</th>
+                      <th scope="col">Last Started</th>
+                      <th scope="col">Last Finished</th>
+                      <th scope="col">Duration</th>
+                      <th scope="col">Result</th>
+                      <th scope="col">Last Scheduled</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tasks-lastruns-body"></tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -2955,9 +3023,25 @@
         <section class="view" id="view-investigation" data-view="investigation" aria-labelledby="investigation-title" hidden>
           <div class="view__header">
             <div>
-              <h2 class="view__title" id="investigation-title">Audit Investigation</h2>
-              <p class="view__subtitle view__subtitle--wide">Native IRIS security audit evidence &mdash; what changed in IRIS, when, and by whom. Command Center execution traces live in Observability.</p>
+              <h2 class="view__title" id="investigation-title">Investigation</h2>
+              <p class="view__subtitle view__subtitle--wide">Look into what happened on this IRIS instance: the native security audit trail and IRIS&rsquo;s own message log. Read-only. Command Center execution traces live in Observability.</p>
             </div>
+          </div>
+
+          <div class="inv-tabs" id="investigation-tabs" role="tablist" aria-label="Investigation sources">
+            <button class="inv-tabs__tab" type="button" role="tab" id="investigation-tab-audit" data-inv-tab="audit" aria-controls="investigation-panel-audit" aria-selected="true">
+              <span class="inv-tabs__label">Audit Investigation</span>
+              <span class="inv-tabs__hint">Security audit trail: what changed, when and by whom</span>
+            </button>
+            <button class="inv-tabs__tab" type="button" role="tab" id="investigation-tab-messages" data-inv-tab="messages" aria-controls="investigation-panel-messages" aria-selected="false" tabindex="-1">
+              <span class="inv-tabs__label">Message Log</span>
+              <span class="inv-tabs__hint">IRIS&rsquo;s messages.log: events, warnings and errors</span>
+            </button>
+          </div>
+
+          <div id="investigation-panel-audit" role="tabpanel" aria-labelledby="investigation-tab-audit">
+          <div class="inv-panel-head">
+            <p class="info-card__hint">Native IRIS security audit evidence &mdash; what changed in IRIS, when, and by whom.</p>
             <div class="inv-header-actions">
               <button class="btn" type="button" id="investigation-open-observability">Open Observability &rarr;</button>
               <button
@@ -3099,6 +3183,89 @@
               </div>
             </div>
           </section>
+          </div>
+
+          <div id="investigation-panel-messages" role="tabpanel" aria-labelledby="investigation-tab-messages" hidden>
+          <!-- Message Log: the tail of IRIS's messages.log (read-only). -->
+          <section class="info-card inv-card" id="message-log-section" aria-labelledby="message-log-title">
+            <div class="ns-section__header">
+              <h3 class="info-card__title" id="message-log-title">Message Log</h3>
+              <button class="btn" type="button" id="message-log-refresh">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+            </div>
+            <p class="info-card__hint">IRIS's own message log (messages.log in the manager directory), newest first. Read-only: it is read through Embedded Python in IRIS and nothing is changed. Timestamps are shown as IRIS writes them. Click an entry for its full message.</p>
+            <form class="filter-form filter-form--toolbar" id="message-log-filter-form" role="search" aria-label="Filter the message log">
+              <div class="filter-field filter-field--wide">
+                <label for="message-log-search">Search</label>
+                <input type="search" id="message-log-search" placeholder="Message, source or PID&hellip;" autocomplete="off" />
+              </div>
+              <div class="filter-field">
+                <label for="message-log-level">Level</label>
+                <select id="message-log-level">
+                  <option value="">All levels</option>
+                  <option value="0">Info</option>
+                  <option value="1">Warning</option>
+                  <option value="2">Severe</option>
+                  <option value="3">Fatal</option>
+                  <option value="1+">Warning or higher</option>
+                </select>
+              </div>
+            </form>
+            <p class="info-panel__meta" id="message-log-meta" aria-live="polite"></p>
+            <div class="loading-state" id="message-log-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Reading messages.log&hellip;</span>
+            </div>
+            <div class="banner banner--error" id="message-log-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="message-log-error-text"></span>
+            </div>
+            <p class="empty-state" id="message-log-empty" hidden></p>
+            <div class="table-wrapper" id="message-log-table-wrapper" hidden>
+              <table class="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th scope="col">Timestamp</th>
+                    <th scope="col">PID</th>
+                    <th scope="col">Level</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Message</th>
+                  </tr>
+                </thead>
+                <tbody id="message-log-table-body"></tbody>
+              </table>
+            </div>
+            <div class="inv-pager" id="message-log-pager" hidden>
+              <p class="inv-pager__info" id="message-log-page-info"></p>
+              <div class="inv-pager__buttons">
+                <button class="btn" type="button" id="message-log-page-prev">&larr; Previous</button>
+                <button class="btn" type="button" id="message-log-page-next">Next &rarr;</button>
+              </div>
+            </div>
+          </section>
+          </div>
+
+          <div class="ns-drawer-backdrop" id="message-log-drawer-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--wide" id="message-log-drawer" hidden aria-labelledby="message-log-drawer-title">
+            <div class="ns-drawer__header">
+              <div class="ns-drawer__title-group">
+                <h3 class="ns-drawer__title" id="message-log-drawer-title">Message</h3>
+                <span class="status-badge status-badge--neutral" id="message-log-drawer-level"></span>
+              </div>
+              <button class="ns-drawer__close" type="button" id="message-log-drawer-close" aria-label="Close message details">&times;</button>
+            </div>
+            <p class="ns-hint">Read-only, from IRIS's messages.log.</p>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Entry</h4>
+              <dl class="info-list" id="message-log-drawer-fields"></dl>
+            </div>
+            <div class="ns-drawer__section">
+              <h4 class="ns-drawer__section-title">Message</h4>
+              <pre class="message-log__text" id="message-log-drawer-message"></pre>
+            </div>
+          </aside>
 
           <div class="ns-drawer-backdrop" id="investigation-drawer-backdrop" hidden></div>
           <aside class="ns-drawer ns-drawer--wide" id="investigation-drawer" hidden aria-labelledby="investigation-drawer-title">

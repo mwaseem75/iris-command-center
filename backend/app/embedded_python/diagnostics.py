@@ -6,7 +6,9 @@ stdlib modules through %SYS.Python.Import().
 
 Every module, method and argument is hard-coded in _PROBES, and
 collect_sync() takes no input, so nothing from a request can decide what
-Python runs inside IRIS. All probes only read state. A failing probe just
+Python runs inside IRIS. All probes only read state. read_messages_log_sync()
+works the same way: it reads the tail of <manager directory>/messages.log,
+a fixed path, and takes no input (see messages_log.py). A failing probe just
 leaves its field null; we only raise if IRIS is unreachable or every probe
 fails. The driver is blocking, so run this off the event loop.
 """
@@ -24,6 +26,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field
 
 from app.config import Settings
+from app.embedded_python.messages_log import LOG_FILE, TAIL_BYTES, MessageLog, parse_messages_log
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,29 @@ def _package_count(db: Any) -> int:
     return int(builtins.invoke("len", builtins.invoke("list", distributions)))
 
 
+def _read_messages_log_tail(db: Any) -> tuple[str, int, int, str]:
+    """(path, file size, bytes read, text) for the last TAIL_BYTES of
+    <manager directory>/messages.log. Read-only; the path is fixed."""
+    directory = _text(db.classMethodValue("%SYSTEM.Util", "ManagerDirectory"))
+    path = _text(_import(db, "os.path").invoke("join", directory, LOG_FILE))
+    handle = _import(db, "builtins").invoke("open", path, "rb")
+    try:
+        size = int(handle.invoke("seek", 0, 2))
+        start = max(0, size - TAIL_BYTES)
+        handle.invoke("seek", start)
+        raw = handle.invoke("read")
+    finally:
+        handle.invoke("close")
+    # Decode inside IRIS when the driver hands back a Python object, else here.
+    if hasattr(raw, "invoke"):
+        text = _text(raw.invoke("decode", "utf-8", "replace"))
+    elif isinstance(raw, (bytes, bytearray)):
+        text = bytes(raw).decode("utf-8", "replace")
+    else:
+        text = str(raw)
+    return path, size, size - start, text
+
+
 # Every call this module can make: (field, probe).
 _PROBES: tuple[tuple[str, Callable[[Any], Any]], ...] = (
     ("python_version", lambda db: _text(_import(db, "platform").invoke("python_version"))),
@@ -187,6 +213,28 @@ class EmbeddedPythonDiagnostics:
             return PythonDiagnostics(
                 **values,
                 unavailable=unavailable,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
+
+    def read_messages_log_sync(self) -> MessageLog:
+        """The newest entries of IRIS's messages.log (read-only, fixed path).
+        Raises EmbeddedPythonUnavailableError if it can't be read."""
+        with self._lock:
+            started = time.perf_counter()
+            try:
+                self._ensure_connected()
+                path, size, read, text = _read_messages_log_tail(self._iris)
+            except Exception as exc:  # noqa: BLE001 - never leak connection or file details
+                logger.warning("Could not read IRIS's messages.log.", exc_info=True)
+                self._reset()
+                raise EmbeddedPythonUnavailableError() from exc
+            entries, capped = parse_messages_log(text)
+            return MessageLog(
+                path=path,
+                size_bytes=size,
+                read_bytes=read,
+                truncated=read < size or capped,
+                entries=entries,
                 duration_ms=round((time.perf_counter() - started) * 1000, 2),
             )
 

@@ -1933,6 +1933,118 @@ def test_issue_resolver_layout_separates_active_catalog_and_rules() -> None:
               f"the section styling uses the theme token {token}")
 
 
+def test_tasks_views_use_only_existing_live_task_data() -> None:
+    print("Checking the Tasks views: Upcoming, Schedule and Last Runs from existing task reads only...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "tasks.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+
+    for view, label in (("all", "All Tasks"), ("upcoming", "Upcoming"), ("schedule", "Schedule"), ("lastruns", "Last Runs")):
+        check(f'data-view-tab="{view}"' in html and f'>{label}</button>' in html and f'id="tasks-view-{view}"' in html,
+              f"the Tasks page has a {label} view")
+    check('id="tasks-view-all"' in html and html.index('id="tasks-view-all"') < html.index('id="tasks-table-body"'),
+          "the existing filters and table are the All Tasks view")
+
+    # Upcoming: the overview's NextScheduled, only real dates are ordered.
+    upcoming = code.split("function renderUpcoming() {", 1)[-1].split("\n}\n", 1)[0]
+    check("task.NextScheduled" in upcoming and "DATETIME_PATTERN.test(next)" in upcoming,
+          "Upcoming orders only NextScheduled values that are dates")
+    check("Next run reported as text, not a date" in upcoming and "No next run reported" in upcoming,
+          "text and empty NextScheduled values are listed as reported, not parsed")
+    check("new Date(" not in upcoming and "today" not in upcoming.lower().replace('"today"', ""),
+          "Upcoming groups by the IRIS date string, without timezone guessing")
+    check('managerStatus !== "Running"' in upcoming, "Upcoming warns when the Task Manager isn't running")
+
+    # Schedule: the existing detail read, no GUID resolution.
+    check("IrisApi.getTaskDetail(id)" in code and "if (scheduleDetails) {" in code,
+          "Schedule reads each task's existing detail once per refresh")
+    check("describeSchedule(detail)" in code, "Schedule reuses the drawer's schedule description")
+    views = re.sub(r"//[^\n]*", "", js.split("// --- Views", 1)[-1].split("// --- Detail drawer", 1)[0])
+    check("renderUpcoming" in views and "RunAfterGUID" not in views,
+          "the views never try to resolve a Run After GUID to a task")
+
+    # Last Runs: labelled as the most recent run only.
+    check("Last Runs &mdash; most recent run of each task" in html and "This is not a run history" in html,
+          "Last Runs is labelled as each task's most recent run, not a history")
+    last = code.split("function renderLastRuns() {", 1)[-1].split("\n}\n", 1)[0]
+    check("task.Info.LastStarted" in last and "Never run" in last and "makeResultCell(task)" in last,
+          "Last Runs shows each task's last start, finish and result, and never-run tasks")
+    for word in ("history", "History"):
+        check(word not in last, f"Last Runs code builds no {word!r}")
+
+    # No new requests or changes: same reads, Run Now only in the drawer.
+    used = set(re.findall(r"IrisApi[.](\w+)", code))
+    check(used == {"getTaskOverview", "getTaskManager", "getTaskDetail", "runTaskNow"},
+          f"tasks.js still uses only the existing task reads plus Run Now (found {sorted(used)})")
+    check("runTaskNow" not in views and "Run Now" not in views, "the views never offer Run Now")
+    check("handleRowClick" in code and "openDrawer(Number(row.dataset.taskId))" in views,
+          "rows in every view open the existing task drawer")
+    check(re.search(r"task\.Suspended\b", code) is None, "the views never read the list's Suspended flag")
+
+
+def test_message_log_is_read_only_with_search_levels_paging_and_detail() -> None:
+    print("Checking the Message Log: read-only, search, level filter, paging, columns and detail...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "message-log.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    view = re.search(r'<section[^>]*id="view-investigation".*?</section>\s*\n\s*<section class="view"', html, re.S)
+    text = view.group(0) if view else ""
+    check('id="message-log-section"' in text and ">Message Log</h3>" in text, "the Investigation page has a Message Log section")
+    for column in ("Timestamp", "PID", "Level", "Source", "Message"):
+        check(f'<th scope="col">{column}</th>' in text.split('id="message-log-section"', 1)[-1],
+              f"the Message Log has a {column!r} column")
+    check('id="message-log-search"' in text and 'id="message-log-level"' in text, "it has a search box and a level filter")
+    for level in ("Info", "Warning", "Severe", "Fatal", "Warning or higher"):
+        check(f">{level}</option>" in text, f"the level filter offers {level!r}")
+    check('id="message-log-page-prev"' in text and 'id="message-log-page-next"' in text, "it pages through entries")
+    check('class="ns-drawer ns-drawer--wide" id="message-log-drawer"' in text, "entries open a detail workspace")
+
+    check(set(re.findall(r"IrisApi[.](\w+)", code)) == {"getMessagesLog"}, "message-log.js only reads the message log")
+    check('getMessagesLog: () => fetchIris("/api/iris/messages-log")' in api_js, "the read is a GET to /api/iris/messages-log")
+    for word in ("fetch(", "innerHTML", "method:", "confirmed", "new Date(", "Date.parse"):
+        check(word not in code, f"message-log.js never uses {word!r} (read-only, timestamps not parsed)")
+    check("const PAGE_SIZE = 50;" in code and "filtered.slice(start, start + PAGE_SIZE)" in code,
+          "search, level and paging are local over the returned entries")
+    check('level === "1+" ? entry.level < 1' in code, "Warning or higher keeps levels 1-3")
+    check("dom.drawerMessage.textContent = entry.message;" in code, "the detail shows the full message as text")
+    check("loadMessageLog();" in app_js and "initMessageLogControls();" in app_js,
+          "app.js loads the Message Log with the Investigation page")
+
+
+def test_investigation_has_audit_and_message_log_tabs() -> None:
+    print("Checking Investigation: two prominent tabs, each with its own content and pagination...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    inv_js = (FRONTEND_DIR / "js" / "investigation.js").read_text(encoding="utf-8")
+    msg_js = (FRONTEND_DIR / "js" / "message-log.js").read_text(encoding="utf-8")
+    view = re.search(r'<section[^>]*id="view-investigation".*?</section>\s*\n\s*<section class="view"', html, re.S)
+    text = view.group(0) if view else ""
+
+    check('role="tablist"' in text and 'id="investigation-tab-audit"' in text and 'id="investigation-tab-messages"' in text,
+          "Investigation has Audit Investigation and Message Log tabs")
+    check(">Audit Investigation</span>" in text and ">Message Log</span>" in text, "the tabs are labelled clearly")
+    audit = text.split('id="investigation-panel-audit"', 1)[-1].split('id="investigation-panel-messages"', 1)[0]
+    messages = text.split('id="investigation-panel-messages"', 1)[-1].split('id="message-log-drawer-backdrop"', 1)[0]
+    for element in ("investigation-overview", "investigation-filter-form", "investigation-table-body", "investigation-pager",
+                    "investigation-search-button", "investigation-open-observability", "investigation-kpis"):
+        check(f'id="{element}"' in audit, f"the Audit tab keeps {element}")
+    for element in ("message-log-section", "message-log-search", "message-log-level", "message-log-table-body",
+                    "message-log-pager"):
+        check(f'id="{element}"' in messages, f"the Message Log tab has {element}")
+    check('id="message-log-section"' not in audit, "the Message Log is no longer at the bottom of the audit page")
+    check('id="investigation-panel-messages" role="tabpanel" aria-labelledby="investigation-tab-messages" hidden' in text,
+          "the Audit tab is shown first")
+    check('id="message-log-drawer"' in text and 'id="investigation-drawer"' in text, "both detail drawers are kept")
+
+    check('setInvestigationTab("audit");  // a time window is for the audit trail' in inv_js,
+          "jumping to Investigation with a time window shows the Audit tab")
+    check('panel.hidden = name !== tab;' in inv_js and '"ArrowLeft"' in inv_js, "tabs switch panels, with arrow keys")
+    check("dom.pager.hidden = filtered.length === 0;" in msg_js, "the Message Log always shows its pagination when there are entries")
+    check("dom.pager.hidden = false;" in inv_js, "the audit table keeps its own pagination")
+
+
 def test_theme_selector_offers_four_persisted_themes() -> None:
     print("Checking the theme selector offers Midnight/Slate/Professional/Light and persists the choice...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
@@ -2235,6 +2347,9 @@ def main() -> None:
         test_detection_only_issues_are_investigated_not_resolved,
         test_custom_issue_rules_panel,
         test_issue_resolver_layout_separates_active_catalog_and_rules,
+        test_tasks_views_use_only_existing_live_task_data,
+        test_message_log_is_read_only_with_search_levels_paging_and_detail,
+        test_investigation_has_audit_and_message_log_tabs,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
     ]

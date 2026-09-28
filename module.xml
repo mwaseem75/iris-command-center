@@ -3,7 +3,7 @@
   <Document name="iris-command-center.ZPM">
     <Module>
       <Name>iris-command-center</Name>
-      <Version>1.0.1</Version>
+      <Version>1.0.2</Version>
       <Description>IRIS Command Center: administration and observability console for InterSystems IRIS. Installs the web console at /iris-command-center/ (the FastAPI backend is run separately, e.g. docker compose up).</Description>
       <Keywords>administration observability monitoring console</Keywords>
       <Packaging>module</Packaging>
