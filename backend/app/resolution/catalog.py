@@ -350,9 +350,9 @@ SYSTEM_MONITOR_NOT_RUNNING = IssueResolution(
     severity=IssueSeverity.MEDIUM,
     detection_evidence=(
         DetectionEvidence(
-            source="GET /v2/monitor/dashboard/main",
-            field="Status.SystemMonitor",
-            condition="IRIS reports SystemMonitor as false.",
+            source="GET /v2/processes",
+            field="Routine",
+            condition="No %SYS.Monitor.Control process is present in %SYS.",
             issue_field="system_monitor",
         ),
     ),

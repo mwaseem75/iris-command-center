@@ -58,11 +58,23 @@ def _dashboard(*, system_monitor: bool = True) -> dict[str, Any]:
     }
 
 
+def _monitor_process() -> dict[str, Any]:
+    return {
+        "Job": 1, "Pid": 1, "Username": "_SYSTEM", "Device": "", "Nspace": "%SYS",
+        "Routine": "%SYS.Monitor.Control", "Commands": 0, "Globals": 0, "State": "Waiting",
+        "ClientName": "", "EXEname": "", "IPAddress": "", "CanBeExamined": False,
+        "CanBeSuspended": False, "CanBeTerminated": False, "CanReceiveBroadcast": False,
+        "PrvGblBlkCnt": 0, "OSUserName": "", "CPUTime": 0, "ParentPid": 0, "ElapsedTime": "0",
+    }
+
+
 def _healthy(mock: AsyncMock, bodies: dict[str, Any], *, system_monitor: bool = True,
-             task_manager: str = "Running", full: dict[str, Any] | None = None) -> dict[str, Any]:
+             monitor_process: bool = True, task_manager: str = "Running",
+             full: dict[str, Any] | None = None) -> dict[str, Any]:
     """Adds the detection-only checks' reads (healthy unless told otherwise).
     `full` maps a directory to the Full value its database-dir/info task returns."""
     bodies.setdefault("/v2/monitor/dashboard/main", _dashboard(system_monitor=system_monitor))
+    bodies.setdefault("/v2/processes", [_monitor_process()] if monitor_process else [])
     bodies.setdefault("/v2/task/manager", {"Status": task_manager})
     flags = full or {}
     mock.post_async_task.side_effect = lambda path, params=None, json=None: params["dir"]
@@ -427,14 +439,22 @@ def test_healthy_instance_has_no_detection_only_issues(client: TestClient, mock_
 
 
 def test_reports_the_system_monitor_not_running(client: TestClient, mock_iris_client: AsyncMock) -> None:
-    _mock(mock_iris_client, *HEALTHY, USER_NS, system_monitor=False)
+    _mock(mock_iris_client, *HEALTHY, USER_NS, monitor_process=False)
 
     (issue,) = _detection_only(_issues(client))
 
     assert issue["kind"] == "system_monitor_not_running"
     assert issue["system_monitor"] is False and issue["up_time"] == "0d  2h 05m"
-    assert "SystemMonitor is false" in issue["explanation"]
+    assert "%SYS.Monitor.Control" in issue["explanation"]
     assert "recommended_operation" not in issue and "parameters" not in issue
+
+
+def test_system_monitor_process_overrides_false_dashboard_flag(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock(mock_iris_client, *HEALTHY, USER_NS, system_monitor=False)
+
+    assert _detection_only(_issues(client)) == []
 
 
 @pytest.mark.parametrize("status", ["Stopped", "Suspended", ""])
@@ -527,7 +547,7 @@ def test_detection_only_issues_match_their_catalog_entries(client: TestClient, m
     from app.resolution.catalog import ISSUE_CATALOG
 
     _mock(mock_iris_client, [_db("APP", "/data/app/")], [_storage("/data/app/", size=8, max_size=8)], USER_NS,
-          system_monitor=False, task_manager="Stopped", full={"/data/app/": True})
+          monitor_process=False, task_manager="Stopped", full={"/data/app/": True})
 
     issues = _detection_only(_issues(client))
 

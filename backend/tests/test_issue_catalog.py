@@ -102,6 +102,8 @@ def test_entries_are_immutable() -> None:
 
 
 def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    from tests.test_issues_route import _monitor_process
+
     databases = [{"Name": "DEMO", "Directory": "/data/demo/", "Server": "", "ClusterMountMode": False,
                   "MountRequired": False, "MountAtStartup": True, "StreamLocation": "", "Status": ""}]
     dirs = [{"Directory": "/data/demo/", "Size": 1, "MaxSize": "Unlimited", "Status": "Dismounted",
@@ -112,7 +114,7 @@ def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_ir
     bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": [],
               "/v2/journal/settings": journal, "/v2/web-apps": [],  # read by the other issue checks
               "/v2/task/manager": {"Status": "Running"},
-              "/v2/monitor/dashboard/main": _dashboard()}
+              "/v2/monitor/dashboard/main": _dashboard(), "/v2/processes": [_monitor_process()]}
     mock_iris_client.get.side_effect = lambda path, **_: {"status": OK, "console": [], "result": bodies[path]}
 
     (issue,) = client.get("/api/iris/issues").json()["issues"]

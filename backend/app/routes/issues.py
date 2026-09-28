@@ -26,8 +26,8 @@ Six issue types. Resolvable:
 
 Detection-only (no operation; the catalog entry names the page to look into):
 
-- system_monitor_not_running: GET /v2/monitor/dashboard/main reports
-  Status.SystemMonitor false.
+- system_monitor_not_running: GET /v2/processes has no
+  %SYS.Monitor.Control process in %SYS.
 - task_manager_not_running: GET /v2/task/manager reports a Status other than
   "Running".
 - database_full: IRIS reports a mounted database as Full (POST
@@ -75,6 +75,7 @@ from app.routes.iris import (
     get_journal_settings,
     get_monitor_dashboard,
     get_namespaces,
+    get_processes,
     get_task_manager,
     get_web_apps,
 )
@@ -368,19 +369,24 @@ async def find_web_app_issues(client: IRISClient) -> list[WebAppNamespaceIssue] 
 
 
 async def find_system_monitor_issues(client: IRISClient) -> list[SystemMonitorIssue] | None:
-    """system_monitor_not_running, or None if the dashboard couldn't be read. Read-only."""
+    """system_monitor_not_running, or None if dashboard/process data couldn't be read. Read-only."""
     try:
         status = (await get_monitor_dashboard(client)).result.Status
+        processes = (await get_processes(client)).result
     except (HTTPException, ValidationError):
         return None
-    if status.SystemMonitor:
+    running = any(
+        process.Routine.startswith("%SYS.Monitor.Control") and process.Nspace == "%SYS"
+        for process in processes
+    )
+    if running:
         return []
     return [
         SystemMonitorIssue(
-            system_monitor=status.SystemMonitor,
+            system_monitor=False,
             up_time=status.UpTime,
             explanation=(
-                "IRIS reports that its System Monitor is not running (Status.SystemMonitor is false), so the "
+                "IRIS's %SYS.Monitor.Control process is not present in %SYS, so the "
                 "health indicators and alert counts IRIS reports are not being updated and may be out of date."
             ),
         )
