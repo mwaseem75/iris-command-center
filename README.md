@@ -170,12 +170,21 @@ Execution Traces capture Command Center operations from request through authoriz
 <img width="2183" alt="image" src="https://github.com/user-attachments/assets/131b5172-4491-4303-9907-a258dda623e8" />
 
 ### 🚨 Investigation
-Audit Investigation provides a dedicated view of the native IRIS security audit trail. Administrators can investigate real audit events using filters such as date range, event type, event, username, namespace, and free-text search. Events can be explored in a timeline and detailed workspace, with related Command Center traces surfaced when they occur within the relevant time window.
-Together, these views answer two complementary questions:
-Execution Traces: What did Command Center do?
-Audit Investigation: What did IRIS record?
-This separation provides an operational view of Command Center activity alongside the underlying IRIS audit evidence.
-<img width="2177"  alt="image" src="https://github.com/user-attachments/assets/88b48323-fba2-4eed-ad3d-ef086f6206a4" />
+Investigation provides two complementary views of native IRIS operational evidence.
+
+**Audit Investigation** provides a dedicated view of the native IRIS security audit trail. Administrators can investigate real audit events using filters such as date range, event type, event, username, namespace, and free-text search. Events can be explored in a timeline and detailed workspace, with related Command Center traces surfaced when they occur within the relevant time window. Audit results are paginated for focused investigation.
+<img width="2207" alt="image" src="https://github.com/user-attachments/assets/63d0621e-e51b-4851-b559-c8512e0ae5fa" />
+
+**Message Log** provides a read-only view of the native IRIS `messages.log`. Administrators can search messages, filter by severity level, browse paginated results, and open individual entries for their full metadata and message content. The log is read directly from IRIS using a fixed read-only path and is never modified by Command Center.
+<img width="2196" alt="image" src="https://github.com/user-attachments/assets/04649d90-fb72-4ad6-9fa1-4a3b5fba242f" />
+
+Together, these views answer two complementary operational questions:
+
+- **Execution Traces:** What did Command Center do?
+- **Audit Investigation:** What did IRIS record as a security/audit event?
+- **Message Log:** What messages and diagnostic information did IRIS report?
+
+This separation provides a focused operational view of Command Center activity alongside the underlying IRIS audit and message evidence.
 
 ### 🤖 AI-Assisted 
 Ask natural-language questions about live IRIS data while keeping the assistant inside the same controlled application API boundary.
