@@ -38,7 +38,7 @@ It combines live IRIS system information with controlled administrative workflow
 | ⚙️ **Processes** | Search, filter, and investigate live IRIS processes |
 | 🌐 **Web Applications** | Inspect configuration, REST applications, sessions, enable/disable apps, and update descriptions |
 | 🔍 **REST API Explorer** | Explore generated REST API definitions, endpoints, methods, parameters, and implementation details |
-| ⏱️ **Tasks** | Inspect task state, schedules, settings, execution information, and supported Run Now workflows |
+| ⏱️ **Tasks** | Monitor live task state, upcoming runs, schedules, and most recent run information, with task details and supported Run Now workflows |
 | 🔐 **Security** | Explore users, roles, resources, authentication posture, wallets, X.509, and OAuth2 |
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
@@ -216,10 +216,35 @@ Sensitive information is protected. The application deliberately withholds or fi
 - Sensitive personal fields
 
 ### 🗓️ Tasks
-Tasks provides a live view of scheduled IRIS tasks, including their current state and configuration. Administrators can search and filter tasks, open a detailed view, and inspect task settings while sensitive configuration values are automatically redacted.
-For eligible user tasks, Command Center also provides a controlled Run Now operation with authorization, explicit confirmation, and post-execution verification. System tasks are protected from manual execution.
+Tasks provides a live view of scheduled IRIS tasks, including their current state, configuration, upcoming runs, schedules, and most recent run information. Administrators can search and filter tasks, open a detailed view, and inspect task settings while sensitive configuration values are automatically redacted.
+
+The Tasks page provides four complementary views:
+
+- **All Tasks** — search and filter the complete live task list.
+- **Upcoming** — view the next scheduled runs reported by IRIS, ordered by time and grouped by date.
+- **Schedule** — inspect the configured schedule for each task, including period, time of day, date range, and next run.
+- **Last Runs** — review the most recent run information reported for each task. This is intentionally not presented as a full execution history.
+
+For eligible user tasks, Command Center also provides a controlled **Run Now** operation with authorization, explicit confirmation, and post-execution verification. System tasks are protected from manual execution.
+
 Task execution follows the same authorization → confirmation → execution → verification workflow used by other administrative operations.
-<img width="2175"  alt="image" src="https://github.com/user-attachments/assets/3a929158-9c59-4123-aafa-e8c33456fe38" />
+
+<img width="2172" alt="image" src="https://github.com/user-attachments/assets/d98404e0-cbff-44a8-865a-5a83c26fe0fc" />
+
+**Upcoming**
+
+<img width="2172"  alt="image" src="https://github.com/user-attachments/assets/24557671-d213-484a-af3b-a9fd81777ae3" />
+
+
+**Schedule**
+
+<img width="2161"  alt="image" src="https://github.com/user-attachments/assets/b1419160-fed6-476f-9d83-2877e7511e76" />
+
+
+**Last Runs**
+
+<img width="2156"  alt="image" src="https://github.com/user-attachments/assets/0902e9e8-9cbb-4efc-a0ed-379c27a386ac" />
+
 
 ### 📖 Journal
 Journal provides a live view of IRIS journal configuration, allowing administrators to inspect key journal settings and understand the current journaling posture of the connected instance.
