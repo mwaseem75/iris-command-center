@@ -21,7 +21,7 @@ from app.models.schemas import (
 )
 from app.resolution import custom_rules
 from app.routes.issues import list_issues
-from app.routes.security_access import get_audit_enabled
+from app.routes.iris import get_audit_enabled
 
 router = APIRouter(prefix="/api/iris", tags=["health-center"])
 

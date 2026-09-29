@@ -32,6 +32,7 @@ It combines live IRIS system information with controlled administrative workflow
 | Area | What you can do |
 |---|---|
 | 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, alerts, Issues & Recommendations, and recent activity |
+| 🩺 **Health Center** | Review overall health and assessment coverage across six categories, with live Current Activity and an informational Performance Snapshot |
 | 🩺 **Issue Resolver** | Detect supported issues from live IRIS evidence, distinguish resolvable and detection-only issues, define custom detection rules, investigate or resolve safely, verify results, and follow the execution trace |
 | 🗂️ **Namespaces** | Explore namespaces, relationships, and create namespaces safely |
 | 💾 **Databases** | Inspect databases, storage, integrity, and perform controlled create, mount, and dismount workflows |
@@ -129,6 +130,13 @@ IRIS Command Center is designed around practical operational scenarios rather th
 ### 📊 Dashboard & Explorers
 The dashboard provides a live operational snapshot. 
 <img width="2172"  alt="image" src="https://github.com/user-attachments/assets/ca0ac865-94f7-46f1-99f5-712364961983" />
+
+### 🩺 Health Center
+Health Center presents an overall health status and assessment coverage across **Performance, Tasks, Databases, Security, Web Applications, and System**. It shows findings, evidence, and recommendations from available read-only checks, reusing Issue Resolver detections where applicable rather than duplicating them.
+
+**Current Activity** displays observed values from the live IRIS Monitor Dashboard and process list, including Global References/sec, Cache Efficiency, process and session counts, and System Monitor process state. The **Performance Snapshot** distinguishes the reported current rate and efficiency from cumulative counters since IRIS startup, such as Global References, Disk Reads/Writes, and Logical Requests; cumulative values are not presented as rates.
+
+Health Center does not apply arbitrary performance thresholds. When available data does not support a defensible assessment, the category remains **Not Assessed** while available values can still be shown for information.
 
 ### 🩺 Issue Resolver
 Issue Resolver provides deterministic detection, investigation, and guided resolution for supported IRIS operational issues.
@@ -386,8 +394,6 @@ The Docker deployment supports these environment variables:
 | `AUTO_RUN_DEMO_ACTIVITY` | Enable the optional startup demo rehearsal |
 
 ---
-
-
 
 
 

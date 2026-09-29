@@ -59,6 +59,12 @@
             </button>
           </li>
           <li>
+            <button class="nav-item" type="button" data-view="health-center">
+              <span class="nav-item__icon" aria-hidden="true">&#10003;</span>
+              <span>Health Center</span>
+            </button>
+          </li>
+          <li>
             <button class="nav-item" type="button" data-view="issue-resolver">
               <span class="nav-item__icon" aria-hidden="true">&#10010;</span>
               <span>Issue Resolver</span>
@@ -337,6 +343,108 @@
                 <p class="dash-subtitle">By namespace</p>
                 <div id="dashboard-process-namespace"></div>
               </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-health-center" data-view="health-center" aria-labelledby="health-center-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="health-center-title">Health Center</h2>
+              <p class="view__subtitle">Read-only health assessment of the connected IRIS instance.</p>
+            </div>
+            <div class="health-center__header-actions">
+              <span class="info-panel__meta" id="health-center-generated"></span>
+              <button class="btn btn--primary" type="button" id="health-center-refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Run Health Check
+              </button>
+            </div>
+          </div>
+
+          <div class="banner banner--error" id="health-center-error" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="health-center-error-text"></span>
+          </div>
+
+          <div class="loading-state" id="health-center-loading" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Checking IRIS health&hellip;</span>
+          </div>
+
+          <div id="health-center-content" hidden>
+            <div class="health-center__top-grid">
+              <section class="info-card health-center__overall" aria-labelledby="health-center-overall-title">
+                <h3 class="info-card__title" id="health-center-overall-title">Overall Health</h3>
+                <div class="health-center__overall-content">
+                  <div class="health-center__coverage-ring" id="health-center-coverage-ring" role="img">
+                    <span id="health-center-coverage-fraction"></span>
+                  </div>
+                  <div class="health-center__overall-summary">
+                    <span class="status-badge status-badge--neutral" id="health-center-status"></span>
+                    <p class="health-center__coverage" id="health-center-coverage"></p>
+                    <p class="health-center__assessed-score" id="health-center-assessed-score" hidden></p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="info-card health-center__summary" aria-labelledby="health-center-summary-title">
+                <h3 class="info-card__title" id="health-center-summary-title">Category Summary</h3>
+                <div class="health-center__summary-grid" id="health-center-summary"></div>
+              </section>
+
+              <section class="info-card health-center__instance" aria-labelledby="health-center-instance-title">
+                <h3 class="info-card__title" id="health-center-instance-title">Instance Information</h3>
+                <dl class="health-center__instance-list" id="health-center-instance"></dl>
+              </section>
+            </div>
+
+            <section class="info-card health-center__activity" aria-labelledby="health-center-activity-title">
+              <div class="health-center__activity-header">
+                <div>
+                  <h3 class="info-card__title" id="health-center-activity-title">Current Activity</h3>
+                  <p class="health-center__activity-note">Observed IRIS values; no activity score or thresholds applied.</p>
+                </div>
+                <p class="health-center__activity-time" id="health-center-activity-time"></p>
+              </div>
+              <div class="health-center__activity-grid" id="health-center-activity-metrics"></div>
+              <p class="health-center__activity-unavailable" id="health-center-activity-unavailable" hidden></p>
+            </section>
+
+            <div class="health-center__main-grid">
+              <div class="health-center__left-column">
+                <section aria-labelledby="health-center-categories-title">
+                  <h3 class="section-heading section-heading--primary" id="health-center-categories-title">Category Details</h3>
+                  <div class="health-center__categories" id="health-center-categories"></div>
+                </section>
+
+                <section class="info-card health-center__section" id="health-center-findings-section" aria-labelledby="health-center-findings-title">
+                  <h3 class="info-card__title" id="health-center-findings-title">Findings</h3>
+                  <div class="health-center__list" id="health-center-findings"></div>
+                  <div class="health-center__empty" id="health-center-findings-empty" hidden>
+                    <span class="status-badge status-badge--ok">No Findings</span>
+                    <p>No findings were reported by the available checks.</p>
+                  </div>
+                </section>
+              </div>
+
+              <div class="health-center__right-column">
+                <section class="info-card health-center__api-panel" aria-labelledby="health-center-apis-title">
+                  <h3 class="info-card__title" id="health-center-apis-title">APIs Used in Health Check</h3>
+                  <p class="health-center__api-intro">Management API sources used by the existing read-only checks.</p>
+                  <div class="health-center__api-list" id="health-center-apis"></div>
+                </section>
+
+                <section class="info-card health-center__section" id="health-center-unavailable-section" aria-labelledby="health-center-unavailable-title" hidden>
+                  <h3 class="info-card__title" id="health-center-unavailable-title">Unavailable Sources</h3>
+                  <div class="health-center__list" id="health-center-unavailable"></div>
+                </section>
+              </div>
+            </div>
+
+            <section class="info-card health-center__section health-center__recommendations-row" id="health-center-recommendations-section" aria-labelledby="health-center-recommendations-title" hidden>
+              <h3 class="info-card__title" id="health-center-recommendations-title">Recommendations</h3>
+              <ul class="health-center__recommendations" id="health-center-recommendations"></ul>
             </section>
           </div>
         </section>

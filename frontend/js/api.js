@@ -285,6 +285,7 @@ async function postDatabaseOperation(path, fields, confirmed, dryRun) {
 
 export const IrisApi = {
   getInfo: () => fetchIris("/api/iris/info"),
+  getHealthReport: () => fetchIris("/api/iris/health"),
   getNamespaces: () => fetchIris("/api/iris/namespaces"),
   getDatabases: () => fetchIris("/api/iris/databases"),
   // Storage info for one database (IRIS runs it as an async task; the

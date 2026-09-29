@@ -30,6 +30,7 @@ import { initDemoActivity } from "./demo-activity.js";
 import { initDetailWorkspaces } from "./detail-workspace.js";
 import { loadExtensions, initExtensionsControls } from "./extensions.js";
 import { loadIssueResolver, initIssueResolverControls } from "./issue-resolver.js";
+import { loadHealthCenter, initHealthCenterControls } from "./health-center.js";
 import {
   loadInvestigation,
   initInvestigationControls,
@@ -100,6 +101,7 @@ function init() {
   });
   initCapabilitiesControls();
   initMessageLogControls();
+  initHealthCenterControls();
   initIssueResolverControls({
     onOpenDatabases: () => navigateTo("databases"),
     // Resource-aware: a web-app issue resolves on the Web Apps page.
@@ -155,6 +157,8 @@ function init() {
       loadExtensions();
     } else if (view === "issue-resolver") {
       loadIssueResolver();
+    } else if (view === "health-center") {
+      loadHealthCenter();
     } else if (view === "investigation") {
       loadInvestigation();
       loadMessageLog();
