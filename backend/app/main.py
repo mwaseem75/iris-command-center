@@ -36,6 +36,7 @@ from app.routes.capabilities import router as capabilities_router
 from app.routes.databases import router as databases_router
 from app.routes.demo import router as demo_router
 from app.routes.health import router as health_router
+from app.routes.health_center import router as health_center_router
 from app.routes.iris import router as iris_router
 from app.resolution import custom_rules
 from app.routes.issue_rules import router as issue_rules_router
@@ -142,6 +143,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(health_center_router)
 app.include_router(iris_router)
 app.include_router(security_access_router)
 app.include_router(security_users_router)
