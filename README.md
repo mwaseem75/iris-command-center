@@ -133,6 +133,7 @@ The dashboard provides a live operational snapshot.
 
 ### 🩺 Health Center
 Health Center presents an overall health status and assessment coverage across **Performance, Tasks, Databases, Security, Web Applications, and System**. It shows findings, evidence, and recommendations from available read-only checks, reusing Issue Resolver detections where applicable rather than duplicating them.
+<img width="2207" alt="image" src="https://github.com/user-attachments/assets/9202195a-e8e8-44aa-80e9-2202d56e8c18" />
 
 **Current Activity** displays observed values from the live IRIS Monitor Dashboard and process list, including Global References/sec, Cache Efficiency, process and session counts, and System Monitor process state. The **Performance Snapshot** distinguishes the reported current rate and efficiency from cumulative counters since IRIS startup, such as Global References, Disk Reads/Writes, and Logical Requests; cumulative values are not presented as rates.
 
