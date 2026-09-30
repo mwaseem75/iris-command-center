@@ -1,9 +1,11 @@
 """Bounded operational context returned to the AI Operations Copilot."""
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
+from app.authorization.operations import RiskLevel
 from app.copilot.intents import CopilotIntent
 
 
@@ -45,12 +47,29 @@ class CopilotWebAppContext(BaseModel):
 
 
 class CopilotTaskContext(BaseModel):
+    """One task from the existing task overview (GET /v2/tasks plus each
+    task's /v2/task/info), with schedule and run-as from GET /v2/task. Fields
+    are None when their IRIS read failed; schedule values are IRIS's own."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    id: int
     name: str
     namespace: str | None = None
-    suspended: bool
+    type: str | None = None
+    # From /v2/task/info (the list's own Suspended flag is unreliable).
+    state: Literal["Running", "Not Running", "Suspended"] | None = None
+    suspended: bool | None = None
+    error: str | None = None
+    last_finished: str | None = None
     next_scheduled: str | None = None
+    # From GET /v2/task (None if that read failed).
+    run_as_user: str | None = None
+    time_period: str | None = None
+    time_period_every: str | None = None
+    daily_frequency: str | None = None
+    daily_start_time: str | None = None
+    suspend_on_error: bool | None = None
 
 
 class CopilotIssueContext(BaseModel):
@@ -183,23 +202,6 @@ class CopilotWebAppDisableParameters(BaseModel):
         return value
 
 
-# Each allowlisted operation's only valid target kind and parameter model.
-_OPERATION_SHAPES: dict[CopilotOperation, tuple[CopilotTargetKind, type[BaseModel]]] = {
-    CopilotOperation.JOURNAL_UPDATE_PURGE_ARCHIVED: (
-        CopilotTargetKind.JOURNAL_SETTINGS,
-        CopilotOperationParameters,
-    ),
-    CopilotOperation.DATABASE_MOUNT: (
-        CopilotTargetKind.DATABASE,
-        CopilotDatabaseMountParameters,
-    ),
-    CopilotOperation.WEB_APP_SET_ENABLED: (
-        CopilotTargetKind.WEB_APP,
-        CopilotWebAppDisableParameters,
-    ),
-}
-
-
 class CopilotOperationPlan(BaseModel):
     """Validated, descriptive plan; it is not authorization or execution."""
 
@@ -212,11 +214,21 @@ class CopilotOperationPlan(BaseModel):
     )
     reason: str = Field(..., min_length=1, max_length=300)
     requires_confirmation: StrictBool
+    # The "copilot.plan" trace. Informational only: it links the execute
+    # trace to the plan trace and is never used to decide anything.
+    trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
     @model_validator(mode="after")
     def _shape_matches_operation(self) -> "CopilotOperationPlan":
-        target_kind, parameters_model = _OPERATION_SHAPES[self.operation]
-        if self.target.kind is not target_kind or type(self.parameters) is not parameters_model:
+        # Imported here: the capability catalog imports these models.
+        from app.copilot.capabilities import get_capability
+
+        capability = get_capability(self.operation)
+        if (
+            capability is None
+            or self.target.kind is not capability.target_kind
+            or type(self.parameters) is not capability.parameters_model
+        ):
             raise ValueError("The target and parameters don't match the operation.")
         return self
 
@@ -248,6 +260,7 @@ class CopilotPlanningReason(str, Enum):
     ISSUE_NOT_DETECTED = "issue_not_detected"
     AMBIGUOUS_TARGET = "ambiguous_target"
     ISSUES_UNAVAILABLE = "issues_unavailable"
+    RESOURCE_PROTECTED = "resource_protected"
 
 
 class CopilotPlanningResult(BaseModel):
@@ -300,6 +313,21 @@ class CopilotExecutionStatus(str, Enum):
     SUCCESS = "success"
 
 
+class CopilotFailure(str, Enum):
+    """Why a Copilot operation didn't succeed. The same codes name the failure
+    stages of the Copilot trace (app/copilot/trace.py)."""
+
+    PLAN_REJECTED = "plan_rejected"
+    AUTHORIZATION_FAILED = "authorization_failed"
+    ISSUE_NOT_DETECTED = "issue_not_detected"
+    TARGET_CHANGED = "target_changed"
+    PARAMETER_MISMATCH = "parameter_mismatch"
+    RESOURCE_PROTECTED = "resource_protected"
+    EXECUTION_FAILED = "execution_failed"
+    VERIFICATION_FAILED = "verification_failed"
+    ISSUE_STILL_DETECTED = "issue_still_detected"
+
+
 class CopilotExecutionResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -310,3 +338,35 @@ class CopilotExecutionResult(BaseModel):
     verification_succeeded: StrictBool
     verified_value: StrictBool | None = None
     detail: str
+    # The structured reason, or None on success; `status` stays the broad outcome.
+    failure: CopilotFailure | None = None
+    # The "copilot.execute" trace (informational only).
+    trace_id: str | None = None
+
+
+class CopilotCapabilitySummary(BaseModel):
+    """Public, read-only view of one Copilot capability. Privileges, risk and
+    confirmation come from OPERATION_REGISTRY; the issue's title and severity
+    from ISSUE_CATALOG. Handlers and parameter models are never exposed."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    operation: CopilotOperation
+    title: str
+    target_kind: CopilotTargetKind
+    issue_type: str | None
+    issue_title: str | None
+    issue_severity: str | None
+    example_requests: list[str]
+    constraints: list[str]
+    verification: str
+    undo: str | None
+    required_privileges: list[str]
+    risk_level: RiskLevel
+    confirmation_required: bool
+
+
+class CopilotCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    capabilities: list[CopilotCapabilitySummary]

@@ -93,7 +93,17 @@ class OperationExecutor:
             request.resolution_issue_type, request.operation_name, request.parameters
         )
         recorder = TraceRecorder(request.operation_name, resolution=resolution_context)
+        result = await self._execute(request, context, recorder, resolution_context)
+        # Informational link to this run's trace; nothing reads it to decide.
+        return result.model_copy(update={"trace_id": recorder.trace_id})
 
+    async def _execute(
+        self,
+        request: OperationRequest,
+        context: ExecutionContext,
+        recorder: TraceRecorder,
+        resolution_context: ResolutionContext | None,
+    ) -> OperationResult:
         operation = get_operation(request.operation_name)
         if operation is None:
             recorder.skip("authorization", "unknown_operation")

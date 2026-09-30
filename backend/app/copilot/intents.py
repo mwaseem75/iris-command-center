@@ -68,3 +68,20 @@ def classify_intent(message: str) -> CopilotIntent:
     if _matches_any(text, _READ_ONLY_PATTERNS):
         return CopilotIntent.READ_ONLY_QUERY
     return CopilotIntent.UNKNOWN
+
+
+_TASK_DETAIL_PATTERN = re.compile(
+    r"\brun[\s-]?as\b|\bschedul\w*|\bfrequency\b|\bdaily\b|\bstart\s+time\b"
+    r"|\bsuspend[\s-]+on[\s-]+error\b",
+    re.IGNORECASE,
+)
+
+
+def is_task_detail_question(message: str) -> bool:
+    """True if the question needs per-task detail from GET /v2/task (run-as,
+    schedule, frequency, daily start time, suspend-on-error). State, errors
+    and last/next run come from the task overview and don't need it."""
+    return (
+        re.search(r"\btasks?\b", message, re.IGNORECASE) is not None
+        and _TASK_DETAIL_PATTERN.search(message) is not None
+    )

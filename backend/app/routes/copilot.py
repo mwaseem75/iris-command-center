@@ -6,9 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from app.copilot.context import CopilotContextService
 from app.copilot.ai import CopilotAIProvider, create_copilot_provider
 from app.copilot.authorization import CopilotAuthorizationService
+from app.copilot.capabilities import describe_capabilities
 from app.copilot.execution import CopilotExecutionService
-from app.copilot.intents import CopilotIntent, classify_intent
-from app.copilot.planner import CopilotPlanningService, catalog_operation_for
+from app.copilot.intents import CopilotIntent, classify_intent, is_task_detail_question
+from app.copilot.planner import CatalogOperation, CopilotPlanningService, catalog_operation_for
 from app.copilot.reasoning import CopilotReasoningService
 from app.dependencies import get_caller_privileges, get_iris_client
 from app.iris_client.client import IRISClient
@@ -16,13 +17,16 @@ from app.models.copilot import (
     CopilotAskResponse,
     CopilotAuthorizationRequest,
     CopilotAuthorizationResult,
+    CopilotCapabilitiesResponse,
     CopilotExecutionRequest,
     CopilotExecutionResult,
+    CopilotFailure,
     CopilotOperationalContext,
     CopilotPlanRequest,
     CopilotPlanningResult,
 )
-from app.routes.issues import list_issues
+from app.copilot.trace import CopilotStage, CopilotTrace
+from app.routes.issues import IssuesResponse, list_issues
 
 router = APIRouter(prefix="/api/iris/copilot", tags=["copilot"])
 
@@ -53,6 +57,12 @@ async def classify_copilot_request(body: CopilotClassifyRequest) -> CopilotClass
     return CopilotClassifyResponse(intent=classify_intent(body.message))
 
 
+@router.get("/capabilities", response_model=CopilotCapabilitiesResponse)
+async def list_copilot_capabilities() -> CopilotCapabilitiesResponse:
+    """The closed catalog of operations the Copilot may propose. Read-only; no IRIS call."""
+    return CopilotCapabilitiesResponse(capabilities=describe_capabilities())
+
+
 @router.get("/context", response_model=CopilotOperationalContext)
 async def get_copilot_context(
     client: IRISClient = Depends(get_iris_client),
@@ -70,7 +80,10 @@ async def ask_copilot(
     reasoning = CopilotReasoningService(provider)
     if intent is CopilotIntent.UNKNOWN:
         return await reasoning.reason(body.message, intent, None)
-    context = await CopilotContextService(client).get_context()
+    # Task details cost one IRIS call per task; read them only when asked for.
+    context = await CopilotContextService(client).get_context(
+        task_details=is_task_detail_question(body.message)
+    )
     return await reasoning.reason(body.message, intent, context)
 
 
@@ -82,12 +95,51 @@ async def plan_copilot_operation(
     # Only a catalog-backed proposal needs the current (read-only) issue
     # detection; the plan's target and parameters come from it.
     issues = None
-    if catalog_operation_for(body) is not None:
+    spec = catalog_operation_for(body)
+    if spec is not None:
         try:
             issues = await list_issues(client)
         except (HTTPException, ValidationError):
             issues = None
-    return CopilotPlanningService().plan(body, issues)
+    result = CopilotPlanningService().plan(body, issues)
+    if result.intent is not CopilotIntent.RESOLUTION_REQUEST:
+        return result  # only change requests are traced
+    return _record_plan_trace(body, result, spec, issues)
+
+
+def _record_plan_trace(
+    body: CopilotPlanRequest,
+    result: CopilotPlanningResult,
+    spec: CatalogOperation | None,
+    issues: IssuesResponse | None,
+) -> CopilotPlanningResult:
+    """Record the "copilot.plan" trace; the plan returned carries its id."""
+    trace = CopilotTrace("copilot.plan")
+    # Never the message text itself: only its length.
+    trace.stage(CopilotStage.REQUESTED, message_length=len(body.message))
+    trace.stage(CopilotStage.CLASSIFIED, intent=result.intent)
+    plan = result.plan
+    if spec is not None and issues is not None:
+        detected = sum(1 for issue in issues.issues if issue.kind == spec.issue_type)
+        attributes = {
+            "issue_type": spec.issue_type,
+            "issues_detected": detected,
+            "issue_id": plan.target.issue_id if plan else None,
+        }
+        trace.stage(CopilotStage.ISSUE_DETECTED, error=plan is None, **attributes)
+    if plan is None:
+        trace.fail(CopilotFailure.PLAN_REJECTED, reason=result.reason)
+        trace.finish(CopilotStage.PLAN_CREATED)  # status becomes plan_rejected
+        return result
+    trace.stage(
+        CopilotStage.PLAN_CREATED,
+        operation=plan.operation,
+        target_kind=plan.target.kind,
+        target=plan.target.identifier,
+    )
+    trace.stage(CopilotStage.CONFIRMATION_REQUIRED, confirmation_required=plan.requires_confirmation)
+    trace.finish(CopilotStage.PLAN_CREATED)
+    return result.model_copy(update={"plan": plan.model_copy(update={"trace_id": trace.trace_id})})
 
 
 @router.post("/authorize", response_model=CopilotAuthorizationResult)

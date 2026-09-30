@@ -325,7 +325,7 @@ def test_system_or_mirrored_databases_are_never_planned(issue: DatabaseMountIssu
     )
 
     assert result.plan is None
-    assert result.reason is CopilotPlanningReason.UNSUPPORTED_ACTION
+    assert result.reason is CopilotPlanningReason.RESOURCE_PROTECTED
 
 
 def test_purge_archived_planning_ignores_issue_detection() -> None:

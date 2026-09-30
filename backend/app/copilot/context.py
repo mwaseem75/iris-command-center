@@ -22,10 +22,18 @@ from app.models.iris import (
     IRISEnvelope,
     InfoResult,
     ProcessEntry,
-    TaskEntry,
+    TaskDetail,
+    TaskOverviewEntry,
     WebAppEntry,
 )
-from app.routes.iris import get_databases, get_info, get_processes, get_tasks, get_web_apps
+from app.routes.iris import (
+    get_databases,
+    get_info,
+    get_processes,
+    get_task_detail,
+    get_tasks_overview,
+    get_web_apps,
+)
 from app.routes.issues import IssuesResponse, list_issues
 
 _MAX_ITEMS_PER_SOURCE = 10
@@ -44,7 +52,10 @@ class CopilotContextService:
     def __init__(self, client: IRISClient):
         self._client = client
 
-    async def get_context(self) -> CopilotOperationalContext:
+    async def get_context(self, *, task_details: bool = True) -> CopilotOperationalContext:
+        """`task_details` reads GET /v2/task for each task kept in the context
+        (schedule, run-as). Without it those fields stay None and no detail
+        call is made; state, errors and last/next run are still included."""
         unavailable: list[str] = []
 
         async def read_source(
@@ -72,8 +83,12 @@ class CopilotContextService:
             read_source("databases", get_databases),
             read_source("processes", get_processes),
             read_source("web_apps", get_web_apps),
-            read_source("tasks", get_tasks),
+            read_source("tasks", get_tasks_overview),
             read_issues(),
+        )
+        shown_tasks = tasks[:_MAX_ITEMS_PER_SOURCE] if isinstance(tasks, list) else []
+        details = (
+            await self._task_details(shown_tasks) if task_details else [None] * len(shown_tasks)
         )
 
         return CopilotOperationalContext(
@@ -84,7 +99,7 @@ class CopilotContextService:
             processes_total=len(processes) if isinstance(processes, list) else None,
             web_apps=self._web_apps(web_apps) if isinstance(web_apps, list) else [],
             web_apps_total=len(web_apps) if isinstance(web_apps, list) else None,
-            tasks=self._tasks(tasks) if isinstance(tasks, list) else [],
+            tasks=self._tasks(tasks, details) if isinstance(tasks, list) else [],
             tasks_total=len(tasks) if isinstance(tasks, list) else None,
             issues=self._issues(issues) if issues is not None else [],
             issues_total=len(issues.issues) if issues is not None else None,
@@ -141,17 +156,45 @@ class CopilotContextService:
             for item in web_apps[:_MAX_ITEMS_PER_SOURCE]
         ]
 
+    async def _task_details(self, tasks: list[TaskOverviewEntry]) -> list[TaskDetail | None]:
+        """GET /v2/task for each task kept in the context (schedule, run-as).
+        A failed read leaves that task's detail fields None."""
+
+        async def read(task_id: int) -> TaskDetail | None:
+            try:
+                return (await get_task_detail(task_id, self._client)).result
+            except (HTTPException, ValidationError):
+                return None
+
+        return list(await asyncio.gather(*(read(task.Id) for task in tasks)))
+
     @staticmethod
-    def _tasks(tasks: list[TaskEntry]) -> list[CopilotTaskContext]:
-        return [
-            CopilotTaskContext(
-                name=_bounded_text(item.Name) or "",
-                namespace=_bounded_text(item.Namespace),
-                suspended=item.Suspended,
-                next_scheduled=_bounded_text(item.NextScheduled),
+    def _tasks(
+        tasks: list[TaskOverviewEntry], details: list[TaskDetail | None]
+    ) -> list[CopilotTaskContext]:
+        contexts = []
+        for item, detail in zip(tasks[:_MAX_ITEMS_PER_SOURCE], details):
+            info = item.Info
+            contexts.append(
+                CopilotTaskContext(
+                    id=item.Id,
+                    name=_bounded_text(item.Name) or "",
+                    namespace=_bounded_text(item.Namespace),
+                    type=_bounded_text(item.Type),
+                    state=item.State,
+                    suspended=info.Suspended if info is not None else None,
+                    error=_bounded_text(info.Error) if info is not None and info.Error else None,
+                    last_finished=_bounded_text(item.LastFinished),
+                    next_scheduled=_bounded_text(item.NextScheduled),
+                    run_as_user=_bounded_text(detail.RunAsUser) if detail else None,
+                    time_period=_bounded_text(detail.TimePeriod) if detail else None,
+                    time_period_every=_bounded_text(str(detail.TimePeriodEvery)) if detail else None,
+                    daily_frequency=_bounded_text(detail.DailyFrequency) if detail else None,
+                    daily_start_time=_bounded_text(detail.DailyStartTime) if detail else None,
+                    suspend_on_error=detail.SuspendOnError if detail else None,
+                )
             )
-            for item in tasks[:_MAX_ITEMS_PER_SOURCE]
-        ]
+        return contexts
 
     @staticmethod
     def _issues(response: IssuesResponse) -> list[CopilotIssueContext]:

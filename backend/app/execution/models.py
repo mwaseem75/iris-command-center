@@ -118,3 +118,6 @@ class OperationResult(BaseModel):
     verification: PostActionVerificationResult | None = None
     detail: str
     lifecycle: ResolutionLifecycleEvidence | None = None
+    # The ExecutionTrace recorded for this run. Informational only: it links
+    # other traces (e.g. the Copilot's) to this one and decides nothing.
+    trace_id: str | None = None

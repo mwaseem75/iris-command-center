@@ -8,7 +8,7 @@ planning, authorization, confirmation and execution.
 import re
 from typing import Protocol
 
-from app.copilot.intents import CopilotIntent
+from app.copilot.intents import CopilotIntent, is_task_detail_question
 from app.models.copilot import CopilotAIOutput, CopilotAIRequest, CopilotOperationalContext
 
 
@@ -61,11 +61,78 @@ class DeterministicCopilotProvider:
                 requires_confirmation=proposed_action is not None,
             )
 
+        if request.intent is CopilotIntent.READ_ONLY_QUERY and _TASK_WORD.search(request.message):
+            observations.extend(
+                _task_detail_observations(context)
+                if is_task_detail_question(request.message)
+                else _task_observations(context)
+            )
+            return CopilotAIOutput(answer=_task_answer(context), observations=observations[:8])
+
         observations.extend(_context_counts(context))
         return CopilotAIOutput(
             answer="Here is the available read-only operational context.",
             observations=observations[:8],
         )
+
+
+_TASK_WORD = re.compile(r"\btasks?\b", re.IGNORECASE)
+
+
+def _task_answer(context: CopilotOperationalContext) -> str:
+    """Summary of the tasks in the context only (at most 10); read-only."""
+    if context.tasks_total is None:
+        return "Task information could not be read, so task states are unknown."
+    shown = len(context.tasks)
+    if shown == 0:
+        return "IRIS reports no tasks."
+    suspended = sum(1 for task in context.tasks if task.state == "Suspended")
+    failing = sum(1 for task in context.tasks if task.error)
+    scope = (
+        f"Of the {shown} tasks shown ({context.tasks_total} in total)"
+        if shown < context.tasks_total
+        else f"Of the {shown} task{'' if shown == 1 else 's'}"
+    )
+    return (
+        f"{scope}: {suspended} suspended, {failing} with an error reported. "
+        "Nothing is changed from here."
+    )
+
+
+def _task_observations(context: CopilotOperationalContext) -> list[str]:
+    if context.tasks_total is None or not context.tasks:
+        return []
+    observations = [
+        f"Suspended: {task.name}" + (f" ({task.type})" if task.type else "")
+        for task in context.tasks
+        if task.state == "Suspended"
+    ] or ["No suspended tasks among those shown."]
+    observations += [
+        f"Error reported for {task.name}: {task.error}" for task in context.tasks if task.error
+    ] or ["No task errors among those shown."]
+    unknown = sum(1 for task in context.tasks if task.state is None)
+    if unknown:
+        observations.append(f"Run state unavailable for {unknown} task{'' if unknown == 1 else 's'}.")
+    return observations
+
+
+def _task_detail_observations(context: CopilotOperationalContext) -> list[str]:
+    """Run-as and schedule per task, as IRIS reports them (not interpreted)."""
+    if context.tasks_total is None:
+        return []
+    observations = []
+    for task in context.tasks:
+        if task.run_as_user is None and task.time_period is None:
+            observations.append(f"{task.name}: details unavailable.")
+            continue
+        suspend_on_error = {True: "yes", False: "no"}.get(task.suspend_on_error, "unknown")
+        observations.append(
+            f"{task.name}: runs as {task.run_as_user}; TimePeriod {task.time_period}, "
+            f"every {task.time_period_every}; DailyFrequency {task.daily_frequency}, "
+            f"DailyStartTime {task.daily_start_time}; next run {task.next_scheduled or 'none'}; "
+            f"suspend on error: {suspend_on_error}."
+        )
+    return observations
 
 
 def _purge_archived_proposal(message: str) -> str | None:

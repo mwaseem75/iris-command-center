@@ -19,6 +19,8 @@ _READ_PATHS = (
     "/v2/processes",
     "/v2/web-apps",
     "/v2/tasks",
+    "/v2/task/info",
+    "/v2/task",
 )
 _LIMIT = 10
 _TEXT_LIMIT = 160
@@ -147,6 +149,35 @@ def list_issues() -> AsyncMock:
         yield reader
 
 
+def _task_info(*, suspended: bool = False, status: str = "0", error: str = "") -> dict[str, object]:
+    return {
+        "Type": "User",
+        "Status": status,
+        "Error": error,
+        "LastSchedule": "",
+        "LastStarted": "",
+        "LastFinished": "yesterday",
+        "NextScheduled": "tomorrow",
+        "Suspended": suspended,
+    }
+
+
+def _task_detail() -> dict[str, object]:
+    return {
+        "Name": "Task0", "Description": "not included", "TaskClass": "User.Task",
+        "NameSpace": "USER", "RunAsUser": "operator", "Priority": "Normal", "IsBatch": False,
+        "MirrorStatus": "", "RescheduleOnStart": False, "SuspendOnError": True,
+        "SuspendTerminated": False, "TimePeriod": "Daily", "TimePeriodEvery": 1,
+        "TimePeriodDay": "", "DailyFrequency": "Once", "DailyFrequencyTime": "",
+        "DailyIncrement": "", "DailyStartTime": "02:00:00", "DailyEndTime": "00:00:00",
+        "StartDate": "2026-01-01", "EndDate": "", "RunAfterGUID": "", "Expires": False,
+        "ExpiresDays": "", "ExpiresHours": "", "ExpiresMinutes": "", "OpenOutputFile": False,
+        "OutputDirectory": "", "OutputFilename": "", "OutputFileIsBinary": False,
+        "EmailOutput": False, "EmailOnCompletion": [], "EmailOnError": [],
+        "EmailOnExpiration": [], "Settings": {"SMTPPass": "secret-value"},
+    }
+
+
 def _iris_responses(item_count: int = 1) -> dict[str, dict[str, object]]:
     return {
         "/info": _body(_info_result()),
@@ -154,6 +185,10 @@ def _iris_responses(item_count: int = 1) -> dict[str, dict[str, object]]:
         "/v2/processes": _body([_process(index) for index in range(item_count)]),
         "/v2/web-apps": _body([_web_app(f"/app{index}") for index in range(item_count)]),
         "/v2/tasks": _body([_task(f"Task{index}") for index in range(item_count)]),
+        # The existing task overview reads each task's info; the context
+        # reads each shown task's detail (schedule, run-as).
+        "/v2/task/info": _body(_task_info()),
+        "/v2/task": _body(_task_detail()),
     }
 
 

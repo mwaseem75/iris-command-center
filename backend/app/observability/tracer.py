@@ -35,6 +35,10 @@ class TraceRecorder:
     def start_time(self) -> datetime:
         return self._trace.start_time
 
+    @property
+    def trace_id(self) -> str:
+        return self._trace.trace_id
+
     def set_lifecycle(self, lifecycle: ResolutionLifecycleEvidence | None) -> None:
         self._trace.lifecycle = lifecycle
 

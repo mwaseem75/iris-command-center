@@ -7,10 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from app.copilot.capabilities import COPILOT_CAPABILITIES, CopilotCapability, get_capability
 from app.copilot.intents import CopilotIntent, classify_intent
 from app.execution.web_app_set_enabled_handler import _PROTECTED_APPS, _normalize as _web_app_key
 from app.models.copilot import (
-    CopilotDatabaseMountParameters,
     CopilotOperation,
     CopilotOperationParameters,
     CopilotOperationPlan,
@@ -19,7 +19,6 @@ from app.models.copilot import (
     CopilotPlanningReason,
     CopilotPlanningResult,
     CopilotTargetKind,
-    CopilotWebAppDisableParameters,
 )
 from app.resolution.catalog import get_issue_resolution
 from app.resolution.models import IssueResolution
@@ -83,24 +82,42 @@ _WEB_APP_MESSAGE_PATTERNS = (
 
 @dataclass(frozen=True)
 class CatalogOperation:
-    """A Copilot operation that resolves one currently detected Issue Resolver
-    issue. The request's name only selects the issue; the plan's target and
-    parameters always come from that issue and its catalog entry."""
+    """How to plan one issue-backed Copilot capability. The request's name
+    only selects a currently detected issue; the plan's target and parameters
+    always come from that issue and its catalog entry. The operation, issue
+    type, target kind and parameter model come from the capability
+    (app/copilot/capabilities.py), which is the Copilot allowlist."""
 
-    operation: CopilotOperation
-    issue_type: str
+    capability: CopilotCapability
     issue_model: type[BaseModel]
-    target_kind: CopilotTargetKind
-    parameters_model: type[BaseModel]
     proposal_pattern: re.Pattern[str]
     # The normalized name the message asks for, or None if it isn't exactly one.
     requested_name: Callable[[str], str | None]
     # How names are compared (issue display name, proposal and message).
     name_key: Callable[[str], str]
-    # Extra eligibility beyond detection (defense in depth).
+    # Defense in depth beyond detection: resources that must never be changed
+    # (refused as resource_protected), and any other eligibility condition.
+    protected: Callable[[Any, IssueResolution], bool]
     eligible: Callable[[Any, IssueResolution], bool]
     plan_reason: str
     completed: str
+
+    @property
+    def operation(self) -> CopilotOperation:
+        return self.capability.operation
+
+    @property
+    def issue_type(self) -> str:
+        assert self.capability.issue_type is not None
+        return self.capability.issue_type
+
+    @property
+    def target_kind(self) -> CopilotTargetKind:
+        return self.capability.target_kind
+
+    @property
+    def parameters_model(self) -> type[BaseModel]:
+        return self.capability.parameters_model
 
 
 def _requested_database_name(message: str) -> str | None:
@@ -124,48 +141,57 @@ def _requested_web_app_name(message: str) -> str | None:
     return None
 
 
-def _database_eligible(issue: DatabaseMountIssue, entry: IssueResolution) -> bool:
-    return issue.database.upper() not in entry.excluded_databases and not issue.mirrored
+def _database_protected(issue: DatabaseMountIssue, entry: IssueResolution) -> bool:
+    return issue.database.upper() in entry.excluded_databases or issue.mirrored
+
+
+def _web_app_protected(issue: WebAppNamespaceIssue, entry: IssueResolution) -> bool:
+    return _web_app_key(issue.web_app) in _PROTECTED_APPS or "system" in issue.app_type.lower()
+
+
+def _always_eligible(issue: Any, entry: IssueResolution) -> bool:
+    return True
 
 
 def _web_app_eligible(issue: WebAppNamespaceIssue, entry: IssueResolution) -> bool:
-    return (
-        issue.enabled
-        and _web_app_key(issue.web_app) not in _PROTECTED_APPS
-        and "system" not in issue.app_type.lower()
-    )
+    return issue.enabled
 
 
-CATALOG_OPERATIONS: dict[CopilotOperation, CatalogOperation] = {
-    CopilotOperation.DATABASE_MOUNT: CatalogOperation(
-        operation=CopilotOperation.DATABASE_MOUNT,
-        issue_type="database_dismounted",
+_PLANNING_SPECS = (
+    CatalogOperation(
+        capability=COPILOT_CAPABILITIES[CopilotOperation.DATABASE_MOUNT],
         issue_model=DatabaseMountIssue,
-        target_kind=CopilotTargetKind.DATABASE,
-        parameters_model=CopilotDatabaseMountParameters,
         proposal_pattern=_MOUNT_PROPOSAL_PATTERN,
         requested_name=_requested_database_name,
         name_key=str.casefold,
-        eligible=_database_eligible,
+        protected=_database_protected,
+        eligible=_always_eligible,
         plan_reason="The Issue Resolver currently detects this database as dismounted.",
         completed="The database was mounted",
     ),
-    CopilotOperation.WEB_APP_SET_ENABLED: CatalogOperation(
-        operation=CopilotOperation.WEB_APP_SET_ENABLED,
-        issue_type="web_app_namespace_missing",
+    CatalogOperation(
+        capability=COPILOT_CAPABILITIES[CopilotOperation.WEB_APP_SET_ENABLED],
         issue_model=WebAppNamespaceIssue,
-        target_kind=CopilotTargetKind.WEB_APP,
-        parameters_model=CopilotWebAppDisableParameters,
         proposal_pattern=_WEB_APP_PROPOSAL_PATTERN,
         requested_name=_requested_web_app_name,
         name_key=_web_app_key,
+        protected=_web_app_protected,
         eligible=_web_app_eligible,
         plan_reason=(
             "The Issue Resolver currently detects this enabled web application's namespace as missing."
         ),
         completed="The web application was disabled",
     ),
+)
+
+# Planning details for each issue-backed capability, keyed by operation.
+CATALOG_OPERATIONS: dict[CopilotOperation, CatalogOperation] = {
+    spec.operation: spec for spec in _PLANNING_SPECS
 }
+if set(CATALOG_OPERATIONS) != {
+    operation for operation, capability in COPILOT_CAPABILITIES.items() if capability.issue_type
+} or len(CATALOG_OPERATIONS) != len(_PLANNING_SPECS):
+    raise ValueError("Every issue-backed Copilot capability needs exactly one planning spec, and no others.")
 
 
 class CopilotPlanningService:
@@ -204,9 +230,10 @@ class CopilotPlanningService:
         if spec is not None:
             return _plan_catalog_operation(spec, request, deterministic_intent, issues)
 
+        capability = get_capability(CopilotOperation.JOURNAL_UPDATE_PURGE_ARCHIVED)
         proposal = _PROPOSAL_PATTERN.fullmatch(request.proposed_action)
         target_value = _requested_purge_archived_value(request.message)
-        if proposal is None or target_value is None:
+        if capability is None or proposal is None or target_value is None:
             return CopilotPlanningResult(
                 intent=deterministic_intent,
                 reason=CopilotPlanningReason.UNSUPPORTED_ACTION,
@@ -223,10 +250,10 @@ class CopilotPlanningService:
             intent=deterministic_intent,
             reason=CopilotPlanningReason.PLAN_CREATED,
             plan=CopilotOperationPlan(
-                operation=CopilotOperation.JOURNAL_UPDATE_PURGE_ARCHIVED,
+                operation=capability.operation,
                 target=CopilotOperationTarget(
-                    kind=CopilotTargetKind.JOURNAL_SETTINGS,
-                    identifier="journal-settings",
+                    kind=capability.target_kind,
+                    identifier=capability.target_identifier,
                 ),
                 parameters=CopilotOperationParameters(PurgeArchived=target_value),
                 reason="The message and exact proposed action agree on the journal setting value.",
@@ -269,6 +296,7 @@ def catalog_parameters(spec: CatalogOperation, issue: Any) -> BaseModel | None:
         or entry.operation != spec.operation.value
         or not isinstance(issue, spec.issue_model)
         or issue.kind != spec.issue_type
+        or spec.protected(issue, entry)
         or not spec.eligible(issue, entry)
     ):
         return None
@@ -284,6 +312,12 @@ def catalog_parameters(spec: CatalogOperation, issue: Any) -> BaseModel | None:
         return spec.parameters_model(**values)
     except (TypeError, ValidationError):
         return None
+
+
+def is_protected(spec: CatalogOperation, issue: Any) -> bool:
+    """True if `issue` is about a resource `spec` must never change."""
+    entry = get_issue_resolution(spec.issue_type)
+    return entry is not None and isinstance(issue, spec.issue_model) and spec.protected(issue, entry)
 
 
 def _plan_catalog_operation(
@@ -311,6 +345,8 @@ def _plan_catalog_operation(
         return CopilotPlanningResult(intent=intent, reason=CopilotPlanningReason.AMBIGUOUS_TARGET)
 
     issue = matches[0]
+    if is_protected(spec, issue):
+        return CopilotPlanningResult(intent=intent, reason=CopilotPlanningReason.RESOURCE_PROTECTED)
     parameters = catalog_parameters(spec, issue)
     if parameters is None:
         return CopilotPlanningResult(intent=intent, reason=CopilotPlanningReason.UNSUPPORTED_ACTION)

@@ -3,7 +3,7 @@
 **Observe. Investigate. Act—safely.**
 
 A modern operational console for **InterSystems IRIS** that brings monitoring, administration, investigation, security, visibility, issue resolution, and operational tracing into one place.
-It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and an issue-aware AI Assistant built on a deterministic provider.
+It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and **IRIS Ops Skill** — a reusable, safety-oriented AI operations capability that explains live IRIS issues and resolves a closed set of approved problems only through deterministic planning, explicit confirmation, authorization, verification and tracing.
 <p align="center">
 <img width="2048"  alt="image" src="https://github.com/user-attachments/assets/be3beb83-ba53-41a1-8e78-53ff8e5c5a26" />
 </p>
@@ -44,7 +44,7 @@ It combines live IRIS system information with controlled administrative workflow
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
-| 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs; the issue-aware Copilot ([IRIS Ops Skill](#-iris-ops-skill--issue-aware-copilot)) explains live issues and can resolve catalog-backed ones after explicit confirmation |
+| 🤖 **AI Assistant / IRIS Ops Skill** | Ask natural-language questions backed by live, read-only IRIS data, including issues and tasks; the issue-aware Copilot ([IRIS Ops Skill](#-iris-ops-skill--issue-aware-copilot)) resolves approved, catalog-backed problems only after explicit confirmation, with structured traces and failure codes |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
 | 🎬 **Demo Activity** | Demonstrate controlled operations and an intentional, reversible demo issue, with verification, restoration, and execution tracing |
@@ -53,10 +53,9 @@ It combines live IRIS system information with controlled administrative workflow
 
 # 🤖 IRIS Ops Skill — Issue-aware Copilot
 
-IRIS Ops Skill turns the existing **AI Assistant** into an issue-aware operations Copilot. It is not a separate chatbot: it uses the same Assistant page and the same backend services, authorization and execution framework as the rest of Command Center.
+**IRIS Ops Skill** is a reusable, safety-oriented AI operations capability for InterSystems IRIS. It answers operational questions from live, read-only IRIS evidence and can resolve a small, closed set of approved problems — but only through a deterministic plan, explicit confirmation, server-side authorization, the existing operation executor and post-change verification, with every step traced.
 
-- **Grounded in live findings.** Its context includes the active issues reported by the [Issue Resolver](#-deterministic-issue-resolver), so *"Are there any issues?"* is answered from real IRIS evidence.
-- **Resolves catalog-backed issues safely.** For an issue the Issue Resolution Catalog can fix, it proposes the catalog's operation and runs it only after explicit confirmation, authorization and verification.
+It is not a separate chatbot: it is surfaced through the existing **AI Assistant** page and reuses the same backend services, operation registry, authorization, execution framework and observability as the rest of Command Center.
 
 ```mermaid
 flowchart LR
@@ -70,29 +69,100 @@ flowchart LR
 
 **Detect → Explain → Plan → Confirm → Authorize → Execute → Verify**
 
+### How the Copilot works
+
+1. **Deterministic intent classification.** Every request is classified on the backend as an issue investigation, a health question, a read-only query, a resolution (change) request, or unknown. No model decides the intent.
+2. **Read-only IRIS context.** Answers are built from a bounded snapshot of live data read through existing read-only routes: system info, databases, processes, web applications, tasks and the Issue Resolver's active issues (at most 10 items per source, long text capped). Gathering context never writes to IRIS.
+3. **Structured responses.** A local, deterministic, rule-based provider returns a structured answer — `answer`, `observations`, `proposed_action`, `requires_confirmation` — with no external service or API key. Its output is descriptive; a proposed action is only a proposal.
+4. **Safety/planning gateway.** Deterministic backend code turns a proposal into a plan only for an approved capability. For issue-backed operations, the request's name only *selects* one currently detected issue; the plan's target and parameters are built from that issue and the Issue Resolution Catalog, never from the user's text.
+5. **Authorization and explicit confirmation.** Only the **Confirm & Execute** button confirms a plan; typing "yes" in the chat does not. Privileges are checked on the server from the IRIS session and checked again when the operation runs.
+6. **Controlled execution and verification.** The plan runs through the existing operation executor and handler. Success requires the handler's post-action verification *and* the Copilot's own check — the Issue Resolver no longer reports the issue, or the journal setting reads back as requested.
+
+### Closed capability catalog
+
+The Copilot can only plan and run operations listed in one closed catalog (`backend/app/copilot/capabilities.py`). Planning, plan validation and execution all read it; anything not listed — including other operations the Command Center supports on its own pages — is refused.
+
+| Capability | Title | Resolves | Example request | Verification status |
+|---|---|---|---|---|
+| `journal.update_purge_archived` | Set journal PurgeArchived | direct setting request | "Enable PurgeArchived" | ✅ Live-verified on IRIS 2026.2 |
+| `database.mount` | Mount a dismounted database | `database_dismounted` | "Mount database IPM" | ✅ Live-verified on IRIS 2026.2 (IPM mounted, issue cleared, resolution history recorded) |
+| `web_app.set_enabled` (disable only) | Disable a web application whose namespace is missing | `web_app_namespace_missing` | "Disable web app /csp/example" | 🧪 Covered by automated tests; **not yet live-verified** |
+
+The catalog is validated when the backend starts; a misconfigured entry stops startup instead of failing at runtime. Every capability must be a registered mutation in the operation registry that requires confirmation, and each issue-backed capability must match the operation the Issue Resolution Catalog uses for that issue.
+
+### Capability metadata and discovery
+
+Each capability carries descriptive metadata: a **title**, **example requests**, the Copilot's own **constraints** (for example *"disable only"* or *"always mounted read-write"*), a **verification** description (what must hold before success is reported) and an **undo** hint.
+
+`GET /api/iris/copilot/capabilities` lists the catalog read-only. Privileges, risk level and the confirmation rule are read from the operation registry, and the issue title and severity from the Issue Resolution Catalog, at request time — nothing is copied. Handlers and parameter models are never exposed.
+
+### Task catalog (read-only)
+
+The Copilot answers task questions from the existing task overview — for example *"Which tasks are suspended?"* or *"Which tasks run as _SYSTEM?"*:
+
+- **Inventory and state:** name, type, namespace, state (Running / Not Running / Suspended, read from each task's `/v2/task/info`), suspended flag, error text (capped), last and next run.
+- **Task details:** run-as user, schedule fields as IRIS reports them (TimePeriod, every, DailyFrequency, DailyStartTime) and suspend-on-error. These are read from `GET /v2/task` only when the question asks about them.
+- **Bounded:** at most 10 tasks are included, and summaries say when they cover only the tasks shown. If one task's info or detail can't be read, that task is still listed with those fields empty.
+
+Task management is **read-only**: the Copilot never runs, suspends, resumes, deletes or schedules tasks, and task operations are not in the capability catalog.
+
+### Structured execution trace
+
+Each Copilot change request is recorded with the existing execution-trace infrastructure (the same store, optional IRIS persistence and `GET /api/iris/observability/traces` endpoint), as two linked traces with one span per lifecycle stage:
+
+- **`copilot.plan`** (from `/plan`, change requests only): `requested → classified → issue_detected → plan_created → confirmation_required`, or `plan_rejected` with the planner's reason.
+- **`copilot.execute`** (from `/execute`): `requested → confirmation_received → authorized → issue_detected → executing → executed → verification → resolved`, or a failure stage named by its failure code.
+
+The plan returns the plan trace's `trace_id`, the execute trace links to it, and the `executed` stage links to the executor's own operation trace. Trace IDs are informational only and never affect a decision. Trace attributes are limited to an allowlist of keys and simple values: raw user messages and secrets are never recorded (only the message length). Read-only questions create no trace, and Copilot traces do not add duplicate entries to an issue's resolution history.
+
+### Structured failure states
+
+`POST /api/iris/copilot/execute` returns a machine-readable `failure` code (`null` on success) alongside the broad `status` and the human-readable `detail`. The same code names the failure stage of the `copilot.execute` trace:
+
+| Failure code | Meaning |
+|---|---|
+| `plan_rejected` | The plan is not for an approved capability (or, in a plan trace, the planner refused the request) |
+| `authorization_failed` | Not explicitly confirmed, not authorized, the authorization does not match the plan, or IRIS requires a privilege the session lacks (such as `%Admin_Secure`) |
+| `issue_not_detected` | The issue is no longer detected (or the issues could not be read) when the operation is about to run |
+| `target_changed` | The plan's target is invalid, differs from the authorized target, or no longer matches the detected issue |
+| `parameter_mismatch` | The submitted parameters differ from those rebuilt from the detected issue |
+| `resource_protected` | The target is a protected resource (system or mirrored database, System or Command Center web application) |
+| `execution_failed` | The operation did not complete successfully |
+| `verification_failed` | The operation ran, but its verification did not pass |
+| `issue_still_detected` | The operation was verified, but the Issue Resolver still reports the issue |
+
+`POST /api/iris/copilot/plan` keeps its own `reason` field (for example `issue_not_detected`, `ambiguous_target` or `resource_protected`) when no plan is created.
+
 ### Safety guarantees
 
-- **AI output is only a proposal.** The deterministic provider returns text such as *"Mount database IPM"*. It never supplies operation parameters and cannot call IRIS.
-- **Parameters come from the detected issue and the catalog.** A name in the request only selects one currently detected issue; values such as the database directory or web application name are taken from that issue using the catalog's parameter bindings. Ambiguous, undetected, system or protected targets are refused.
-- **The issue is re-detected at execution time** by its stable issue ID. If it is no longer detected, nothing runs.
-- **Tampering is rejected.** Parameters are rebuilt from the detected issue when the operation runs; a plan whose target or parameters were changed in the browser does not match and is refused before anything reaches IRIS.
-- **Explicit confirmation and authorization are required.** Only the **Confirm & Execute** button confirms; typing "yes" in the chat does not. Privileges are checked on the server from the IRIS session, never taken from the browser.
-- **Success requires verification.** The operation's own post-action check must pass *and* the Issue Resolver must no longer report the issue. The attempt is recorded in the issue's resolution history and in Observability.
-- **Unsupported operations remain rejected.** Only the operations below can be planned; everything else is refused.
+- **Closed, allowlisted operations.** Only the three catalog capabilities can be planned or executed; unsupported or unknown operations are refused.
+- **AI output is only a proposal.** The provider returns text such as *"Mount database IPM"*. It never supplies operation parameters and cannot call IRIS.
+- **Parameters come from the detected issue and the catalog.** Ambiguous, undetected or protected targets are refused.
+- **Fresh checks at execution time.** The issue is re-detected by its stable issue ID, parameters are rebuilt from it, and authorization is re-checked on the server. A plan whose target or parameters were changed in the browser does not match and is refused before anything reaches IRIS.
+- **Explicit confirmation before any change.** Nothing is executed without the **Confirm & Execute** button.
+- **Protected resources.** IRIS system and mirrored databases, System web applications and the web applications the Command Center itself uses are never changed.
+- **Verification after every change.** Success requires the handler's verification and the Copilot's own check; the attempt is recorded in the operation's trace (and, for issue-backed operations, in the issue's resolution history).
+- **No arbitrary execution path.** The Copilot has no SQL, ObjectScript, shell, Python or arbitrary database access; every change goes through a registered operation handler.
 
-### Supported operations
+### Copilot API
 
-| Operation | Resolves | Example request | Verification status |
-|---|---|---|---|
-| `database.mount` | `database_dismounted` | "Mount database IPM" | ✅ Live-verified on IRIS 2026.2 (IPM mounted, issue cleared, resolution history recorded) |
-| `web_app.set_enabled` (disable only) | `web_app_namespace_missing` | "Disable web app /csp/example" | 🧪 56 focused automated tests; **not yet live-verified** |
-| `journal.update_purge_archived` | journal setting request | "Enable PurgeArchived" | ✅ Live-verified on IRIS 2026.2 |
+| Method & path | Purpose |
+|---|---|
+| `GET /api/iris/copilot/context` | The bounded, read-only operational context (including active issues and task details) |
+| `GET /api/iris/copilot/capabilities` | The closed capability catalog with its metadata (read-only) |
+| `POST /api/iris/copilot/classify` | Deterministic intent of a message |
+| `POST /api/iris/copilot/ask` | Structured, read-only answer (`answer`, `observations`, `proposed_action`, `requires_confirmation`) |
+| `POST /api/iris/copilot/plan` | Turns a proposal into a plan (or a `reason` why not); returns the plan's `trace_id` |
+| `POST /api/iris/copilot/authorize` | Checks a plan against the caller's privileges and the confirmation rule; executes nothing |
+| `POST /api/iris/copilot/execute` | Executes an authorized, confirmed plan and verifies it; returns `status`, `failure`, `detail` and `trace_id` |
 
-`journal.update_purge_archived` is a direct setting request rather than an issue resolution, so it is not yet linked to the Issue Resolver's resolution history when run from the Copilot.
+### Current limitations
 
-### AI provider
-
-The Copilot uses a local, deterministic, rule-based provider; it needs no external service or API key. Its answer is informational and any proposed action is only a proposal: deterministic backend code decides whether a plan exists, and authorization, confirmation, execution and verification are never delegated to the provider.
+- `web_app.set_enabled` is covered by automated tests but has not yet been verified against a live IRIS instance.
+- `journal.update_purge_archived` is a direct setting request, so when run from the Copilot it is not linked to the Issue Resolver's resolution history.
+- The deterministic provider understands specific phrasings (see each capability's example requests).
+- Task management is read-only, and task summaries cover at most the 10 tasks included in the context.
+- Execution traces are kept in memory (newest 200) unless `PERSIST_TRACES_TO_IRIS` is enabled.
 
 ➡️ **Demo walkthrough:** [docs/ops-skill-demo.md](docs/ops-skill-demo.md)
 
@@ -222,7 +292,7 @@ Demo Activity is separate from the Supported Actions catalog: it exists specific
 
 ### 👁️ Observability
 Observability gives administrators a clear view of what happened inside Command Center and what IRIS recorded during those activities.
-Execution Traces capture Command Center operations from request through authorization, confirmation, execution, and verification. Each trace includes timestamps, duration, status, operation details, and structured execution events. Issue Resolution workflows are linked to their originating issue, providing an evidence chain from detection → resolution → verification → execution trace.
+Execution Traces capture Command Center operations from request through authorization, confirmation, execution, and verification. Each trace includes timestamps, duration, status, operation details, and structured execution events. Issue Resolution workflows are linked to their originating issue, providing an evidence chain from detection → resolution → verification → execution trace. Copilot change requests add linked `copilot.plan` and `copilot.execute` traces to the same view (see [IRIS Ops Skill](#-iris-ops-skill--issue-aware-copilot)).
 <img width="2183" alt="image" src="https://github.com/user-attachments/assets/131b5172-4491-4303-9907-a258dda623e8" />
 
 ### 🚨 Investigation
@@ -427,7 +497,7 @@ The test suite covers:
 - **Live IRIS verification** — selected workflows are exercised against a real IRIS 2026.2 instance to confirm that API responses, privileges, operations, and resulting system state match expectations.
 
 The test suite is designed to verify not only that an operation succeeds, but also that **unsafe or invalid operations are refused and that successful changes are verified against the resulting IRIS state**.
-Current backend test status: **1,135 automated tests — 1,126 passing, 9 known failures**. All 9 predate the IRIS Ops Skill (Phase 5) changes and are unrelated to them: 4 are in earlier Copilot tests (test setup with an incomplete IRIS mock, and outdated expectations), and 5 are in Issue Catalog, Health Center and database-mount tests whose expectations predate later changes. Frontend smoke tests cover the critical browser workflows.
+Current backend test status: **1,289 automated tests — 1,280 passing, 9 known failures**. The 9 failures are pre-existing and were not introduced by the Phase 3.5 IRIS Ops Skill work (capability catalog, capability metadata, task catalog, execution trace and failure states): 4 are in earlier Copilot tests (test setup with an incomplete IRIS mock, and outdated expectations), and 5 are in Issue Catalog, Health Center and database-mount tests whose expectations predate later changes. The IRIS Ops Skill tests cover the capability catalog, planning, execution, task answers, traces and every structured failure code. Frontend smoke tests cover the critical browser workflows.
 
 # ⚙️ Configuration
 

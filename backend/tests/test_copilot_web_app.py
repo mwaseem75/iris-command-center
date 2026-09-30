@@ -316,22 +316,25 @@ def test_extra_text_conflicts_and_enable_requests_are_rejected(message: str, pro
 
 
 @pytest.mark.parametrize(
-    "issue",
+    ("issue", "reason"),
     [
-        _issue("/api/admin"),
-        _issue("/api/mgmnt/"),
-        _issue(app_type="System,CSP"),
-        _issue(enabled=False),
+        (_issue("/api/admin"), CopilotPlanningReason.RESOURCE_PROTECTED),
+        (_issue("/api/mgmnt/"), CopilotPlanningReason.RESOURCE_PROTECTED),
+        (_issue(app_type="System,CSP"), CopilotPlanningReason.RESOURCE_PROTECTED),
+        # Not protected, just not eligible: it's already disabled.
+        (_issue(enabled=False), CopilotPlanningReason.UNSUPPORTED_ACTION),
     ],
 )
-def test_protected_system_or_disabled_apps_are_never_planned(issue: WebAppNamespaceIssue) -> None:
+def test_protected_system_or_disabled_apps_are_never_planned(
+    issue: WebAppNamespaceIssue, reason: CopilotPlanningReason
+) -> None:
     name = issue.web_app
     result = CopilotPlanningService().plan(
         _plan_request(f"Disable web app {name}", f"Disable web app {name}"), _issues(issue)
     )
 
     assert result.plan is None
-    assert result.reason is CopilotPlanningReason.UNSUPPORTED_ACTION
+    assert result.reason is reason
 
 
 # --- execution ---
