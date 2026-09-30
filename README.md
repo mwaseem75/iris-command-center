@@ -62,20 +62,6 @@ flowchart LR
     X --> V[Verification]
     V --> T[Structured Trace]
 
-So the beginning of your README becomes:
-
-```text
-Architecture
-     ↓
-🏆 IRIS Ops Skill — What Makes It Different
-     ↓
-Key Enhancements
-     ↓
-The safety architecture          ← ADD THIS
-     ↓
-Why this matters
-     ↓
-Features at a Glance
     
 ### Why this matters
 
