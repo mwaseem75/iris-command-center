@@ -13,6 +13,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.execution.models import ResolutionLifecycleEvidence
+from app.resolution.identity import IssueResourceReference
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -44,18 +47,21 @@ class Span(BaseModel):
 
 class ResolutionContext(BaseModel):
     """Set when the operation was started from an Issue Resolution workflow.
-    The title and severity come from the Issue Resolution Catalog, never from
-    the client."""
+    The title, severity and stable resource identity come from the catalog and
+    its operation parameters, never from client-supplied labels."""
 
     issue_type: str
     issue_title: str
     severity: str
     resource: str | None = None  # e.g. the database directory being fixed
+    issue_id: str | None = None
+    resource_reference: IssueResourceReference | None = None
 
 
 class ExecutionTrace(BaseModel):
     """Everything recorded for one OperationExecutor.execute() call. `trace_id`
-    is random and not tied to any session.
+    is random and not tied to any session. Resolution traces may include the
+    same optional lifecycle evidence returned in OperationResult.
     """
 
     trace_id: str = Field(default_factory=lambda: uuid4().hex)
@@ -69,4 +75,5 @@ class ExecutionTrace(BaseModel):
     execution_result: str | None = None
     verification_result: str | None = None
     resolution: ResolutionContext | None = None  # None for normal operations
+    lifecycle: ResolutionLifecycleEvidence | None = None
     spans: list[Span] = Field(default_factory=list)

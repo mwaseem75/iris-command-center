@@ -3,7 +3,7 @@
 This route only reports; the fix runs through the operation's own route
 (with authorization, confirmation, verification and a trace).
 
-Six issue types. Resolvable:
+Built-in issue types. Resolvable:
 
 - database_dismounted: a configured database IRIS reports as not mounted,
   that isn't an IRIS system database or mirrored. Suggested fix:
@@ -35,6 +35,9 @@ Detection-only (no operation; the catalog entry names the page to look into):
   number and Size has reached it (GET /v2/database-dirs). If a mounted
   database's Full flag can't be read, the check is listed in
   `issue_checks_unavailable` and anything found is still reported.
+- audit_logging_disabled: GET /v2/security/audit/enabled reports auditing
+  disabled. The catalog directs the user to investigate; no operation is
+  offered to enable auditing automatically.
 
 Each detection-only check that can't read its IRIS data is also listed in
 `issue_checks_unavailable`.
@@ -66,10 +69,16 @@ from app.execution.web_app_set_enabled_handler import _PROTECTED_APPS, _normaliz
 from app.iris_client.client import IRISClient
 from app.resolution import custom_rules
 from app.resolution.catalog import ISSUE_CATALOG
+from app.resolution.correlation import IssueCorrelation, correlate_issues
+from app.resolution.identity import IssueIdentity, issue_identity
+from app.resolution.history import IssueResolutionHistoryResponse, history_for_issue
 from app.resolution.models import IssueResolution
+from app.resolution.readiness import readiness_for_issue
+from app.observability.store import list_traces
 from app.iris_client.exceptions import IRISClientError
 from app.models.iris import DatabaseStorageEntry, JournalSettings, NamespaceEntry, WebAppEntry
 from app.routes.iris import (
+    get_audit_enabled,
     get_database_storage,
     get_databases,
     get_journal_settings,
@@ -95,7 +104,7 @@ class AffectedNamespace(BaseModel):
     uses: list[str]  # "Globals" and/or "Routines"
 
 
-class DatabaseMountIssue(BaseModel):
+class DatabaseMountIssue(IssueIdentity):
     kind: Literal["database_dismounted"] = "database_dismounted"
     database: str
     directory: str
@@ -126,7 +135,7 @@ class Recommendation(BaseModel):
     parameters: dict[str, str | bool]
 
 
-class WebAppNamespaceIssue(BaseModel):
+class WebAppNamespaceIssue(IssueIdentity):
     kind: Literal["web_app_namespace_missing"] = "web_app_namespace_missing"
     web_app: str
     namespace: str
@@ -137,7 +146,7 @@ class WebAppNamespaceIssue(BaseModel):
     parameters: dict[str, str | bool]
 
 
-class JournalPurgeArchivedIssue(BaseModel):
+class JournalPurgeArchivedIssue(IssueIdentity):
     kind: Literal["journal_purge_archived_off"] = "journal_purge_archived_off"
     archive_name: str
     purge_archived: bool
@@ -149,20 +158,20 @@ class JournalPurgeArchivedIssue(BaseModel):
 # Detection-only issues: no recommended operation or parameters.
 
 
-class SystemMonitorIssue(BaseModel):
+class SystemMonitorIssue(IssueIdentity):
     kind: Literal["system_monitor_not_running"] = "system_monitor_not_running"
     system_monitor: bool
     up_time: str
     explanation: str
 
 
-class TaskManagerIssue(BaseModel):
+class TaskManagerIssue(IssueIdentity):
     kind: Literal["task_manager_not_running"] = "task_manager_not_running"
     status: str
     explanation: str
 
 
-class DatabaseFullIssue(BaseModel):
+class DatabaseFullIssue(IssueIdentity):
     kind: Literal["database_full"] = "database_full"
     database: str | None  # None if the database list doesn't name this directory
     directory: str
@@ -173,7 +182,13 @@ class DatabaseFullIssue(BaseModel):
     explanation: str
 
 
-class CustomRuleIssue(BaseModel):
+class AuditLoggingDisabledIssue(IssueIdentity):
+    kind: Literal["audit_logging_disabled"] = "audit_logging_disabled"
+    enabled: Literal[False] = False
+    explanation: str
+
+
+class CustomRuleIssue(IssueIdentity):
     """A Custom Issue Rule whose condition holds (detection-only)."""
 
     kind: str = Field(pattern=r"^custom:[a-z][a-z0-9_]{2,39}$")  # "custom:<rule name>"
@@ -199,6 +214,7 @@ Issue = Annotated[
     | Annotated[SystemMonitorIssue, Tag("system_monitor_not_running")]
     | Annotated[TaskManagerIssue, Tag("task_manager_not_running")]
     | Annotated[DatabaseFullIssue, Tag("database_full")]
+    | Annotated[AuditLoggingDisabledIssue, Tag("audit_logging_disabled")]
     | Annotated[CustomRuleIssue, Tag("custom")],
     Discriminator(_issue_tag),
 ]
@@ -207,6 +223,7 @@ Issue = Annotated[
 class IssuesResponse(BaseModel):
     issues: list[Issue]
     resolutions: dict[str, IssueResolution]
+    correlations: list[IssueCorrelation] = []
     issue_checks_unavailable: list[str] = []  # issue checks whose IRIS data couldn't be read
     # Kept for compatibility; always empty now (see the module docstring).
     recommendations: list[Recommendation] = []
@@ -277,6 +294,16 @@ async def get_issues(client: IRISClient) -> IssuesResponse:
         affected = _affected_namespaces(db.Name, namespaces)
         issues.append(
             DatabaseMountIssue(
+                **issue_identity(
+                    "database_dismounted",
+                    "database",
+                    _dir_key(dir_entry.Directory),
+                    db.Name,
+                ),
+                readiness=readiness_for_issue(
+                    "database_dismounted",
+                    {"Directory": dir_entry.Directory, "ReadOnly": False},
+                ),
                 database=db.Name,
                 directory=dir_entry.Directory,
                 status=dir_entry.Status,
@@ -300,6 +327,16 @@ def _journal_issues(settings: JournalSettings) -> list[JournalPurgeArchivedIssue
         return []
     return [
         JournalPurgeArchivedIssue(
+            **issue_identity(
+                "journal_purge_archived_off",
+                "journal-settings",
+                "journal-settings",
+                "Journal settings",
+            ),
+            readiness=readiness_for_issue(
+                "journal_purge_archived_off",
+                {"PurgeArchived": True},
+            ),
             archive_name=archive,
             purge_archived=settings.PurgeArchived,
             explanation=(
@@ -338,6 +375,16 @@ def _web_app_namespace_issues(apps: list[WebAppEntry], namespaces: list[Namespac
     existing = {ns.Name.upper() for ns in namespaces}
     return [
         WebAppNamespaceIssue(
+            **issue_identity(
+                "web_app_namespace_missing",
+                "web-app",
+                app.Name,
+                app.Name,
+            ),
+            readiness=readiness_for_issue(
+                "web_app_namespace_missing",
+                {"Name": app.Name, "Enabled": False},
+            ),
             web_app=app.Name,
             namespace=app.Namespace,
             enabled=app.Enabled,
@@ -383,6 +430,16 @@ async def find_system_monitor_issues(client: IRISClient) -> list[SystemMonitorIs
         return []
     return [
         SystemMonitorIssue(
+            **issue_identity(
+                "system_monitor_not_running",
+                "system-monitor",
+                "system-monitor",
+                "System Monitor",
+            ),
+            readiness=readiness_for_issue(
+                "system_monitor_not_running",
+                {},
+            ),
             system_monitor=False,
             up_time=status.UpTime,
             explanation=(
@@ -403,10 +460,47 @@ async def find_task_manager_issues(client: IRISClient) -> list[TaskManagerIssue]
         return []
     return [
         TaskManagerIssue(
+            **issue_identity(
+                "task_manager_not_running",
+                "task-manager",
+                "task-manager",
+                "Task Manager",
+            ),
+            readiness=readiness_for_issue(
+                "task_manager_not_running",
+                {},
+            ),
             status=status,
             explanation=(
                 f"IRIS reports the Task Manager status as \"{status}\", not \"Running\", so no scheduled task "
                 "runs, including IRIS's own maintenance tasks."
+            ),
+        )
+    ]
+
+
+async def find_audit_logging_issues(client: IRISClient) -> list[AuditLoggingDisabledIssue] | None:
+    """Report disabled audit logging, or None if IRIS's status could not be read."""
+    try:
+        enabled = (await get_audit_enabled(client)).result.Enabled
+    except (HTTPException, ValidationError):
+        return None
+    if enabled:
+        return []
+    return [
+        AuditLoggingDisabledIssue(
+            **issue_identity(
+                "audit_logging_disabled",
+                "iris-instance",
+                "security-audit",
+                "IRIS security auditing",
+            ),
+            readiness=readiness_for_issue("audit_logging_disabled", {}),
+            enabled=False,
+            explanation=(
+                "IRIS reports security auditing as disabled, so audit events are not being recorded. "
+                "Review the required audit policy and event coverage on the Security page; the "
+                "Command Center does not enable auditing automatically."
             ),
         )
     ]
@@ -479,6 +573,17 @@ async def find_database_full_issues(client: IRISClient) -> tuple[list[DatabaseFu
         name = names.get(_dir_key(entry.Directory))
         issues.append(
             DatabaseFullIssue(
+                **issue_identity(
+                    "database_full",
+                    "database",
+                    _dir_key(entry.Directory),
+                    name or entry.Directory,
+                ),
+                readiness=readiness_for_issue(
+                    "database_full",
+                    {},
+                    evidence_complete=flags.get(entry.Directory) is not None,
+                ),
                 database=name,
                 directory=entry.Directory,
                 size=entry.Size,
@@ -517,6 +622,17 @@ async def evaluate_custom_rules(client: IRISClient) -> tuple[list[CustomRuleIssu
             signal = custom_rules.SIGNALS[rule.signal]
             issues.append(
                 CustomRuleIssue(
+                    **issue_identity(
+                        rule.issue_type,
+                        "custom-rule-scope",
+                        f"{rule.name}|monitor-dashboard",
+                        rule.title,
+                    ),
+                    readiness=readiness_for_issue(
+                        rule.issue_type,
+                        {},
+                        resolution=rule.to_catalog_entry(),
+                    ),
                     kind=rule.issue_type,
                     rule=rule.name,
                     title=rule.title,
@@ -544,6 +660,7 @@ async def list_issues(client: IRISClient = Depends(get_iris_client)) -> IssuesRe
         ("journal_purge_archived_off", await find_journal_issues(client)),
         ("system_monitor_not_running", await find_system_monitor_issues(client)),
         ("task_manager_not_running", await find_task_manager_issues(client)),
+        ("audit_logging_disabled", await find_audit_logging_issues(client)),
     ):
         if found is None:
             response.issue_checks_unavailable.append(kind)
@@ -560,4 +677,11 @@ async def list_issues(client: IRISClient = Depends(get_iris_client)) -> IssuesRe
         **response.resolutions,
         **{rule.issue_type: rule.to_catalog_entry() for rule in custom_rules.list_rules()},
     }
+    response.correlations = correlate_issues(response.issues, response.resolutions)
     return response
+
+
+@router.get("/issues/{issue_id}/history", response_model=IssueResolutionHistoryResponse)
+async def get_issue_resolution_history(issue_id: str) -> IssueResolutionHistoryResponse:
+    """Return resolution attempts from the existing in-memory/persisted trace window."""
+    return history_for_issue(issue_id, list_traces())

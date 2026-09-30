@@ -19,7 +19,7 @@ from app.execution.models import (
 )
 from app.main import app
 from app.observability import store
-from app.observability.models import ExecutionTrace, ResolutionContext
+from app.observability.models import ExecutionTrace
 from app.resolution.catalog import resolves_with, trace_context
 
 OK = {"errors": [], "summary": ""}
@@ -66,9 +66,14 @@ async def _run(operation: str, issue_type: str | None, *, privileges=frozenset({
 
 def test_trace_context_comes_from_the_catalog() -> None:
     context = trace_context("database_dismounted", "database.mount", {"Directory": DIRECTORY, "ReadOnly": False})
-    assert context == ResolutionContext(
-        issue_type="database_dismounted", issue_title="Dismounted database", severity="high", resource=DIRECTORY,
-    )
+    assert context is not None
+    assert context.issue_type == "database_dismounted"
+    assert context.issue_title == "Dismounted database"
+    assert context.severity == "high"
+    assert context.resource == DIRECTORY
+    assert context.issue_id
+    assert context.resource_reference is not None
+    assert context.resource_reference.canonical_key == DIRECTORY.rstrip("/\\")
 
 
 @pytest.mark.parametrize("issue_type, operation", [
@@ -205,10 +210,14 @@ def test_route_rejects_an_unknown_issue_type_before_calling_iris() -> None:
 
 def test_web_app_trace_context_comes_from_the_catalog() -> None:
     context = trace_context("web_app_namespace_missing", "web_app.set_enabled", {"Name": "/csp/orders", "Enabled": False})
-    assert context == ResolutionContext(
-        issue_type="web_app_namespace_missing", issue_title="Web application with a missing namespace",
-        severity="medium", resource="/csp/orders",
-    )
+    assert context is not None
+    assert context.issue_type == "web_app_namespace_missing"
+    assert context.issue_title == "Web application with a missing namespace"
+    assert context.severity == "medium"
+    assert context.resource == "/csp/orders"
+    assert context.issue_id
+    assert context.resource_reference is not None
+    assert context.resource_reference.canonical_key == "/csp/orders"
     assert trace_context("web_app_namespace_missing", "database.mount", {"Directory": DIRECTORY}) is None
     assert trace_context("database_dismounted", "web_app.set_enabled", {"Name": "/csp/orders"}) is None
 
@@ -269,10 +278,14 @@ def test_mount_route_rejects_the_web_app_issue_type() -> None:
 
 def test_journal_trace_context_comes_from_the_catalog() -> None:
     context = trace_context("journal_purge_archived_off", "journal.update_purge_archived", {"PurgeArchived": True})
-    assert context == ResolutionContext(
-        issue_type="journal_purge_archived_off", issue_title="Archived journal files are not purged",
-        severity="low", resource=None,  # the only parameter is fixed, not a resource
-    )
+    assert context is not None
+    assert context.issue_type == "journal_purge_archived_off"
+    assert context.issue_title == "Archived journal files are not purged"
+    assert context.severity == "low"
+    assert context.resource is None  # the only parameter is fixed, not a resource
+    assert context.issue_id
+    assert context.resource_reference is not None
+    assert context.resource_reference.canonical_key == "journal-settings"
     assert trace_context("journal_purge_archived_off", "web_app.set_enabled", {"Name": "/x"}) is None
 
 

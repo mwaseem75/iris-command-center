@@ -5,17 +5,19 @@ Three entries: a dismounted database, resolved with database.mount; an
 enabled web application whose namespace doesn't exist, resolved by
 disabling it with web_app.set_enabled; and archived journal files that are
 not purged while archiving is configured, resolved by turning PurgeArchived
-on with journal.update_purge_archived. Three detection-only entries (no
+on with journal.update_purge_archived. Four detection-only entries (no
 operation; they name the page to investigate on): the System Monitor or the
-Task Manager not running, and a full database. The detection lives in
-app/routes/issues.py and the fixes in the operation handlers; each entry
-describes both so they can be explained and checked in one place.
+Task Manager not running, a full database, and disabled security auditing.
+The detection lives in app/routes/issues.py and the fixes in the operation
+handlers; each entry describes both so they can be explained and checked in
+one place.
 """
 
 from typing import Any
 
 from app.execution.database_dismount_handler import _SYSTEM_DATABASES
 from app.observability.models import ResolutionContext
+from app.resolution.identity import issue_identity
 from app.resolution.models import (
     DetectionEvidence,
     InvestigationDestination,
@@ -429,6 +431,36 @@ DATABASE_FULL = IssueResolution(
     verification_rules=(_GONE_WHEN_NOT_REPORTED,),
 )
 
+AUDIT_LOGGING_DISABLED = IssueResolution(
+    issue_type="audit_logging_disabled",
+    title="Security auditing disabled",
+    severity=IssueSeverity.HIGH,
+    detection_evidence=(
+        DetectionEvidence(
+            source="GET /v2/security/audit/enabled",
+            field="Enabled",
+            condition="IRIS reports security auditing as disabled.",
+            issue_field="enabled",
+        ),
+    ),
+    explanation=(
+        "IRIS reports security auditing as disabled, so audit events are not being recorded."
+    ),
+    recommended_solution=(
+        "Review the required audit policy and event coverage on the Security page. "
+        "The Command Center has no operation for enabling auditing."
+    ),
+    investigation=InvestigationDestination(
+        page="security",
+        description=(
+            "Review the organization's audit requirements and the audit event configuration in IRIS. "
+            "Enable auditing through the appropriate IRIS administrative controls if required."
+        ),
+    ),
+    verification_rules=(_GONE_WHEN_NOT_REPORTED,),
+)
+
+
 ISSUE_CATALOG: dict[str, IssueResolution] = {
     entry.issue_type: entry
     for entry in (
@@ -438,6 +470,7 @@ ISSUE_CATALOG: dict[str, IssueResolution] = {
         SYSTEM_MONITOR_NOT_RUNNING,
         TASK_MANAGER_NOT_RUNNING,
         DATABASE_FULL,
+        AUDIT_LOGGING_DISABLED,
     )
 }
 
@@ -464,9 +497,26 @@ def trace_context(
     # The resource is the parameter filled in from the detected issue.
     resource_param = next((b.name for b in entry.parameters if b.from_issue_field), None)
     resource = parameters.get(resource_param) if resource_param else None
+    if issue_type == "database_dismounted":
+        resource_type = "database"
+        canonical_key = str(resource).rstrip("/\\") if resource is not None else ""
+        display_name = str(resource or "")
+    elif issue_type == "web_app_namespace_missing":
+        resource_type = "web-app"
+        canonical_key = str(resource or "")
+        display_name = str(resource or "")
+    elif issue_type == "journal_purge_archived_off":
+        resource_type = "journal-settings"
+        canonical_key = "journal-settings"
+        display_name = "Journal settings"
+    else:
+        return None
+    identity = issue_identity(issue_type, resource_type, canonical_key, display_name)
     return ResolutionContext(
         issue_type=entry.issue_type,
         issue_title=entry.title,
         severity=entry.severity.value,
         resource=None if resource is None else str(resource),
+        issue_id=identity["issue_id"],
+        resource_reference=identity["resource"],
     )

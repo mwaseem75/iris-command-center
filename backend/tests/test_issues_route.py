@@ -8,6 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.iris_client.exceptions import IRISConnectionError, IRISResponseError
+from app.resolution.correlation import IssueCorrelationKind, correlate_issues
+from app.resolution.identity import issue_identity
+from app.resolution.identity import IssueResourceReference
+from app.resolution.readiness import ResolutionReadiness, readiness_for_issue
 
 OK = {"errors": [], "summary": ""}
 
@@ -70,12 +74,14 @@ def _monitor_process() -> dict[str, Any]:
 
 def _healthy(mock: AsyncMock, bodies: dict[str, Any], *, system_monitor: bool = True,
              monitor_process: bool = True, task_manager: str = "Running",
+             audit_enabled: bool = True,
              full: dict[str, Any] | None = None) -> dict[str, Any]:
     """Adds the detection-only checks' reads (healthy unless told otherwise).
     `full` maps a directory to the Full value its database-dir/info task returns."""
     bodies.setdefault("/v2/monitor/dashboard/main", _dashboard(system_monitor=system_monitor))
     bodies.setdefault("/v2/processes", [_monitor_process()] if monitor_process else [])
     bodies.setdefault("/v2/task/manager", {"Status": task_manager})
+    bodies.setdefault("/v2/security/audit/enabled", {"Enabled": audit_enabled})
     flags = full or {}
     mock.post_async_task.side_effect = lambda path, params=None, json=None: params["dir"]
     mock.wait_for_async_task.side_effect = lambda task_id: {"Result": {"Full": flags.get(task_id, False)}}
@@ -105,11 +111,175 @@ def test_reports_a_dismounted_non_system_database_with_the_mount_fix(
     assert issue["database"] == "DEMO"
     assert issue["status"] == "Dismounted"
     assert issue["recommended_operation"] == "database.mount"
+    assert issue["readiness"] == ResolutionReadiness.READY_TO_CHECK
     assert issue["parameters"] == {"Directory": "/usr/irissys/mgr/demo/", "ReadOnly": False}
     assert issue["mirrored"] is False
     assert "DEMO" in issue["explanation"] and "Dismounted" in issue["explanation"]
     mock_iris_client.post.assert_not_called()
     mock_iris_client.put.assert_not_called()
+
+
+def test_issue_identity_is_stable_and_resource_sensitive() -> None:
+    first = issue_identity("database_full", "database", "/data/a/", "A")
+    same = issue_identity("database_full", "database", "/data/a/", "A")
+    different_resource = issue_identity("database_full", "database", "/data/b/", "B")
+    different_type = issue_identity("database_dismounted", "database", "/data/a/", "A")
+
+    assert first["issue_id"] == same["issue_id"]
+    assert first["issue_id"] != different_resource["issue_id"]
+    assert first["issue_id"] != different_type["issue_id"]
+
+
+def test_custom_rule_identity_is_stable() -> None:
+    first = issue_identity(
+        "custom:cache_efficiency",
+        "custom-rule-scope",
+        "cache_efficiency|monitor-dashboard",
+        "Cache efficiency",
+    )
+    same = issue_identity(
+        "custom:cache_efficiency",
+        "custom-rule-scope",
+        "cache_efficiency|monitor-dashboard",
+        "Cache efficiency",
+    )
+
+    assert first["issue_id"] == same["issue_id"]
+    assert first["resource"].canonical_key == "cache_efficiency|monitor-dashboard"
+
+
+def test_issue_response_adds_identity_without_removing_existing_fields(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock(
+        mock_iris_client,
+        [_db("DEMO", "/data/demo/")],
+        [_dir("/data/demo/", "Dismounted")],
+    )
+
+    (issue,) = client.get("/api/iris/issues").json()["issues"]
+
+    assert issue["kind"] == "database_dismounted"
+    assert issue["database"] == "DEMO"
+    assert issue["parameters"] == {"Directory": "/data/demo/", "ReadOnly": False}
+    assert isinstance(issue["issue_id"], str) and issue["issue_id"]
+    assert issue["resource"] == {
+        "type": "database",
+        "canonical_key": "/data/demo",
+        "display_name": "DEMO",
+    }
+    assert issue["readiness"] == "ready_to_check"
+    assert client.get("/api/iris/issues").json()["correlations"] == []
+
+
+def test_readiness_requires_catalog_parameters() -> None:
+    assert readiness_for_issue(
+        "database_dismounted",
+        {"ReadOnly": False},
+    ) is ResolutionReadiness.INSUFFICIENT_EVIDENCE
+    assert readiness_for_issue(
+        "database_dismounted",
+        {"Directory": "  ", "ReadOnly": False},
+    ) is ResolutionReadiness.INSUFFICIENT_EVIDENCE
+
+
+def test_readiness_unknown_issue_is_conservative() -> None:
+    assert readiness_for_issue("unknown", {}) is ResolutionReadiness.INSUFFICIENT_EVIDENCE
+
+
+def _correlation_issue(issue_id: str, kind: str, resource_type: str, resource_key: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        issue_id=issue_id,
+        kind=kind,
+        resource=IssueResourceReference(
+            type=resource_type,
+            canonical_key=resource_key,
+            display_name=resource_key,
+        ),
+    )
+
+
+def test_correlates_task_manager_and_journal_maintenance_without_claiming_causation() -> None:
+    issues = [
+        _correlation_issue("issue-task", "task_manager_not_running", "task-manager", "task-manager"),
+        _correlation_issue("issue-journal", "journal_purge_archived_off", "journal-settings", "journal-settings"),
+    ]
+
+    (correlation,) = correlate_issues(issues, {})
+
+    assert correlation.kind is IssueCorrelationKind.OPERATIONAL_DEPENDENCY
+    assert correlation.issue_id_a == "issue-journal"
+    assert correlation.issue_id_b == "issue-task"
+    assert "does not assert causation" in correlation.reason
+
+
+def test_correlates_distinct_findings_on_the_same_resource() -> None:
+    issues = [
+        _correlation_issue("issue-a", "database_dismounted", "database", "/data/demo"),
+        _correlation_issue("issue-b", "database_full", "database", "/data/demo"),
+    ]
+
+    (correlation,) = correlate_issues(issues, {})
+
+    assert correlation.kind is IssueCorrelationKind.SHARED_RESOURCE
+    assert correlation.shared_resource is not None
+    assert correlation.shared_resource.canonical_key == "/data/demo"
+
+
+def test_unrelated_findings_do_not_correlate() -> None:
+    issues = [
+        _correlation_issue("issue-system", "system_monitor_not_running", "system-monitor", "system-monitor"),
+        _correlation_issue("issue-task", "task_manager_not_running", "task-manager", "task-manager"),
+    ]
+
+    assert correlate_issues(issues, {}) == []
+
+
+def test_correlations_are_stable_across_input_order() -> None:
+    left = _correlation_issue(
+        "issue-task", "task_manager_not_running", "task-manager", "task-manager"
+    )
+    right = _correlation_issue(
+        "issue-journal", "journal_purge_archived_off", "journal-settings", "journal-settings"
+    )
+
+    assert correlate_issues([left, right], {}) == correlate_issues([right, left], {})
+
+
+def test_correlates_monitor_failure_with_custom_dashboard_finding() -> None:
+    from app.resolution.custom_rules import CustomIssueRule
+
+    rule = CustomIssueRule(
+        name="cache_efficiency",
+        title="Cache efficiency low",
+        severity="medium",
+        signal="cache_efficiency",
+        operator="<",
+        value=60,
+        investigation_page="dashboard",
+        guidance="Review cache usage.",
+    )
+    issues = [
+        _correlation_issue(
+            "issue-monitor",
+            "system_monitor_not_running",
+            "system-monitor",
+            "system-monitor",
+        ),
+        _correlation_issue(
+            "issue-custom",
+            "custom:cache_efficiency",
+            "custom-rule-scope",
+            "cache_efficiency|monitor-dashboard",
+        ),
+    ]
+
+    (correlation,) = correlate_issues(issues, {rule.issue_type: rule.to_catalog_entry()})
+
+    assert correlation.kind is IssueCorrelationKind.SHARED_OBSERVATION
+    assert "may be stale" in correlation.reason
 
 
 def test_system_and_mirrored_databases_are_never_reported(client: TestClient, mock_iris_client: AsyncMock) -> None:
@@ -283,6 +453,7 @@ def test_journal_issue_parameters_match_the_catalog_entry(client: TestClient, mo
     (issue,) = client.get("/api/iris/issues").json()["issues"]
 
     assert issue["recommended_operation"] == entry.operation
+    assert issue["readiness"] == "ready_to_check"
     assert issue["parameters"] == {b.name: b.value for b in entry.parameters}
     for evidence in entry.detection_evidence:
         assert evidence.issue_field in issue
@@ -332,6 +503,7 @@ def test_reports_an_enabled_web_app_whose_namespace_is_missing(
     assert issue["namespace"] == "ORDERS"
     assert issue["enabled"] is True and issue["app_type"] == "CSP"
     assert issue["recommended_operation"] == "web_app.set_enabled"
+    assert issue["readiness"] == "ready_to_check"
     assert issue["parameters"] == {"Name": "/csp/orders", "Enabled": False}
     assert "ORDERS" in issue["explanation"]
     assert body["issue_checks_unavailable"] == []
@@ -357,7 +529,8 @@ def test_issue_parameters_match_the_catalog_entry(client: TestClient, mock_iris_
 
     _mock(mock_iris_client, *MOUNTED, USER_NS, web_apps=[_app("/csp/orders", "ORDERS")])
 
-    (issue,) = _issues(client)["issues"]
+    body = _issues(client)
+    (issue,) = body["issues"]
 
     assert issue["recommended_operation"] == WEB_APP_NAMESPACE_MISSING.operation
     expected = {b.name: (issue[b.from_issue_field] if b.from_issue_field else b.value)
@@ -438,12 +611,67 @@ def test_healthy_instance_has_no_detection_only_issues(client: TestClient, mock_
     mock_iris_client.put.assert_not_called()
 
 
+def test_reports_disabled_security_auditing_as_detection_only(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock(mock_iris_client, *HEALTHY, USER_NS, audit_enabled=False)
+
+    body = _issues(client)
+    (issue,) = body["issues"]
+
+    assert issue["kind"] == "audit_logging_disabled"
+    assert issue["enabled"] is False
+    assert issue["resource"] == {
+        "type": "iris-instance",
+        "canonical_key": "security-audit",
+        "display_name": "IRIS security auditing",
+    }
+    assert issue["readiness"] == "investigation_required"
+    assert "recommended_operation" not in issue and "parameters" not in issue
+    assert body["resolutions"][issue["kind"]]["resolvable"] is False
+    assert issue["issue_id"]
+    assert "audit events are not being recorded" in issue["explanation"]
+    repeated = _issues(client)
+    assert repeated["issues"][0]["issue_id"] == issue["issue_id"]
+
+
+def test_enabled_security_auditing_is_not_reported(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock(mock_iris_client, *HEALTHY, USER_NS, audit_enabled=True)
+
+    body = _issues(client)
+
+    assert body["issues"] == []
+    assert body["issue_checks_unavailable"] == []
+
+
+def test_unavailable_audit_status_does_not_become_a_finding(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    bodies = _healthy(mock_iris_client, {
+        "/v2/databases": [], "/v2/database-dirs": [], "/v2/namespaces": [],
+        "/v2/journal/settings": _journal(), "/v2/web-apps": [],
+    })
+
+    def get(path: str, **_: Any) -> dict[str, Any]:
+        if path == "/v2/security/audit/enabled":
+            raise IRISResponseError(503)
+        return {"status": OK, "console": [], "result": bodies[path]}
+
+    mock_iris_client.get.side_effect = get
+
+    body = _issues(client)
+
+    assert body["issues"] == []
+    assert "audit_logging_disabled" in body["issue_checks_unavailable"]
+
+
 def test_reports_the_system_monitor_not_running(client: TestClient, mock_iris_client: AsyncMock) -> None:
     _mock(mock_iris_client, *HEALTHY, USER_NS, monitor_process=False)
 
     (issue,) = _detection_only(_issues(client))
 
     assert issue["kind"] == "system_monitor_not_running"
+    assert issue["readiness"] == "investigation_required"
     assert issue["system_monitor"] is False and issue["up_time"] == "0d  2h 05m"
     assert "%SYS.Monitor.Control" in issue["explanation"]
     assert "recommended_operation" not in issue and "parameters" not in issue
@@ -464,6 +692,7 @@ def test_reports_the_task_manager_not_running(status: str, client: TestClient, m
     (issue,) = _detection_only(_issues(client))
 
     assert issue["kind"] == "task_manager_not_running" and issue["status"] == status
+    assert issue["readiness"] == "investigation_required"
     assert "recommended_operation" not in issue
 
 
@@ -474,6 +703,7 @@ def test_reports_a_database_iris_says_is_full(client: TestClient, mock_iris_clie
     (issue,) = _detection_only(_issues(client))
 
     assert issue["kind"] == "database_full"
+    assert issue["readiness"] == "investigation_required"
     assert issue["database"] == "APP" and issue["directory"] == "/data/app/"
     assert issue["full"] is True and issue["reasons"] == ["iris_reports_full"]
     assert "IRIS reports it as Full" in issue["explanation"]
@@ -520,6 +750,7 @@ def test_unreadable_full_flag_is_reported_and_a_reached_max_size_still_is(
 
     (issue,) = _detection_only(body)
     assert issue["reasons"] == ["max_size_reached"] and issue["full"] is None
+    assert issue["readiness"] == "insufficient_evidence"
     assert body["issue_checks_unavailable"] == ["database_full"]
 
 

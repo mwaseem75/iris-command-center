@@ -8,19 +8,73 @@ safe values (operation names, statuses, privilege names, short reasons)
 go into span attributes.
 """
 
+from datetime import datetime
+
 from app.authorization.operations import get_operation
 from app.authorization.service import authorize
 from app.execution.handler import OperationHandler
 from app.execution.models import (
     ExecutionContext,
+    HandlerExecutionResult,
     HandlerOutcome,
     OperationRequest,
     OperationResult,
     OperationResultStatus,
+    PostActionVerificationResult,
     PostActionVerificationStatus,
+    ResolutionAction,
+    ResolutionBefore,
+    ResolutionLifecycleEvidence,
 )
+from app.observability.models import ResolutionContext
 from app.observability.tracer import TraceRecorder
-from app.resolution.catalog import trace_context
+from app.resolution.catalog import get_issue_resolution, trace_context
+
+
+def _lifecycle_evidence(
+    request: OperationRequest,
+    context: ResolutionContext | None,
+    started_at: datetime,
+    handler_result: HandlerExecutionResult,
+    verification: PostActionVerificationResult | None = None,
+) -> ResolutionLifecycleEvidence | None:
+    if context is None or context.issue_id is None or context.resource_reference is None:
+        return None
+    entry = get_issue_resolution(context.issue_type)
+    if entry is None:
+        return None
+
+    allowed_parameters = {binding.name for binding in entry.parameters}
+    parameters = {
+        name: value
+        for name, value in request.parameters.items()
+        if name in allowed_parameters and isinstance(value, (bool, str, int, float))
+    }
+    state_keys = {
+        "database_dismounted": ("mounted_before", "mounted"),
+        "web_app_namespace_missing": ("enabled_before", "enabled"),
+        "journal_purge_archived_off": ("original_purge_archived", "purge_archived"),
+    }.get(context.issue_type)
+    before_state: dict[str, bool | str | None] = {}
+    if state_keys:
+        source, target = state_keys
+        value = handler_result.data.get(source)
+        if isinstance(value, (bool, str)):
+            before_state[target] = value
+
+    return ResolutionLifecycleEvidence(
+        before=ResolutionBefore(
+            issue_id=context.issue_id,
+            resource=context.resource_reference,
+            observed_at=started_at,
+            state=before_state,
+        ),
+        action=ResolutionAction(
+            operation_name=request.operation_name,
+            parameters=parameters,
+        ),
+        after=verification.evidence if verification is not None else None,
+    )
 
 
 class OperationExecutor:
@@ -35,10 +89,10 @@ class OperationExecutor:
     async def execute(
         self, request: OperationRequest, context: ExecutionContext
     ) -> OperationResult:
-        recorder = TraceRecorder(
-            request.operation_name,
-            resolution=trace_context(request.resolution_issue_type, request.operation_name, request.parameters),
+        resolution_context = trace_context(
+            request.resolution_issue_type, request.operation_name, request.parameters
         )
+        recorder = TraceRecorder(request.operation_name, resolution=resolution_context)
 
         operation = get_operation(request.operation_name)
         if operation is None:
@@ -221,6 +275,10 @@ class OperationExecutor:
         recorder.set_result(execution_result=handler_result.outcome.value)
 
         if handler_result.outcome is HandlerOutcome.FAILURE:
+            lifecycle = _lifecycle_evidence(
+                request, resolution_context, recorder.start_time, handler_result
+            )
+            recorder.set_lifecycle(lifecycle)
             recorder.skip("verification", "execution_failed")
             recorder.set_result(verification_result="skipped")
             recorder.finish(OperationResultStatus.EXECUTION_FAILED.value)
@@ -230,10 +288,15 @@ class OperationExecutor:
                 authorization=auth_result,
                 handler_result=handler_result,
                 detail=handler_result.detail,
+                lifecycle=lifecycle,
             )
 
         verification_timer = recorder.timer()
         verification = await handler.verify(request, context, handler_result)
+        lifecycle = _lifecycle_evidence(
+            request, resolution_context, recorder.start_time, handler_result, verification
+        )
+        recorder.set_lifecycle(lifecycle)
         recorder.span(
             "verification",
             verification_timer,
@@ -251,6 +314,7 @@ class OperationExecutor:
                 handler_result=handler_result,
                 verification=verification,
                 detail=verification.detail,
+                lifecycle=lifecycle,
             )
 
         recorder.finish(OperationResultStatus.SUCCESS.value)
@@ -261,4 +325,5 @@ class OperationExecutor:
             handler_result=handler_result,
             verification=verification,
             detail=handler_result.detail,
+            lifecycle=lifecycle,
         )

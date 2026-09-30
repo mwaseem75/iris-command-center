@@ -297,6 +297,7 @@ class WebAppSetEnabledHandler(OperationHandler):
                     f"/v2/web-app last reported Enabled={last_enabled!r} after "
                     f"{attempts_made} attempts (retried with delays of {attempted_delays})."
                 ),
+                evidence={"enabled": last_enabled if isinstance(last_enabled, (bool, str)) else None},
             )
         if last_type != type_before:
             return PostActionVerificationResult(
@@ -305,6 +306,7 @@ class WebAppSetEnabledHandler(OperationHandler):
                     f"{name!r} is now {_state_word(bool(target))}, but its Type changed from "
                     f"{type_before!r} to {last_type!r} (GET /v2/web-apps)."
                 ),
+                evidence={"enabled": last_enabled if isinstance(last_enabled, (bool, str)) else None},
             )
 
         retry_note = "" if attempts_made == 1 else f" (took {attempts_made} attempts)"
@@ -315,4 +317,5 @@ class WebAppSetEnabledHandler(OperationHandler):
                 f"Enabled={target}, and GET /v2/web-apps still reports Type "
                 f"{type_before!r}{retry_note}."
             ),
+            evidence={"enabled": last_enabled if isinstance(last_enabled, bool) else None},
         )

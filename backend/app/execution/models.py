@@ -1,19 +1,21 @@
 """Request, context and result models for running operations."""
 
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.authorization.models import AuthorizationResult
+from app.resolution.identity import IssueResourceReference
 
 
 class OperationRequest(BaseModel):
     """What the caller wants to run. `parameters` is handler-specific input.
 
     `resolution_issue_type` says the request comes from an Issue Resolution
-    workflow. It only labels the execution trace; it never changes
-    authorization, confirmation or what the handler does.
+    workflow. It labels the trace and enables optional lifecycle evidence; it
+    never changes authorization, confirmation or what the handler does.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -60,12 +62,33 @@ class PostActionVerificationStatus(str, Enum):
 
 
 class PostActionVerificationResult(BaseModel):
-    """Result of re-checking IRIS after a real execution (NOT_APPLICABLE for dry runs)."""
+    """Existing verification outcome plus optional structured observed state."""
 
     model_config = ConfigDict(frozen=True)
 
     status: PostActionVerificationStatus
     detail: str
+    evidence: dict[str, bool | str | None] | None = None
+
+
+class ResolutionBefore(BaseModel):
+    issue_id: str
+    resource: IssueResourceReference
+    observed_at: datetime
+    state: dict[str, bool | str | None]
+
+
+class ResolutionAction(BaseModel):
+    operation_name: str
+    parameters: dict[str, bool | str | int | float | None]
+
+
+class ResolutionLifecycleEvidence(BaseModel):
+    """Resolution-specific evidence; result and verification remain on OperationResult."""
+
+    before: ResolutionBefore
+    action: ResolutionAction
+    after: dict[str, bool | str | None] | None = None
 
 
 class OperationResultStatus(str, Enum):
@@ -94,3 +117,4 @@ class OperationResult(BaseModel):
     handler_result: HandlerExecutionResult | None = None
     verification: PostActionVerificationResult | None = None
     detail: str
+    lifecycle: ResolutionLifecycleEvidence | None = None

@@ -32,6 +32,7 @@ def _mock_health(
     journal: dict[str, Any] | None = None,
     web_apps: list[dict[str, Any]] | None = None,
     fail_task_manager: bool = False,
+    audit_enabled: bool = True,
     **checks: Any,
 ) -> None:
     _mock(
@@ -46,7 +47,7 @@ def _mock_health(
 
     def read(path: str, **kwargs: Any) -> dict[str, Any]:
         if path == AUDIT_PATH:
-            return {"status": OK, "console": [], "result": {"Enabled": True}}
+            return {"status": OK, "console": [], "result": {"Enabled": audit_enabled}}
         if fail_task_manager and path == "/v2/task/manager":
             raise IRISConnectionError("IRIS unavailable")
         return issue_reads(path, **kwargs)
@@ -71,7 +72,10 @@ def test_health_report_scores_assessed_categories_and_marks_others_unassessed(
     }} == {100}
     assert categories["performance"]["status"] == "not_assessed"
     assert categories["security"]["status"] == "not_assessed"
+    assert categories["security"]["checks_total"] == 1
+    assert categories["security"]["checks_completed"] == 1
     assert categories["security"]["evidence"][0]["observed_value"] is True
+    assert sum(call.args[0] == AUDIT_PATH for call in mock_iris_client.get.call_args_list) == 1
     assert body["findings"] == body["recommendations"] == []
     mock_iris_client.post.assert_not_called()
     mock_iris_client.put.assert_not_called()
@@ -104,6 +108,50 @@ def test_health_report_reuses_issue_evidence_and_severity_penalties(
     mock_iris_client.post.assert_not_called()
     mock_iris_client.put.assert_not_called()
     mock_iris_client.post_async_task.assert_not_called()
+
+
+def test_health_report_includes_disabled_auditing_in_security_category(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock_health(mock_iris_client, audit_enabled=False)
+
+    response = client.get("/api/iris/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    finding = next(item for item in body["findings"] if item["check_id"] == "audit_logging_disabled")
+    assert finding["category"] == "security"
+    assert finding["severity"] == "high"
+    assert finding["evidence"][0]["observed_value"] is False
+    assert finding["investigation"]["page"] == "security"
+    security = next(item for item in body["categories"] if item["id"] == "security")
+    assert security["checks_total"] == security["checks_completed"] == 1
+    assert len([item for item in security["evidence"] if item["field"] == "Enabled"]) == 1
+    assert sum(call.args[0] == AUDIT_PATH for call in mock_iris_client.get.call_args_list) == 1
+    mock_iris_client.put.assert_not_called()
+    mock_iris_client.post.assert_not_called()
+
+
+def test_health_report_preserves_unavailable_audit_status(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock_health(mock_iris_client)
+    issue_reads = mock_iris_client.get.side_effect
+
+    def read(path: str, **kwargs: Any) -> dict[str, Any]:
+        if path == AUDIT_PATH:
+            raise IRISConnectionError("IRIS unavailable")
+        return issue_reads(path, **kwargs)
+
+    mock_iris_client.get.side_effect = read
+
+    body = client.get("/api/iris/health").json()
+
+    security = next(item for item in body["categories"] if item["id"] == "security")
+    assert security["status"] == "unavailable"
+    assert security["checks_completed"] == 0
+    assert security["checks_total"] == 1
+    assert [item["check_id"] for item in security["unavailable_sources"]] == ["audit_status"]
 
 
 def test_health_report_marks_failed_checks_unavailable(

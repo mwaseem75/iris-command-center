@@ -6,8 +6,10 @@ only passing safe values.
 """
 
 import time
+from datetime import datetime
 from typing import Any
 
+from app.execution.models import ResolutionLifecycleEvidence
 from app.observability.models import ExecutionTrace, ResolutionContext, Span, utc_now
 from app.observability.store import record_trace
 
@@ -28,6 +30,13 @@ class TraceRecorder:
     def timer(self) -> _SpanTimer:
         """Call at the start of a stage."""
         return _SpanTimer()
+
+    @property
+    def start_time(self) -> datetime:
+        return self._trace.start_time
+
+    def set_lifecycle(self, lifecycle: ResolutionLifecycleEvidence | None) -> None:
+        self._trace.lifecycle = lifecycle
 
     def span(self, name: str, timer: _SpanTimer, *, status: str, **attributes: Any) -> None:
         """Record a stage that ran, timed from its timer()."""

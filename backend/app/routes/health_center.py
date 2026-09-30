@@ -47,6 +47,7 @@ _SOURCES = {
     "journal_purge_archived_off": "GET /v2/journal/settings",
     "system_monitor_not_running": "GET /v2/monitor/dashboard/main and GET /v2/processes",
     "audit_status": "GET /v2/security/audit/enabled",
+    "audit_logging_disabled": "GET /v2/security/audit/enabled",
 }
 _CUSTOM_CATEGORIES: dict[str, HealthCategoryId] = {
     "cache_efficiency": "performance",
@@ -125,6 +126,7 @@ async def get_health_report(
         for category, _, checks in _CATEGORIES
         for check in checks
     }
+    check_categories["audit_logging_disabled"] = "security"
     for rule in rules:
         check_categories[rule.issue_type] = _CUSTOM_CATEGORIES[rule.signal]
 
@@ -150,6 +152,8 @@ async def get_health_report(
             category = check_categories[issue.kind]
             findings.append(_finding(issue, issues.resolutions[issue.kind], category))
         for check in issues.issue_checks_unavailable:
+            if check == "audit_logging_disabled":
+                continue
             category = check_categories[check]
             unavailable.append(
                 HealthUnavailableSource(
@@ -160,20 +164,31 @@ async def get_health_report(
                 )
             )
 
-    try:
-        audit_enabled = (await get_audit_enabled(client)).result.Enabled
-    except (HTTPException, ValidationError):
-        audit_enabled = None
-        unavailable.append(
-            HealthUnavailableSource(
-                category="security",
-                check_id="audit_status",
-                source=_SOURCES["audit_status"],
-                reason="IRIS audit status could not be read.",
+    audit_issue = (
+        next((issue for issue in issues.issues if issue.kind == "audit_logging_disabled"), None)
+        if issues is not None
+        else None
+    )
+    audit_check_unavailable = (
+        issues is None or "audit_logging_disabled" in issues.issue_checks_unavailable
+    )
+    if not audit_check_unavailable:
+        audit_enabled = audit_issue is None
+    else:
+        try:
+            audit_enabled = (await get_audit_enabled(client)).result.Enabled
+        except (HTTPException, ValidationError):
+            audit_enabled = None
+            unavailable.append(
+                HealthUnavailableSource(
+                    category="security",
+                    check_id="audit_status",
+                    source=_SOURCES["audit_status"],
+                    reason="IRIS audit status could not be read.",
+                )
             )
-        )
 
-    if audit_enabled is not None:
+    if audit_enabled is not None and audit_issue is None:
         security_evidence = [
             HealthEvidence(
                 source=_SOURCES["audit_status"],
@@ -227,6 +242,8 @@ async def get_health_report(
             for evidence in item.evidence
         ]
         reported = {item.check_id for item in category_findings}
+        if category_id == "security" and audit_enabled is not None:
+            reported.add("audit_status")
         category_evidence += [
             HealthEvidence(
                 source="Existing Issue Resolver detection",

@@ -102,6 +102,7 @@ class JournalUpdatePurgeArchivedHandler(OperationHandler):
             return PostActionVerificationResult(
                 status=PostActionVerificationStatus.VERIFIED,
                 detail=f"Confirmed via GET: PurgeArchived is now {actual}, as requested.",
+                evidence={"purge_archived": actual},
             )
 
         return PostActionVerificationResult(
@@ -110,4 +111,5 @@ class JournalUpdatePurgeArchivedHandler(OperationHandler):
                 f"Expected PurgeArchived={target} after the PUT, but a follow-up GET "
                 f"returned {actual!r}."
             ),
+            evidence={"purge_archived": actual},
         )

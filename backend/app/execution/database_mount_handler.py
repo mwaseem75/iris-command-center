@@ -149,7 +149,7 @@ class DatabaseMountHandler(OperationHandler):
                 f"dismounted and would be mounted {'read-only' if params.ReadOnly else 'read-write'}. "
                 "No mount request was sent."
             ),
-            data={"directory": params.Directory, "read_only": params.ReadOnly},
+            data={"directory": params.Directory, "read_only": params.ReadOnly, "mounted_before": False},
         )
 
     async def execute(
@@ -184,7 +184,7 @@ class DatabaseMountHandler(OperationHandler):
         return HandlerExecutionResult(
             outcome=HandlerOutcome.SUCCESS,
             detail=f"Mount requested for database at directory {params.Directory!r}.",
-            data={"directory": params.Directory, "read_only": params.ReadOnly},
+            data={"directory": params.Directory, "read_only": params.ReadOnly, "mounted_before": False},
         )
 
     async def verify(
@@ -222,6 +222,7 @@ class DatabaseMountHandler(OperationHandler):
                     f"but POST /v2/database-dir/info last reported {last_state!r} for Mounted "
                     f"after {attempts_made} attempts (retried with delays of {attempted_delays})."
                 ),
+                evidence={"mounted": last_state if isinstance(last_state, (bool, str)) else None},
             )
 
         retry_note = "" if attempts_made == 1 else f" (took {attempts_made} attempts)"
@@ -231,4 +232,5 @@ class DatabaseMountHandler(OperationHandler):
                 "Confirmed via POST /v2/database-dir/info: database at directory "
                 f"{target_directory!r} now reports Mounted=True{retry_note}."
             ),
+            evidence={"mounted": True},
         )
