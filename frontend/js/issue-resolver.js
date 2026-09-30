@@ -94,6 +94,7 @@ const dom = {
 let activeIssues = [];
 let resolutions = {};
 let issueCorrelations = [];
+let issueHistoryRequest = 0;
 let onOpenDatabases = null;
 let onOpenWebApps = null;
 let onOpenOperations = null;
@@ -681,9 +682,74 @@ function relatedFindingsSection(issue) {
   return section("Related Findings", list);
 }
 
+function lifecycleEvidenceText(label, values) {
+  if (!values || typeof values !== "object") return null;
+  const details = Object.entries(values)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `${key.replace(/_/g, " ")}: ${textOrPlaceholder(value)}`)
+    .join(", ");
+  return details ? `${label}: ${details}` : null;
+}
+
+function resolutionHistorySection(entries) {
+  if (!Array.isArray(entries) || !entries.length) return null;
+
+  const historyItems = entries.map((entry) => {
+    const timestamp = entry.timestamp
+      ? new Date(entry.timestamp).toLocaleString()
+      : PLACEHOLDER;
+    const resultStatus = [
+      entry.result?.operation_status,
+      entry.result?.execution_status,
+    ].filter((status) => typeof status === "string" && status).join(" / ") || "Unavailable";
+    const verificationStatus = entry.verification?.status || "Unavailable";
+    const actionParameters = Object.entries(entry.action?.parameters || {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== "");
+    const evidence = [
+      lifecycleEvidenceText("BEFORE", entry.before?.state),
+      entry.action && (entry.action.operation_name || actionParameters.length)
+        ? `ACTION: ${textOrPlaceholder(entry.action.operation_name)}`
+          + (actionParameters.length
+            ? ` (${actionParameters.map(([key, value]) => `${key}=${textOrPlaceholder(value)}`).join(", ")})`
+            : "")
+        : null,
+      lifecycleEvidenceText("AFTER", entry.after),
+      entry.verification?.status
+        ? `VERIFICATION: ${verificationStatus}`
+        : null,
+    ].filter(Boolean);
+    const item = el("div", "ir-history__entry");
+    item.append(
+      infoList([
+        ["Timestamp", timestamp],
+        ["Operation", entry.operation_name],
+        ["Result", resultStatus],
+        ["Verification", verificationStatus],
+      ]),
+      ...(evidence.length ? [el("p", "ir-why__text", evidence.join(" → "))] : []),
+    );
+    return item;
+  });
+  return section("Resolution History", ...historyItems);
+}
+
+async function loadIssueResolutionHistory(issue, requestId) {
+  if (typeof issue.issue_id !== "string" || !issue.issue_id) return;
+  try {
+    const response = await IrisApi.getIssueResolutionHistory(issue.issue_id);
+    if (requestId !== issueHistoryRequest || drawerIssue !== issue || dom.drawer.hidden) return;
+    const history = resolutionHistorySection(response?.history);
+    if (history) dom.drawerBody.append(history);
+  } catch {
+    if (requestId !== issueHistoryRequest || drawerIssue !== issue || dom.drawer.hidden) return;
+    dom.drawerBody.append(section("Resolution History", el("p", "empty-state", "Resolution history is unavailable.")));
+  }
+}
+
 function openDrawer(index) {
   const issue = activeIssues[index];
   if (!issue) return;
+  const historyRequest = ++issueHistoryRequest;
   const resolution = resolutions[issue.kind];
 
   const res = resourceOf(issue);
@@ -748,6 +814,7 @@ function openDrawer(index) {
   }
 
   showDrawer();
+  void loadIssueResolutionHistory(issue, historyRequest);
 }
 
 // Opens the (shared, centered) detail workspace.
@@ -837,6 +904,7 @@ function openCatalogEntry(issueType) {
 }
 
 function closeDrawer() {
+  issueHistoryRequest += 1;
   dom.drawerBackdrop.hidden = true;
   dom.drawer.hidden = true;
 }

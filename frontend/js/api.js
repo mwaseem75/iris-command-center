@@ -394,6 +394,8 @@ export const IrisApi = {
   getMessagesLog: () => fetchIris("/api/iris/messages-log"),
   // { issues: [...] } from our own issue check.
   getIssues: () => fetchIris("/api/iris/issues"),
+  getIssueResolutionHistory: (issueId) =>
+    fetchIris(`/api/iris/issues/${encodeURIComponent(issueId)}/history`),
   // { query, results: [{ source, title, body, score }] }: stored documents
   // ranked by IRIS Vector Search. 503 when ENABLE_KNOWLEDGE_SEARCH is off.
   searchKnowledge: (query) => fetchIris(`/api/iris/knowledge/search?q=${encodeURIComponent(query)}`),
