@@ -276,7 +276,7 @@ Changes are validated before execution and verified against the live IRIS config
 
 ### 🩺 Deterministic Issue Resolver
 
-The **Issue Resolver** provides a controlled operational path from detecting an IRIS condition to either a safe resolution or guided investigation. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model.
+The **Issue Resolver** provides a controlled operational path from detecting an IRIS condition to either a safe resolution or guided investigation: **Detect → Explain → Recommend → Safely Resolve → Verify**. Detection and recommendations are deterministic: they come from live IRIS data and the Issue Resolution Catalog, not from an AI model. Stable issue IDs identify findings by issue type and canonical resource, while resolution readiness indicates whether an issue is ready for a resolution check, blocked, requires investigation, or has insufficient evidence.
 <img width="2068" alt="image" src="https://github.com/user-attachments/assets/4db1e9a5-3d80-48af-b2a8-666ac8176570" />
 
 The resolver separates issues into two categories:
@@ -318,8 +318,11 @@ The catalog also includes conditions where Command Center intentionally provides
 - `system_monitor_not_running` — detects when the IRIS System Monitor is not running and directs the operator to **System**.
 - `task_manager_not_running` — detects when the IRIS Task Manager is not running and directs the operator to **Tasks**.
 - `database_full` — detects databases reported as full and directs the operator to **Databases**.
+- `audit_logging_disabled` — detects when IRIS reports auditing disabled and directs the operator to review audit policy on **Security**; it does not enable auditing automatically.
 
 These checks remain read-only. Command Center does not invent a remediation operation simply because an issue has been detected.
+
+Related findings are linked through deterministic rules based on shared resources or documented operational relationships. The Issue Resolver drawer shows issue identity, resource, readiness, and backend-provided related findings. It also presents issue-level Resolution History projected from existing execution traces, including lifecycle evidence where available: **BEFORE → ACTION → RESULT → AFTER → VERIFICATION**.
 
 ### Custom Issue Rules
 
