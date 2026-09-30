@@ -49,6 +49,34 @@ inside a deterministic, server-side safety boundary:
 | 🛡️ **Structured Failure States** | Rejections and failures use machine-readable codes such as `authorization_failed`, `resource_protected`, `verification_failed` and `issue_still_detected`. |
 | 🔐 **Defense in Depth** | AI output is only a proposal. Parameters are rebuilt server-side, authorization is rechecked, explicit confirmation is required, and every mutation is verified. |
 
+### The safety architecture
+
+```mermaid
+flowchart LR
+    U[User Request] --> I[Deterministic Intent]
+    I --> C[Capability Catalog]
+    C --> P[Safe Plan]
+    P --> F[Explicit Confirmation]
+    F --> A[Authorization]
+    A --> X[Controlled Execution]
+    X --> V[Verification]
+    V --> T[Structured Trace]
+
+So the beginning of your README becomes:
+
+```text
+Architecture
+     ↓
+🏆 IRIS Ops Skill — What Makes It Different
+     ↓
+Key Enhancements
+     ↓
+The safety architecture          ← ADD THIS
+     ↓
+Why this matters
+     ↓
+Features at a Glance
+    
 ### Why this matters
 
 The Copilot is not an unrestricted AI agent with an IRIS connection.
@@ -159,8 +187,6 @@ The Copilot can inspect live IRIS task state without being granted permission to
 
 Task management is **read-only**: the Copilot never runs, suspends, resumes, deletes or schedules tasks, and task operations are not in the capability catalog.
 
-Task management is **read-only**: the Copilot never runs, suspends, resumes, deletes or schedules tasks, and task operations are not in the capability catalog.
-
 ### Structured execution trace
 
 Each Copilot change request is recorded with the existing execution-trace infrastructure (the same store, optional IRIS persistence and `GET /api/iris/observability/traces` endpoint), as two linked traces with one span per lifecycle stage:
@@ -169,6 +195,15 @@ Each Copilot change request is recorded with the existing execution-trace infras
 - **`copilot.execute`** (from `/execute`): `requested → confirmation_received → authorized → issue_detected → executing → executed → verification → resolved`, or a failure stage named by its failure code.
 
 The plan returns the plan trace's `trace_id`, the execute trace links to it, and the `executed` stage links to the executor's own operation trace. Trace IDs are informational only and never affect a decision. Trace attributes are limited to an allowlist of keys and simple values: raw user messages and secrets are never recorded (only the message length). Read-only questions create no trace, and Copilot traces do not add duplicate entries to an issue's resolution history.
+
+#### Example — Copilot execution trace
+
+Copilot planning and execution are visible in the same Observability infrastructure
+used by the rest of Command Center.
+
+<img width="2175" alt="image" src="https://github.com/user-attachments/assets/4f609944-2a19-4ddb-8b94-494ec0af7fab" />
+
+*Copilot planning and execution provide an auditable lifecycle from request through verification.*
 
 ### Structured failure states
 
