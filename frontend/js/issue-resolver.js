@@ -93,6 +93,7 @@ const dom = {
 // The last response; the drawer reads from it.
 let activeIssues = [];
 let resolutions = {};
+let issueCorrelations = [];
 let onOpenDatabases = null;
 let onOpenWebApps = null;
 let onOpenOperations = null;
@@ -624,6 +625,62 @@ function whyThisSolution(issue, resolution) {
   return details;
 }
 
+function relatedFindingsSection(issue) {
+  if (typeof issue.issue_id !== "string" || !Array.isArray(issueCorrelations)) return null;
+
+  const related = new Map();
+  for (const correlation of issueCorrelations) {
+    if (!correlation || typeof correlation !== "object") continue;
+    const relatedId = correlation.issue_id_a === issue.issue_id
+      ? correlation.issue_id_b
+      : correlation.issue_id_b === issue.issue_id
+        ? correlation.issue_id_a
+        : null;
+    if (typeof relatedId !== "string" || !relatedId || relatedId === issue.issue_id) continue;
+
+    const item = related.get(relatedId) || { kinds: new Set(), reasons: new Set() };
+    if (typeof correlation.kind === "string" && correlation.kind) item.kinds.add(correlation.kind);
+    if (typeof correlation.reason === "string" && correlation.reason) item.reasons.add(correlation.reason);
+    related.set(relatedId, item);
+  }
+  if (!related.size) return null;
+
+  const list = el("div", "info-list");
+  for (const [relatedId, relationship] of related) {
+    const relatedIssueIndex = activeIssues.findIndex((item) => item.issue_id === relatedId);
+    const relatedIssue = relatedIssueIndex >= 0 ? activeIssues[relatedIssueIndex] : null;
+    const relatedResolution = relatedIssue ? resolutions[relatedIssue.kind] : null;
+    const displayName = relatedIssue?.resource?.display_name
+      || relatedResolution?.title
+      || relatedIssue?.kind
+      || `Issue ${relatedId}`;
+    const details = el("div");
+    if (relatedIssueIndex >= 0) {
+      const link = el("button", "ir-issue__action", displayName);
+      link.type = "button";
+      link.addEventListener("click", () => openDrawer(relatedIssueIndex));
+      details.append(link);
+    } else {
+      details.append(el("strong", null, displayName));
+    }
+    if (relatedIssue) {
+      details.append(el("p", "ir-why__text", relatedIssue.kind));
+    }
+    for (const reason of relationship.reasons) {
+      details.append(el("p", "ir-why__text", reason));
+    }
+    list.append(
+      infoList([
+        [
+          [...relationship.kinds].map((kind) => kind.replace(/_/g, " ")).join(", ") || "Related",
+          details,
+        ],
+      ]),
+    );
+  }
+  return section("Related Findings", list);
+}
+
 function openDrawer(index) {
   const issue = activeIssues[index];
   if (!issue) return;
@@ -650,12 +707,18 @@ function openDrawer(index) {
     ["Issue ID", issueIdValue(issue.issue_id)],
     ...res.rows(issue),
   ]));
+  const relatedFindings = relatedFindingsSection(issue);
 
   if (!resolution) {
-    dom.drawerBody.replaceChildren(summary, el("p", "empty-state", "No catalog entry for this issue type."));
+    dom.drawerBody.replaceChildren(
+      summary,
+      ...(relatedFindings ? [relatedFindings] : []),
+      el("p", "empty-state", "No catalog entry for this issue type."),
+    );
   } else if (detectionOnly) {
     dom.drawerBody.replaceChildren(
       summary,
+      ...(relatedFindings ? [relatedFindings] : []),
       section("Live evidence", evidenceTable(issue, resolution)),
       section("Explanation",
         ...(issue.explanation ? [el("p", "ir-why__text", issue.explanation)] : []),
@@ -666,6 +729,7 @@ function openDrawer(index) {
   } else {
     dom.drawerBody.replaceChildren(
       summary,
+      ...(relatedFindings ? [relatedFindings] : []),
       section("Live evidence", evidenceTable(issue, resolution)),
       ...("affected_namespaces" in issue ? [section("Affected namespaces", affectedNamespaces(issue, resolution))] : []),
       section(
@@ -1180,6 +1244,7 @@ export async function loadIssueResolver() {
     const response = await IrisApi.getIssues();
     activeIssues = Array.isArray(response?.issues) ? response.issues : [];
     resolutions = response?.resolutions && typeof response.resolutions === "object" ? response.resolutions : {};
+    issueCorrelations = Array.isArray(response?.correlations) ? response.correlations : [];
     dom.updated.textContent = new Date().toLocaleString();
     const unavailable = Array.isArray(response?.issue_checks_unavailable) ? response.issue_checks_unavailable : [];
     if (unavailable.length) {
@@ -1189,6 +1254,7 @@ export async function loadIssueResolver() {
   } catch {
     activeIssues = [];
     resolutions = {};
+    issueCorrelations = [];
     setErrorBanner("Could not check for issues right now. The Command Center backend may be unreachable.");
   }
   closeDrawer();
