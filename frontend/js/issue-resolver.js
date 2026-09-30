@@ -362,6 +362,43 @@ function typeBadge(resolution) {
   return badge("Unknown", "status-badge--neutral");
 }
 
+function readinessBadge(readiness) {
+  const labels = {
+    ready_to_check: ["Ready to check", "status-badge--ok"],
+    blocked: ["Blocked", "status-badge--error"],
+    investigation_required: ["Investigation required", "status-badge--warning"],
+    insufficient_evidence: ["Insufficient evidence", "status-badge--warning"],
+  };
+  const known = typeof readiness === "string" && Object.prototype.hasOwnProperty.call(labels, readiness);
+  const [label, variant] = known
+    ? labels[readiness]
+    : ["Readiness unavailable", "status-badge--neutral"];
+  return badge(label, variant);
+}
+
+function issueIdValue(issueId) {
+  const wrap = el("span", "obs-traceid");
+  wrap.append(el("code", "ir-mono", textOrPlaceholder(issueId)));
+  if (navigator.clipboard && typeof issueId === "string" && issueId) {
+    const copy = el("button", "obs-icon-btn", "Copy");
+    copy.type = "button";
+    copy.title = "Copy the full issue ID";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(issueId);
+        copy.textContent = "Copied";
+      } catch {
+        copy.textContent = "Copy failed";
+      }
+      setTimeout(() => {
+        copy.textContent = "Copy";
+      }, 1500);
+    });
+    wrap.append(copy);
+  }
+  return wrap;
+}
+
 // The card: severity edge | what & where | type, severity, action | status | chevron.
 function renderIssueCard(issue, index) {
   const resolution = resolutions[issue.kind];
@@ -389,7 +426,8 @@ function renderIssueCard(issue, index) {
   const plan = el("div", "ir-issue__plan");
   const badges = el("div", "ir-issue__badges");
   badges.append(typeBadge(resolution),
-    resolution ? severityBadge(resolution.severity) : badge("Unknown", "status-badge--neutral"));
+    resolution ? severityBadge(resolution.severity) : badge("Unknown", "status-badge--neutral"),
+    readinessBadge(issue.readiness));
   plan.append(badges);
   if (resolution && !isDetectionOnly(resolution)) {
     const meta = el("div", "ir-issue__meta");
@@ -606,6 +644,10 @@ function openDrawer(index) {
 
   const summary = section("Issue", infoList([
     ["Issue type", issue.kind, { mono: true }],
+    ["Readiness", readinessBadge(issue.readiness)],
+    ["Resource", issue.resource?.display_name],
+    ["Canonical resource key", issue.resource?.canonical_key, { mono: true }],
+    ["Issue ID", issueIdValue(issue.issue_id)],
     ...res.rows(issue),
   ]));
 
