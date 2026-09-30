@@ -27,6 +27,37 @@ It combines live IRIS system information with controlled administrative workflow
 <img width="1983" alt="image" src="https://github.com/user-attachments/assets/4cdb4abf-672a-432c-857b-c862655b9717" />
 
 ---
+## 🏆 IRIS Ops Skill — What Makes It Different
+
+IRIS Ops Skill turns IRIS Command Center from an operational dashboard into a
+**safety-oriented AI operations capability for InterSystems IRIS**.
+
+It is not an unrestricted AI agent connected directly to IRIS. The Copilot operates
+inside a deterministic, server-side safety boundary:
+
+**Ask → Detect → Explain → Plan → Confirm → Authorize → Execute → Verify → Trace**
+
+### Key Enhancements
+
+| Enhancement | What it provides |
+|---|---|
+| 🧩 **Closed Capability Catalog** | A single allowlist of approved AI operations. The Copilot cannot invent or execute arbitrary operations. |
+| 📋 **Rich Capability Metadata** | Each capability declares examples, constraints, verification and undo information, while privileges and risk come from the existing operation registry. |
+| ⏱️ **Task Catalog** | Ask natural-language questions about live IRIS tasks, including suspended tasks, errors, schedules and run-as users — completely read-only. |
+| 🔎 **Capability Discovery** | A read-only API exposes the currently approved capabilities and their metadata without exposing handlers or implementation details. |
+| 🧵 **Structured Execution Trace** | Planning and execution produce linked `copilot.plan` and `copilot.execute` traces connected to the underlying operation trace. |
+| 🛡️ **Structured Failure States** | Rejections and failures use machine-readable codes such as `authorization_failed`, `resource_protected`, `verification_failed` and `issue_still_detected`. |
+| 🔐 **Defense in Depth** | AI output is only a proposal. Parameters are rebuilt server-side, authorization is rechecked, explicit confirmation is required, and every mutation is verified. |
+
+### Why this matters
+
+The Copilot is not an unrestricted AI agent with an IRIS connection.
+It is an **issue-aware, allowlisted operations layer** built on top of the
+Command Center's existing authorization, execution and observability
+frameworks.
+
+---
+
 # 🧭 Features at a Glance
 
 | Area | What you can do |
@@ -44,7 +75,7 @@ It combines live IRIS system information with controlled administrative workflow
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
-| 🤖 **AI Assistant / IRIS Ops Skill** | Ask natural-language questions backed by live, read-only IRIS data, including issues and tasks; the issue-aware Copilot ([IRIS Ops Skill](#-iris-ops-skill--issue-aware-copilot)) resolves approved, catalog-backed problems only after explicit confirmation, with structured traces and failure codes |
+| 🤖 **AI Assistant / IRIS Ops Skill** | Issue-aware AI operations over live IRIS data with a closed capability catalog, read-only Task Catalog, explicit confirmation, server-side authorization, structured execution traces, and machine-readable failure states |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
 | 🎬 **Demo Activity** | Demonstrate controlled operations and an intentional, reversible demo issue, with verification, restoration, and execution tracing |
@@ -88,6 +119,18 @@ The Copilot can only plan and run operations listed in one closed catalog (`back
 | `database.mount` | Mount a dismounted database | `database_dismounted` | "Mount database IPM" | ✅ Live-verified on IRIS 2026.2 (IPM mounted, issue cleared, resolution history recorded) |
 | `web_app.set_enabled` (disable only) | Disable a web application whose namespace is missing | `web_app_namespace_missing` | "Disable web app /csp/example" | 🧪 Covered by automated tests; **not yet live-verified** |
 
+#### Example — controlled administrative action
+
+A natural-language request does not execute an IRIS mutation directly. The Copilot
+first produces a deterministic proposal and requires explicit user confirmation
+before authorization and execution.
+
+> **"Enable PurgeArchived."**
+
+<img width="1685" alt="image" src="https://github.com/user-attachments/assets/5331359d-b87c-46fb-8633-86ef70d3b42c" />
+
+*The Copilot proposes the approved operation and requires explicit confirmation before execution.*
+
 The catalog is validated when the backend starts; a misconfigured entry stops startup instead of failing at runtime. Every capability must be a registered mutation in the operation registry that requires confirmation, and each issue-backed capability must match the operation the Issue Resolution Catalog uses for that issue.
 
 ### Capability metadata and discovery
@@ -103,6 +146,18 @@ The Copilot answers task questions from the existing task overview — for examp
 - **Inventory and state:** name, type, namespace, state (Running / Not Running / Suspended, read from each task's `/v2/task/info`), suspended flag, error text (capped), last and next run.
 - **Task details:** run-as user, schedule fields as IRIS reports them (TimePeriod, every, DailyFrequency, DailyStartTime) and suspend-on-error. These are read from `GET /v2/task` only when the question asks about them.
 - **Bounded:** at most 10 tasks are included, and summaries say when they cover only the tasks shown. If one task's info or detail can't be read, that task is still listed with those fields empty.
+
+#### Example — natural-language Task Catalog query
+
+The Copilot can inspect live IRIS task state without being granted permission to modify tasks.
+
+> **"Which tasks are suspended?"**
+
+<img width="1675" alt="image" src="https://github.com/user-attachments/assets/1713bb5f-0214-4231-bb87-839ba9a0202a" />
+
+*Live read-only task information returned by the IRIS Ops Skill.*
+
+Task management is **read-only**: the Copilot never runs, suspends, resumes, deletes or schedules tasks, and task operations are not in the capability catalog.
 
 Task management is **read-only**: the Copilot never runs, suspends, resumes, deletes or schedules tasks, and task operations are not in the capability catalog.
 
