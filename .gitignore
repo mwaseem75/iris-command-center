@@ -58,7 +58,9 @@ htmlcov/
 
 # ---- Private / internal (not part of the public project) ----
 # Internal engineering notes and assistant/IDE instruction files.
-docs/
+# docs/* (not docs/) so the public demo walkthrough below can be tracked.
+docs/*
+!docs/ops-skill-demo.md
 CLAUDE.md
 .claude/
 .github/copilot-instructions.md

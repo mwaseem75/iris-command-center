@@ -33,6 +33,7 @@ from app.observability import store as observability_store
 from app.observability.iris_trace_writer import IRISTraceWriter
 from app.routes.assistant import router as assistant_router
 from app.routes.capabilities import router as capabilities_router
+from app.routes.copilot import router as copilot_router
 from app.routes.databases import router as databases_router
 from app.routes.demo import router as demo_router
 from app.routes.health import router as health_router
@@ -155,6 +156,7 @@ app.include_router(demo_router)
 app.include_router(web_apps_router)
 app.include_router(operations_router)
 app.include_router(assistant_router)
+app.include_router(copilot_router)
 app.include_router(observability_router)
 app.include_router(capabilities_router)
 app.include_router(python_router)

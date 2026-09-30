@@ -58,6 +58,36 @@ async function fetchIris(path) {
 }
 
 /**
+ * POST a Copilot request and return its structured JSON response. Only the
+ * status and endpoint path are included in errors; response bodies may carry
+ * internal details and are never surfaced to the Assistant UI.
+ */
+async function postCopilot(path, body) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+
+  if (!response.ok) {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+
+  setHeaderConnectionStatus("connected", "Connected to backend");
+  return response.json();
+}
+
+/**
  * POST /api/iris/journal/purge-archived. Sends PurgeArchived and the
  * user's `confirmed` flag; the backend decides whether it's allowed. There's
  * no force/bypass option. `resolutionIssueType` (optional) only labels the
@@ -402,6 +432,21 @@ export const IrisApi = {
   // Returns our own { reply, intent } shape, not an IRISEnvelope.
   queryAssistant: (message) =>
     fetchIris(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`),
+  classifyCopilotRequest: (message) =>
+    postCopilot("/api/iris/copilot/classify", { message }),
+  askCopilot: (message) =>
+    postCopilot("/api/iris/copilot/ask", { message }),
+  planCopilotOperation: (message, reasoning) =>
+    postCopilot("/api/iris/copilot/plan", {
+      message,
+      intent: reasoning.intent,
+      proposed_action: reasoning.proposed_action,
+      requires_confirmation: reasoning.requires_confirmation,
+    }),
+  authorizeCopilotPlan: (plan, confirmed) =>
+    postCopilot("/api/iris/copilot/authorize", { plan, confirmed }),
+  executeCopilotPlan: (plan, authorization, confirmed) =>
+    postCopilot("/api/iris/copilot/execute", { plan, authorization, confirmed }),
   // Returns an OperationResult (backend/app/execution/models.py).
   executeJournalPurgeArchived: (purgeArchived, confirmed, resolutionIssueType = null, dryRun = false) =>
     postJournalPurgeArchived(purgeArchived, confirmed, resolutionIssueType, dryRun),

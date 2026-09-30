@@ -3,7 +3,7 @@
 **Observe. Investigate. Act—safely.**
 
 A modern operational console for **InterSystems IRIS** that brings monitoring, administration, investigation, security, visibility, issue resolution, and operational tracing into one place.
-It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and a deterministic AI Assistant.
+It combines live IRIS system information with controlled administrative workflows, native audit investigation, structured execution traces, security visibility, and an issue-aware AI Assistant built on a deterministic provider.
 <p align="center">
 <img width="2048"  alt="image" src="https://github.com/user-attachments/assets/be3beb83-ba53-41a1-8e78-53ff8e5c5a26" />
 </p>
@@ -44,10 +44,57 @@ It combines live IRIS system information with controlled administrative workflow
 | 🔌 **Extensions & Integrations** | Inspect external language servers, filesystem access purposes, and wallet integration metadata |
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
-| 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs |
+| 🤖 **AI Assistant** | Ask natural-language questions backed by live Command Center APIs; the issue-aware Copilot ([IRIS Ops Skill](#-iris-ops-skill--issue-aware-copilot)) explains live issues and can resolve catalog-backed ones after explicit confirmation |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
 | 🎬 **Demo Activity** | Demonstrate controlled operations and an intentional, reversible demo issue, with verification, restoration, and execution tracing |
+
+---
+
+# 🤖 IRIS Ops Skill — Issue-aware Copilot
+
+IRIS Ops Skill turns the existing **AI Assistant** into an issue-aware operations Copilot. It is not a separate chatbot: it uses the same Assistant page and the same backend services, authorization and execution framework as the rest of Command Center.
+
+- **Grounded in live findings.** Its context includes the active issues reported by the [Issue Resolver](#-deterministic-issue-resolver), so *"Are there any issues?"* is answered from real IRIS evidence.
+- **Resolves catalog-backed issues safely.** For an issue the Issue Resolution Catalog can fix, it proposes the catalog's operation and runs it only after explicit confirmation, authorization and verification.
+
+```mermaid
+flowchart LR
+    D[Detect<br/>Issue Resolver] --> E[Explain<br/>Copilot answer]
+    E --> P[Plan<br/>catalog + detected issue]
+    P --> C[Confirm<br/>explicit button]
+    C --> A[Authorize<br/>server-side]
+    A --> X[Execute<br/>existing operation]
+    X --> V[Verify<br/>handler + issue gone]
+```
+
+**Detect → Explain → Plan → Confirm → Authorize → Execute → Verify**
+
+### Safety guarantees
+
+- **AI output is only a proposal.** The deterministic provider returns text such as *"Mount database IPM"*. It never supplies operation parameters and cannot call IRIS.
+- **Parameters come from the detected issue and the catalog.** A name in the request only selects one currently detected issue; values such as the database directory or web application name are taken from that issue using the catalog's parameter bindings. Ambiguous, undetected, system or protected targets are refused.
+- **The issue is re-detected at execution time** by its stable issue ID. If it is no longer detected, nothing runs.
+- **Tampering is rejected.** Parameters are rebuilt from the detected issue when the operation runs; a plan whose target or parameters were changed in the browser does not match and is refused before anything reaches IRIS.
+- **Explicit confirmation and authorization are required.** Only the **Confirm & Execute** button confirms; typing "yes" in the chat does not. Privileges are checked on the server from the IRIS session, never taken from the browser.
+- **Success requires verification.** The operation's own post-action check must pass *and* the Issue Resolver must no longer report the issue. The attempt is recorded in the issue's resolution history and in Observability.
+- **Unsupported operations remain rejected.** Only the operations below can be planned; everything else is refused.
+
+### Supported operations
+
+| Operation | Resolves | Example request | Verification status |
+|---|---|---|---|
+| `database.mount` | `database_dismounted` | "Mount database IPM" | ✅ Live-verified on IRIS 2026.2 (IPM mounted, issue cleared, resolution history recorded) |
+| `web_app.set_enabled` (disable only) | `web_app_namespace_missing` | "Disable web app /csp/example" | 🧪 56 focused automated tests; **not yet live-verified** |
+| `journal.update_purge_archived` | journal setting request | "Enable PurgeArchived" | ✅ Live-verified on IRIS 2026.2 |
+
+`journal.update_purge_archived` is a direct setting request rather than an issue resolution, so it is not yet linked to the Issue Resolver's resolution history when run from the Copilot.
+
+### AI provider
+
+The Copilot uses a local, deterministic, rule-based provider; it needs no external service or API key. Its answer is informational and any proposed action is only a proposal: deterministic backend code decides whether a plan exists, and authorization, confirmation, execution and verification are never delegated to the provider.
+
+➡️ **Demo walkthrough:** [docs/ops-skill-demo.md](docs/ops-skill-demo.md)
 
 ---
 
@@ -197,9 +244,9 @@ This separation provides a focused operational view of Command Center activity a
 
 ### 🤖 AI-Assisted 
 Ask natural-language questions about live IRIS data while keeping the assistant inside the same controlled application API boundary.
-The current AI Assistant intentionally uses a **deterministic intent classifier**, not an external LLM.
-It provides a natural-language interface while keeping the operational path inside the existing application architecture.
-Knowledge questions may use IRIS Vector Search for supporting context; search results never trigger administrative changes, and any change the assistant can request goes through the same authorization, confirmation and verification framework as the rest of the application.
+Requests are classified deterministically on the backend, and answers come from the Copilot's local deterministic provider.
+The assistant is issue-aware and can carry out supported, catalog-backed changes — but only as a backend-generated proposal that the user explicitly confirms, and only through the same authorization, execution and verification framework as the rest of the application. See [IRIS Ops Skill — Issue-aware Copilot](#-iris-ops-skill--issue-aware-copilot).
+Knowledge questions may use IRIS Vector Search for supporting context; search results never trigger administrative changes.
 <img width="2175"  alt="image" src="https://github.com/user-attachments/assets/52a5785f-321d-4451-bb6c-00067b6e7869" />
 
 ### 🌐 Web Application 
@@ -380,7 +427,7 @@ The test suite covers:
 - **Live IRIS verification** — selected workflows are exercised against a real IRIS 2026.2 instance to confirm that API responses, privileges, operations, and resulting system state match expectations.
 
 The test suite is designed to verify not only that an operation succeeds, but also that **unsafe or invalid operations are refused and that successful changes are verified against the resulting IRIS state**.
-At the time of the current release, the backend test suite contains **802 automated tests**, with frontend smoke tests covering the critical browser workflows.
+Current backend test status: **1,135 automated tests — 1,126 passing, 9 known failures**. All 9 predate the IRIS Ops Skill (Phase 5) changes and are unrelated to them: 4 are in earlier Copilot tests (test setup with an incomplete IRIS mock, and outdated expectations), and 5 are in Issue Catalog, Health Center and database-mount tests whose expectations predate later changes. Frontend smoke tests cover the critical browser workflows.
 
 # ⚙️ Configuration
 
@@ -398,7 +445,6 @@ The Docker deployment supports these environment variables:
 | `AUTO_RUN_DEMO_ACTIVITY` | Enable the optional startup demo rehearsal |
 
 ---
-
 
 
 

@@ -1,11 +1,11 @@
-// AI Assistant page. Rule-based (no LLM), answering from live IRIS data.
+// AI Assistant page. Read-only Copilot answers use the backend's bounded
+// context and deterministic intent; local handlers remain as safe fallbacks.
 //
 // 1. Change requests (set, enable, mount, run, delete, purge...) are caught
 //    here first and answered with a pointer to the right page. Nothing is
 //    sent, and this page never runs a change.
-// 2. Known questions are answered from the read-only IrisApi.get* calls, as
-//    a short sentence plus a card or table of the same data.
-// 3. Anything else goes to the backend assistant (IrisApi.queryAssistant).
+// 2. The backend classifier routes supported read-only questions to Copilot.
+// 3. Resolution/unknown requests retain the existing local and legacy paths.
 //
 // All DOM is built with createElement/textContent, no innerHTML.
 
@@ -200,6 +200,124 @@ function card(title, ...children) {
   if (title) node.append(el("p", "ai-card__title", title));
   for (const child of children) if (child) node.append(child);
   return node;
+}
+
+function operationProposalCard(plan) {
+  const details = el("dl", "info-list");
+  const cardNode = card("IRIS Operation Proposal", details);
+  const addDetail = (label, value) => {
+    const term = el("dt", "", label);
+    const description = el("dd", "", value);
+    details.append(term, description);
+  };
+
+  addDetail("Operation", plan.operation);
+  const target = plan.target;
+  if (target && typeof target === "object") {
+    addDetail(
+      "Target",
+      [target.kind, target.identifier].filter((value) => typeof value === "string").join(" — "),
+    );
+  }
+  if (plan.parameters && typeof plan.parameters === "object") {
+    for (const [name, value] of Object.entries(plan.parameters)) {
+      addDetail("Change", `${name} → ${typeof value === "string" ? value : JSON.stringify(value)}`);
+    }
+  }
+  if (typeof plan.reason === "string" && plan.reason) addDetail("Reason", plan.reason);
+  if (typeof plan.requires_confirmation === "boolean") {
+    addDetail("Confirmation", plan.requires_confirmation ? "Required" : "Not required");
+  }
+
+  if (plan.requires_confirmation !== true) return cardNode;
+
+  const status = el("p", "ai-card__note", "Waiting for your explicit confirmation.");
+  status.setAttribute("role", "status");
+  const actions = el("div", "ai-message__actions");
+  const confirmButton = el("button", "btn btn--warning", "Confirm & Execute");
+  const cancelButton = el("button", "btn", "Cancel");
+  confirmButton.type = "button";
+  cancelButton.type = "button";
+  actions.append(confirmButton, cancelButton);
+  cardNode.append(status, actions);
+
+  let state = "pending";
+  const setProposalNotice = (text) => {
+    const messageText = cardNode.closest(".ai-message")?.querySelector(".chat__message-text");
+    if (messageText) messageText.textContent = text;
+  };
+  cancelButton.addEventListener("click", () => {
+    if (state !== "pending") return;
+    state = "cancelled";
+    actions.remove();
+    setProposalNotice("This proposal was cancelled. It was not authorized or executed.");
+    status.textContent = "Operation cancelled. No changes were made.";
+  });
+  confirmButton.addEventListener("click", async () => {
+    if (state !== "pending") return;
+    state = "running";
+    confirmButton.disabled = true;
+    cancelButton.disabled = true;
+    setProposalNotice("Explicit confirmation received. Checking authorization.");
+    status.textContent = "Authorizing operation…";
+
+    try {
+      const authorization = await IrisApi.authorizeCopilotPlan(plan, true);
+      if (!authorization.authorized) {
+        const privileges = Array.isArray(authorization.required_privileges)
+          ? authorization.required_privileges.filter((item) => typeof item === "string")
+          : [];
+        status.textContent = [
+          "Authorization denied.",
+          privileges.length ? `Required privilege: ${privileges.join(" / ")}` : "",
+          "No changes were made.",
+        ].filter(Boolean).join("\n");
+        setProposalNotice("Authorization was denied. No operation was executed.");
+        state = "complete";
+        return;
+      }
+      if (authorization.ready_to_execute !== true) {
+        status.textContent = `Authorization passed, but the operation is not ready to execute: ${String(authorization.reason || "not ready")}. No changes were made.`;
+        setProposalNotice("The operation was not ready to execute. No operation was executed.");
+        state = "complete";
+        return;
+      }
+
+      setProposalNotice("Authorization passed. The operation is being executed and verified.");
+      status.textContent = "Authorization passed. Executing and verifying…";
+      const execution = await IrisApi.executeCopilotPlan(plan, authorization, true);
+      const resultCard = el("div", "ai-card__note");
+      const stage = (label, succeeded) =>
+        `${label}  ${succeeded === true ? "✓" : succeeded === false ? "✗" : "—"}`;
+      resultCard.append(
+        el("p", "", stage("Authorization", authorization.authorized)),
+        el("p", "", stage("Execution", execution.execution_succeeded)),
+        el("p", "", stage("Verification", execution.verification_succeeded)),
+        el(
+          "p",
+          "",
+          typeof execution.detail === "string" && execution.detail
+            ? execution.detail
+            : "The operation result was returned.",
+        ),
+      );
+      status.replaceWith(resultCard);
+      setProposalNotice(
+        execution.execution_succeeded === true && execution.verification_succeeded === true
+          ? "Operation execution and verification succeeded."
+          : execution.execution_succeeded === true
+            ? "The operation executed, but verification did not succeed."
+            : "The operation did not complete successfully.",
+      );
+      state = "complete";
+    } catch {
+      setProposalNotice("The operation result could not be confirmed. Check its state before taking further action.");
+      status.textContent =
+        "The request failed. Check the operation state before taking further action; no automatic retry was made.";
+      state = "complete";
+    }
+  });
+  return cardNode;
 }
 
 // --- mutation guard ---
@@ -633,14 +751,54 @@ async function answer(message) {
   // answerKnowledge still points to Operations if the question names a
   // change.
   if (KNOWLEDGE_QUERY.test(text) && !/purge/.test(text)) return answerKnowledge(message, text);
-  if (isMutationRequest(text)) return answerMutation(text);
   if (/\b(help|what can you)\b/.test(text)) return { text: HELP_TEXT };
+
+  let classification;
+  try {
+    classification = await IrisApi.classifyCopilotRequest(message);
+  } catch (error) {
+    if (isMutationRequest(text)) return answerMutation(text);
+    throw error;
+  }
+  if (classification && classification.intent === "resolution_request") {
+    const reasoning = await IrisApi.askCopilot(message);
+    const planning = await IrisApi.planCopilotOperation(message, reasoning);
+    if (planning && planning.plan) {
+      return {
+        text: "The backend prepared this operation proposal. It has not been authorized or executed.",
+        card: operationProposalCard(planning.plan),
+      };
+    }
+    return answerMutation(text);
+  }
+  if (isMutationRequest(text)) return answerMutation(text);
+
+  if (classification && ["issue_investigation", "health_status", "read_only_query"].includes(classification.intent)) {
+    const response = await IrisApi.askCopilot(message);
+    if (response && response.intent === classification.intent && typeof response.answer === "string" && response.answer) {
+      const parts = [response.answer];
+      if (Array.isArray(response.observations)) {
+        const observations = response.observations.filter((item) => typeof item === "string" && item);
+        if (observations.length) parts.push(`Observations:\n${observations.map((item) => `• ${item}`).join("\n")}`);
+      }
+      if (typeof response.proposed_action === "string" && response.proposed_action) {
+        parts.push(`Possible next step (proposal only): ${response.proposed_action}`);
+      }
+      if (response.requires_confirmation === true) {
+        parts.push("Confirmation is required for any operation; this response does not authorize or execute it.");
+      }
+      return { text: parts.join("\n\n") };
+    }
+    return { text: "I didn't get a usable answer for that. Try one of the suggested questions." };
+  }
+  if (classification && classification.intent === "resolution_request") {
+    return answerMutation(text);
+  }
+
+  // Preserve existing local answers for topics outside Copilot's supported
+  // intents, then retain its legacy read-only endpoint as the final fallback.
   const intent = INTENTS.find(([pattern]) => pattern.test(text));
   if (intent) return intent[1](text);
-  // Fall back to the backend assistant. Change requests were already
-  // stopped above, and anything mentioning purge is never forwarded, so the
-  // backend's journal operation can't be reached from here.
-  if (/purge/.test(text)) return answerMutation(text);
   const response = await IrisApi.queryAssistant(message);
   return {
     text:
