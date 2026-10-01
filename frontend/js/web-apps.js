@@ -1514,6 +1514,25 @@ function closeSessionDrawer() {
   dom.sessionDrawer.hidden = true;
 }
 
+// Set by focusWebSessions(): bring the Web Sessions section into view once
+// the next load has rendered (the app list above it changes its position).
+let pendingFocusSessions = false;
+
+/**
+ * Show the Web Sessions section after the next load, e.g. from the Fleet
+ * Overview's Web Sessions link. Call before navigateTo("web-apps").
+ */
+export function focusWebSessions() {
+  pendingFocusSessions = true;
+}
+
+function revealPendingSessions() {
+  if (!pendingFocusSessions) return;
+  pendingFocusSessions = false;
+  const section = document.getElementById("web-sessions-section");
+  if (section) section.scrollIntoView({ block: "start" });
+}
+
 /** Load GET /api/iris/web-apps and render it. */
 export async function loadWebApps() {
   setLoading(true);
@@ -1540,6 +1559,7 @@ export async function loadWebApps() {
     setErrorBanner(message);
     renderWebApps(null);
     setLoading(false);
+    revealPendingSessions();
     return;
   }
 
@@ -1554,6 +1574,7 @@ export async function loadWebApps() {
     setErrorBanner("IRIS did not return the expected web application information.");
     renderWebApps(null);
     setLoading(false);
+    revealPendingSessions();
     return;
   }
 
@@ -1575,6 +1596,7 @@ export async function loadWebApps() {
   const sessionsResult = await sessionsPromise;
   if (sessionsSeq === sessionsLoadSeq) renderSessionsResult(sessionsResult);
   setLoading(false);
+  revealPendingSessions();
 }
 
 export function initWebAppsControls() {

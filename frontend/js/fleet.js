@@ -1,62 +1,76 @@
-// Fleet Overview ("Multi-IRIS Command Center"): every active IRIS instance
-// side by side. Read-only; it has no change controls.
+// Fleet Overview ("All Active Instances"): one monitoring section per active
+// IRIS instance, each read on its own. Nothing is added up across instances.
+// Read-only; it has no change controls.
 //
-// Each active instance is read on its own, by id, through the same
-// instance-scoped read routes as the other pages (the Primary without
-// ?instance=):
-// - /info (version), /namespaces, /databases, /processes, /web-apps, /tasks
-//   for the counts;
-// - /health for the health status and findings;
-// - /monitor/dashboard for uptime, license use and current activity;
-// - /databases/storage for allocated database size.
-// Nothing is estimated: a value an instance didn't return shows as "—", and
-// an instance that answered nothing is shown as unavailable while the others
-// still load. Opening an instance selects it in the header selector.
+// Each active instance is read by id through the same instance-scoped read
+// routes as the other pages: the Primary without ?instance=, the others with
+// their own id, never ?instance=all, and a failed instance never falls back
+// to the Primary.
+// - /info: the IRIS version;
+// - /monitor/dashboard: uptime, database and journal status, alerts, global
+//   references/s, web sessions, license use and the performance counters;
+// - /processes: the process count (the list the Processes page shows);
+// - /health: the health status and its number of findings.
+// While the page is shown and the tab visible, /monitor/dashboard is read
+// again every REFRESH_INTERVAL_MS and everything every FULL_EVERY_TICKS
+// ticks; the Global References trend is drawn from those samples, like the
+// Dashboard's, so it's a live trend that starts when the page is opened (no
+// history is stored or fetched). A value an instance didn't return shows as "—", and an
+// instance that answered nothing shows as unavailable while the others still
+// load.
+//
+// Every View link selects that instance in the header selector and opens the
+// existing page for it.
 
 import { IrisApi, ApiError } from "./api.js";
+import { renderTrendChart } from "./dashboard.js";
 import { selectInstanceContext } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
+import { focusWebSessions } from "./web-apps.js";
 
 const PLACEHOLDER = "—";
-const COLORS = ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-6)", "var(--color-chart-4)",
-  "var(--color-chart-3)", "var(--color-chart-5)"];
-const SEVERITIES = [
-  ["critical", "Critical", "var(--color-error)"],
-  ["high", "High", "var(--color-chart-2)"],
-  ["medium", "Medium", "var(--color-warning)"],
-  ["low", "Low", "var(--color-chart-1)"],
-];
-const HEALTH_BADGES = {
-  healthy: "status-badge--ok",
-  warning: "status-badge--warning",
-  partial: "status-badge--warning",
-  critical: "status-badge--error",
-  unavailable: "status-badge--neutral",
+const REFRESH_INTERVAL_MS = 15000;
+const FULL_EVERY_TICKS = 4;
+const MAX_SAMPLES = 60;
+const COLORS = ["var(--color-success)", "var(--color-chart-2)", "var(--color-chart-6)", "var(--color-chart-1)",
+  "var(--color-warning)"];
+
+// Where each View link goes: [page, its name, element to scroll to there].
+// Web Sessions sits below the asynchronously loaded app list, so the Web Apps
+// page brings it into view itself once it has loaded (focusWebSessions).
+const TARGETS = {
+  details: ["dashboard", "Dashboard"],
+  health: ["health-center", "Health Center"],
+  databases: ["databases", "Databases"],
+  journal: ["journal", "Journal"],
+  processes: ["processes", "Processes"],
+  performance: ["dashboard", "Dashboard (System Resource Usage)", "dashboard-resources-title"],
+  sessions: ["web-apps", "Web Apps (Web Sessions)", null, "web-sessions"],
+  license: ["dashboard", "Dashboard (License)", "stat-license"],
 };
+
+const FOCUS = { "web-sessions": focusWebSessions };
 
 const $ = (id) => document.getElementById(id);
 
 const dom = {
+  view: $("view-fleet"),
   refresh: $("fleet-refresh-button"),
   updated: $("fleet-updated"),
+  count: $("fleet-count"),
   error: $("fleet-error"),
   errorText: $("fleet-error-text"),
-  kpis: $("fleet-kpis"),
-  namespacesChart: $("fleet-namespaces-chart"),
-  healthRings: $("fleet-health-rings"),
-  findingsChart: $("fleet-findings-chart"),
-  findingsLegend: $("fleet-findings-legend"),
-  tableBody: $("fleet-table-body"),
-  manage: $("fleet-manage-button"),
-  storageChart: $("fleet-storage-chart"),
-  activityBody: $("fleet-activity-body"),
-  findingsList: $("fleet-findings-list"),
+  instances: $("fleet-instances"),
+  note: $("fleet-note"),
 };
 
-let instances = [];         // from GET /api/iris/instances
-let results = new Map();    // instance id -> what that instance returned
-let showAll = false;
+let instances = [];           // from GET /api/iris/instances
+const reads = new Map();      // instance id -> { results: {key: settled}, round: [keys read last] }
+const samples = new Map();    // instance id -> [{ time, globalRefsPerSecond }], oldest first
+const sections = new Map();   // instance id -> its <article>
 let loadToken = 0;
+let timer = null;
+let tickCount = 0;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -65,8 +79,8 @@ function el(tag, className, text) {
   return node;
 }
 
-function fulfilled(result) {
-  return result && result.status === "fulfilled" ? result.value : null;
+function settledValue(settled) {
+  return settled && settled.status === "fulfilled" ? settled.value : null;
 }
 
 function resultOf(response) {
@@ -81,14 +95,26 @@ function connectionOf(instance) {
   }
 }
 
-function formatNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : PLACEHOLDER;
+function formatNumber(value, digits = 0) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString(undefined, { maximumFractionDigits: digits })
+    : PLACEHOLDER;
+}
+
+function formatCompact(value) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 1 })
+    : PLACEHOLDER;
 }
 
 function shortVersion(serverVersion) {
   if (typeof serverVersion !== "string") return PLACEHOLDER;
   const match = serverVersion.match(/\b(20\d\d\.\d+(?:\.\d+)?)\s*\(Build ([^)]+)\)/);
-  return match ? `${match[1]} (${match[2]})` : serverVersion;
+  return match ? `IRIS ${match[1]} (${match[2]})` : serverVersion;
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1).replace(/_/g, " ");
 }
 
 function activeInstances() {
@@ -97,334 +123,326 @@ function activeInstances() {
 
 // What one instance returned, as plain values (null where it didn't answer).
 function summarize(instance) {
-  const result = results.get(instance.id);
-  if (!result) return { state: instance.active ? "loading" : "inactive" };
-  const list = (key) => {
-    const value = resultOf(fulfilled(result[key]));
-    return Array.isArray(value) ? value : null;
-  };
-  const info = resultOf(fulfilled(result.info));
-  const monitor = resultOf(fulfilled(result.monitor));
-  const health = fulfilled(result.health);
-  // /health answers 200 with status "unavailable" when it couldn't reach IRIS,
-  // so that answer alone doesn't make an instance reachable or count findings.
-  const healthAnswered = Boolean(health) && health.status !== "unavailable";
-  const storage = list("storage");
-  const answered = Object.entries(result).some(([key, settled]) =>
-    settled.status === "fulfilled" && (key !== "health" || healthAnswered));
+  const entry = reads.get(instance.id);
+  if (!entry) return { state: "loading" };
+  const value = (key) => settledValue(entry.results[key]);
+  const report = value("health");
+  // /health answers 200 with status "unavailable" when it couldn't reach
+  // IRIS, so that answer alone doesn't make an instance reachable.
+  const health = report && report.status !== "unavailable" ? report : null;
+  const processes = resultOf(value("processes"));
+  const reachable = entry.round.some((key) =>
+    entry.results[key].status === "fulfilled" && (key !== "health" || health !== null));
+  const failure = entry.round.map((key) => entry.results[key]).find((settled) => settled.status === "rejected");
   return {
-    state: answered ? "ok" : "unavailable",
-    version: info ? info.serverVersion : null,
-    namespaces: list("namespaces"),
-    databases: list("databases"),
-    processes: list("processes"),
-    webApps: list("webApps"),
-    tasks: list("tasks"),
+    state: reachable ? "ok" : "unavailable",
+    error: failure && failure.reason instanceof ApiError && failure.reason.status ? `HTTP ${failure.reason.status}` : null,
+    info: resultOf(value("info")),
+    monitor: resultOf(value("monitor")),
+    processes: Array.isArray(processes) ? processes.length : null,
     health,
-    findings: healthAnswered && Array.isArray(health.findings) ? health.findings : null,
-    monitor,
-    storageMb: storage ? storage.reduce((sum, db) => sum + (typeof db.Size === "number" ? db.Size : 0), 0) : null,
   };
 }
 
-function label(instance) {
-  return instance.primary ? `${instance.name} (Primary)` : instance.name;
+// --- one instance's section ---
+
+function link(instance, target, text, className = "fleet-link") {
+  const [view, page, anchor, focus] = TARGETS[target];
+  const button = el("button", className, text);
+  button.type = "button";
+  button.dataset.fleetOpen = instance.id;
+  button.dataset.fleetView = view;
+  if (anchor) button.dataset.fleetAnchor = anchor;
+  if (focus) button.dataset.fleetFocus = focus;
+  button.title = `Select ${instance.name} and open ${page}`;
+  return button;
 }
 
-// --- KPI cards ---
-
-function kpiCard(icon, tone, value, title, meta) {
-  const card = el("article", `fleet-kpi fleet-kpi--${tone}`);
-  card.append(el("span", "fleet-kpi__icon", icon));
-  const body = el("div", "fleet-kpi__body");
-  body.append(el("p", "fleet-kpi__value", value), el("h3", "fleet-kpi__title", title), el("p", "fleet-kpi__meta", meta));
-  card.append(body);
-  return card;
+function statusTone(text) {
+  if (typeof text !== "string" || !text) return "neutral";
+  return text === "Normal" ? "ok" : "warning";
 }
 
-// Sum of `pick(summary)` over the active instances that returned it.
-function total(summaries, pick) {
-  const values = summaries.map(pick).filter((value) => typeof value === "number");
-  return {
-    value: values.length ? values.reduce((a, b) => a + b, 0) : null,
-    meta: values.length === summaries.length
-      ? `Across ${summaries.length} instance${summaries.length === 1 ? "" : "s"}`
-      : `Across ${values.length} of ${summaries.length} instances`,
-  };
-}
-
-function renderKpis(summaries) {
-  const count = (key) => (s) => (s[key] ? s[key].length : null);
-  const reachable = summaries.filter((s) => s.state === "ok").length;
-  const namespaces = total(summaries, count("namespaces"));
-  const processes = total(summaries, count("processes"));
-  const tasks = total(summaries, count("tasks"));
-  const findings = total(summaries, count("findings"));
-  dom.kpis.replaceChildren(
-    kpiCard("⬢", "accent", String(summaries.length), "Active Instances",
-      `of ${instances.length} registered · ${reachable} reachable`),
-    kpiCard("▦", "green", formatNumber(namespaces.value), "Total Namespaces", namespaces.meta),
-    kpiCard("⚙", "violet", formatNumber(processes.value), "Processes", processes.meta),
-    kpiCard("↻", "amber", formatNumber(tasks.value), "Scheduled Tasks", tasks.meta),
-    kpiCard("⚠", "red", formatNumber(findings.value), "Health Findings", findings.meta),
-  );
-}
-
-// --- charts (plain CSS bars and rings, like viz.js) ---
-
-function renderColumnChart(container, columns) {
-  container.replaceChildren();
-  const max = Math.max(1, ...columns.flatMap((column) => column.segments.map((segment) => segment.value)),
-    ...columns.map((column) => column.segments.reduce((sum, segment) => sum + segment.value, 0)));
-  for (const column of columns) {
-    const item = el("div", "fleet-bars__column");
-    const totalValue = column.segments.reduce((sum, segment) => sum + segment.value, 0);
-    item.append(el("span", "fleet-bars__value", column.missing ? PLACEHOLDER : String(totalValue)));
-    const bar = el("div", "fleet-bars__bar");
-    for (const segment of column.segments) {
-      if (!segment.value) continue;
-      const part = el("div", "fleet-bars__segment");
-      part.style.height = `${(segment.value / max) * 100}%`;
-      part.style.background = segment.color;
-      part.title = `${column.name}: ${segment.label ? `${segment.label} ` : ""}${segment.value}`;
-      bar.append(part);
-    }
-    item.append(bar, el("span", "fleet-bars__label", column.name));
-    container.append(item);
+// One fact in the header row; with a target it's a button to that page.
+function fact(instance, label, value, { meta, tone, target, title } = {}) {
+  const node = target ? link(instance, target, undefined, "fleet-fact fleet-fact--link") : el("div", "fleet-fact");
+  node.append(el("span", "fleet-fact__label", label));
+  const valueNode = el("span", "fleet-fact__value", value);
+  if (tone) {
+    valueNode.classList.add("fleet-fact__value--dot");
+    valueNode.dataset.tone = tone;
   }
+  node.append(valueNode);
+  if (meta) node.append(el("span", "fleet-fact__meta", meta));
+  if (title) node.title = node.title ? `${title} ${node.title}.` : title;
+  return node;
 }
 
-function ring(title, done, of, detail) {
-  const box = el("div", "fleet-ring");
-  const percent = of ? Math.round((done / of) * 100) : null;
-  const circle = el("div", "fleet-ring__circle");
-  circle.style.setProperty("--fleet-ring", `${percent ?? 0}%`);
-  circle.append(el("span", "fleet-ring__value", percent === null ? PLACEHOLDER : `${percent}%`));
-  box.append(circle, el("p", "fleet-ring__count", of ? `${done} / ${of}` : PLACEHOLDER), el("p", "fleet-ring__title", title));
-  if (detail) box.title = detail;
-  return box;
-}
+function renderHead(instance, s) {
+  const head = el("div", "fleet-instance__head");
+  const identity = el("div", "fleet-instance__identity");
+  const icon = el("span", "fleet-instance__icon", "⬢");
+  icon.setAttribute("aria-hidden", "true");
+  const names = el("div", "fleet-instance__names");
+  const name = el("h3", "fleet-instance__name", instance.name);
+  if (instance.primary) name.append(el("span", "fleet-instance__badge", "★ Primary"));
+  names.append(name, el("span", "fleet-instance__host", connectionOf(instance)));
+  identity.append(icon, names);
 
-function renderHealthRings(summaries) {
-  const ok = summaries.filter((s) => s.state === "ok");
-  const databases = ok.flatMap((s) => s.databases || []);
-  const webApps = ok.flatMap((s) => s.webApps || []);
-  const healthy = summaries.filter((s) => s.health && s.health.status === "healthy").length;
-  dom.healthRings.replaceChildren(
-    ring("Instances Reachable", ok.length, summaries.length, "Instances that answered this refresh"),
-    ring("Health Checks Passed", healthy, summaries.length, "Instances whose health report status is healthy"),
-    ring("Databases Mounted", databases.filter((db) => typeof db.Status === "string" && db.Status.startsWith("Mounted")).length,
-      databases.length, "Across the reachable instances"),
-    ring("Web Apps Enabled", webApps.filter((app) => app.Enabled === true).length, webApps.length,
-      "Across the reachable instances"),
+  const usage = s.monitor?.SystemUsage;
+  const journal = [usage?.DatabaseJournal, usage?.JournalSpace];
+  const journalStatus = journal.every((value) => value === "Normal")
+    ? "Normal"
+    : journal.find((value) => typeof value === "string" && value && value !== "Normal") ?? PLACEHOLDER;
+  const alerts = s.monitor?.Alerts?.SeriousAlerts;
+  const findings = s.health && Array.isArray(s.health.findings) ? s.health.findings.length : null;
+  const status = { loading: ["Loading…", "neutral"], unavailable: ["Unavailable", "error"], ok: ["Connected", "ok"] }[s.state];
+
+  const facts = el("div", "fleet-instance__facts");
+  facts.append(
+    fact(instance, "Status", status[0], { tone: status[1], meta: shortVersion(s.info?.serverVersion) }),
+    fact(instance, "Uptime", typeof s.monitor?.Status?.UpTime === "string" ? s.monitor.Status.UpTime.replace(/\s+/g, " ") : PLACEHOLDER),
+    fact(instance, "Database", usage?.DatabaseSpace || PLACEHOLDER, { tone: statusTone(usage?.DatabaseSpace), target: "databases",
+      title: "Database space (IRIS System Dashboard)." }),
+    fact(instance, "Journal", journalStatus, { tone: statusTone(journalStatus === PLACEHOLDER ? null : journalStatus), target: "journal",
+      title: `Database journal: ${usage?.DatabaseJournal || PLACEHOLDER} · Journal space: ${usage?.JournalSpace || PLACEHOLDER}.` }),
+    fact(instance, "Alerts", formatNumber(alerts), {
+      tone: typeof alerts === "number" ? (alerts > 0 ? "warning" : "ok") : null,
+      meta: s.health ? `Health: ${capitalize(s.health.status)} · ${findings} finding${findings === 1 ? "" : "s"}` : "No health report",
+      target: "health",
+      title: "Serious alerts (IRIS System Dashboard) and the health checks.",
+    }),
   );
+  head.append(identity, facts, link(instance, "details", "View Details →", "btn btn--primary fleet-instance__details"));
+  return head;
 }
 
-function renderFindingsChart(active, summaries) {
-  renderColumnChart(dom.findingsChart, active.map((instance, i) => {
-    const findings = summaries[i].findings;
-    return {
-      name: instance.name,
-      missing: findings === null,
-      segments: SEVERITIES.map(([key, name, color]) => ({
-        label: name, color, value: findings ? findings.filter((f) => f.severity === key).length : 0,
-      })),
-    };
-  }));
-  dom.findingsLegend.replaceChildren(...SEVERITIES.map(([, name, color]) => {
-    const item = el("span", "fleet-legend__item", name);
-    item.style.setProperty("--fleet-legend-color", color);
-    return item;
-  }));
-}
-
-function renderStorage(active, summaries) {
-  dom.storageChart.replaceChildren();
-  const max = Math.max(1, ...summaries.map((s) => s.storageMb || 0));
-  active.forEach((instance, i) => {
-    const mb = summaries[i].storageMb;
-    const row = el("div", "fleet-hbars__row");
-    const track = el("div", "fleet-hbars__track");
-    const fill = el("div", "fleet-hbars__fill");
-    fill.style.width = `${mb ? (mb / max) * 100 : 0}%`;
-    fill.style.background = COLORS[i % COLORS.length];
-    track.append(fill);
-    const value = typeof mb === "number" ? (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toLocaleString()} MB`) : PLACEHOLDER;
-    row.append(el("span", "fleet-hbars__label", instance.name), track, el("span", "fleet-hbars__value", value));
-    dom.storageChart.append(row);
-  });
-}
-
-function renderActivity(active, summaries) {
-  dom.activityBody.replaceChildren(...active.map((instance, i) => {
-    const monitor = summaries[i].monitor;
-    const row = el("tr");
-    const cells = [
-      instance.name,
-      formatNumber(monitor?.Performance?.GlobalRefsPerSecond),
-      typeof monitor?.Performance?.CacheEfficiency === "number" ? monitor.Performance.CacheEfficiency.toFixed(2) : PLACEHOLDER,
-      formatNumber(monitor?.SystemUsage?.CSPSessions),
-    ];
-    for (const text of cells) row.append(el("td", "data-table__cell", text));
-    return row;
-  }));
-}
-
-function renderFindingsList(active, summaries) {
-  const items = active.flatMap((instance, i) => (summaries[i].findings || []).map((finding) => ({ instance, finding })));
-  const order = Object.fromEntries(SEVERITIES.map(([key], i) => [key, i]));
-  items.sort((a, b) => (order[a.finding.severity] ?? 9) - (order[b.finding.severity] ?? 9));
-  if (!items.length) {
-    const reported = summaries.some((s) => s.findings !== null);
-    dom.findingsList.replaceChildren(el("li", "fleet-findings__empty",
-      reported ? "No findings reported by the health checks." : "No health report was returned."));
-    return;
+function tile(instance, label, value, { target, meta, percent } = {}) {
+  const node = el("div", "fleet-tile");
+  const top = el("div", "fleet-tile__top");
+  top.append(el("span", "fleet-tile__label", label));
+  if (target) top.append(link(instance, target, "View →"));
+  node.append(top, el("span", "fleet-tile__value", value));
+  if (typeof percent === "number") {
+    const bar = el("div", "fleet-tile__bar");
+    const fill = el("div", "fleet-tile__fill");
+    fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    bar.append(fill);
+    node.append(bar);
   }
-  dom.findingsList.replaceChildren(...items.map(({ instance, finding }) => {
-    const item = el("li", "fleet-findings__item");
-    const severity = SEVERITIES.find(([key]) => key === finding.severity);
-    const badge = el("span", "status-badge fleet-findings__severity", severity ? severity[1] : finding.severity);
-    badge.style.setProperty("--fleet-severity", severity ? severity[2] : "var(--color-text-faint)");
-    item.append(badge, el("span", "fleet-findings__instance", instance.name), el("span", "fleet-findings__title", finding.title));
-    return item;
-  }));
+  if (meta) node.append(el("span", "fleet-tile__meta", meta));
+  return node;
 }
 
-// --- Instances Overview table ---
-
-function statusBadge(summary, instance) {
-  let text;
-  let variant;
-  if (!instance.active) [text, variant] = ["Inactive", "status-badge--neutral"];
-  else if (summary.state === "loading") [text, variant] = ["Loading…", "status-badge--neutral"];
-  else if (summary.state === "unavailable") [text, variant] = ["Unavailable", "status-badge--error"];
-  else if (summary.health) [text, variant] = [summary.health.status, HEALTH_BADGES[summary.health.status] || "status-badge--neutral"];
-  else [text, variant] = ["No health report", "status-badge--warning"];
-  return el("span", `status-badge ${variant}`, text.replace(/_/g, " "));
+function renderTiles(instance, s) {
+  const perf = s.monitor?.Performance;
+  const licensing = s.monitor?.Licensing;
+  const license = licensing?.LicenseUse;
+  const peak = licensing?.LicenseUseHigh;
+  const tiles = el("div", "fleet-instance__tiles");
+  tiles.append(
+    tile(instance, "Processes", formatNumber(s.processes), { target: "processes" }),
+    tile(instance, "Global References / sec", typeof perf?.GlobalRefsPerSecond === "number" ? `${formatNumber(perf.GlobalRefsPerSecond)} /s` : PLACEHOLDER,
+      { target: "performance" }),
+    tile(instance, "Web Sessions", formatNumber(s.monitor?.SystemUsage?.CSPSessions), { target: "sessions" }),
+    tile(instance, "License Usage", typeof license === "number" ? `${license}%` : license === "" ? "No limit" : PLACEHOLDER, {
+      target: "license",
+      percent: typeof license === "number" ? license : undefined,
+      meta: typeof peak === "number" ? `peak ${peak}%` : undefined,
+    }),
+  );
+  return tiles;
 }
 
-function renderTable() {
-  const shown = showAll ? instances : activeInstances();
-  dom.tableBody.replaceChildren(...shown.map((instance) => {
-    const s = summarize(instance);
+function panel(instance, title, target, body, caption) {
+  const node = el("section", "info-card fleet-panel");
+  const head = el("div", "fleet-panel__head");
+  head.append(el("h4", "fleet-panel__title", title), link(instance, target, "View →"));
+  node.append(head);
+  if (caption) node.append(el("p", "fleet-panel__caption", caption));
+  node.append(body);
+  return node;
+}
+
+function renderLower(instance, s) {
+  const trend = el("div", "dash-trend fleet-trend");
+  renderTrendChart(trend, samples.get(instance.id) || [], "Global references / s", (sample) => sample.globalRefsPerSecond);
+
+  const perf = s.monitor?.Performance;
+  const table = el("table", "data-table data-table--compact fleet-perf");
+  const thead = el("thead");
+  const headRow = el("tr");
+  headRow.append(el("th", undefined, "Metric"), el("th", undefined, "Value"));
+  thead.append(headRow);
+  const tbody = el("tbody");
+  const rows = [
+    ["Cache Efficiency", formatNumber(perf?.CacheEfficiency, 2), perf?.CacheEfficiency],
+    ["Global References Since Startup", formatCompact(perf?.GlobalRefs), perf?.GlobalRefs],
+    ["Disk Reads Since Startup", formatCompact(perf?.DiskReads), perf?.DiskReads],
+    ["Disk Writes Since Startup", formatCompact(perf?.DiskWrites), perf?.DiskWrites],
+  ];
+  for (const [metric, text, exact] of rows) {
     const row = el("tr");
-    row.dataset.instanceId = instance.id;
-    const name = el("td", "data-table__cell");
-    name.append(el("span", "fleet-table__name", instance.primary ? `${instance.name} ★` : instance.name),
-      el("span", "fleet-table__meta", instance.primary ? `Primary · ${connectionOf(instance)}` : connectionOf(instance)));
-    const status = el("td", "data-table__cell");
-    status.append(statusBadge(s, instance));
-    const count = (list) => (list ? String(list.length) : PLACEHOLDER);
-    const license = s.monitor?.Licensing?.LicenseUse;
-    const lastCheck = instance.last_check && instance.last_check.checked_at
-      ? new Date(instance.last_check.checked_at).toLocaleString() : PLACEHOLDER;
-    const open = el("td", "data-table__cell");
-    if (instance.active) {
-      const button = el("button", "btn btn--sm", "Open");
-      button.type = "button";
-      button.dataset.fleetOpen = instance.id;
-      button.title = `Select ${instance.name} in the header and open its Dashboard`;
-      open.append(button);
-    }
-    row.append(
-      name, status,
-      el("td", "data-table__cell", shortVersion(s.version)),
-      el("td", "data-table__cell", count(s.namespaces)),
-      el("td", "data-table__cell", count(s.databases)),
-      el("td", "data-table__cell", count(s.processes)),
-      el("td", "data-table__cell", count(s.webApps)),
-      el("td", "data-table__cell", count(s.tasks)),
-      el("td", "data-table__cell", count(s.findings)),
-      el("td", "data-table__cell", s.monitor?.Status?.UpTime || PLACEHOLDER),
-      el("td", "data-table__cell", typeof license === "number" ? `${license}%` : license === "" ? "No limit" : PLACEHOLDER),
-      el("td", "data-table__cell", lastCheck),
-      open,
-    );
-    return row;
-  }));
+    const cell = el("td", "data-table__cell", text);
+    if (typeof exact === "number") cell.title = exact.toLocaleString();
+    row.append(el("td", "data-table__cell", metric), cell);
+    tbody.append(row);
+  }
+  table.append(thead, tbody);
+
+  const lower = el("div", "fleet-instance__lower");
+  lower.append(
+    panel(instance, "Global References / Second (live)", "performance", trend,
+      "Current trend, sampled every 15 s while this page is open. Not historical data."),
+    panel(instance, "Performance Context", "performance", table),
+  );
+  return lower;
 }
 
-function render() {
+function renderSection(instance) {
+  let section = sections.get(instance.id);
+  if (!section) {
+    section = el("article", "fleet-instance");
+    section.dataset.instanceId = instance.id;
+    sections.set(instance.id, section);
+  }
+  const index = activeInstances().indexOf(instance);
+  section.style.setProperty("--fleet-instance-color", COLORS[Math.max(0, index) % COLORS.length]);
+  section.setAttribute("aria-label", instance.primary ? `${instance.name} (Primary)` : instance.name);
+  const s = summarize(instance);
+  section.dataset.state = s.state;
+  section.replaceChildren(renderHead(instance, s));
+  if (s.state === "ok") {
+    section.append(renderTiles(instance, s), renderLower(instance, s));
+  } else if (s.state === "unavailable") {
+    const notice = el("p", "fleet-instance__notice",
+      `${instance.name} could not be read${s.error ? ` (${s.error})` : ""}. The other instances are not affected.`);
+    notice.setAttribute("role", "status");
+    section.append(notice);
+  }
+  return section;
+}
+
+function renderAll() {
   const active = activeInstances();
-  const summaries = active.map(summarize);
-  renderKpis(summaries);
-  renderColumnChart(dom.namespacesChart, active.map((instance, i) => ({
-    name: instance.name,
-    missing: !summaries[i].namespaces,
-    segments: [{ color: COLORS[i % COLORS.length], value: summaries[i].namespaces ? summaries[i].namespaces.length : 0 }],
-  })));
-  renderHealthRings(summaries);
-  renderFindingsChart(active, summaries);
-  renderTable();
-  renderStorage(active, summaries);
-  renderActivity(active, summaries);
-  renderFindingsList(active, summaries);
+  for (const id of [...sections.keys()]) {
+    if (!active.some((instance) => instance.id === id)) {
+      sections.delete(id);
+      reads.delete(id);
+      samples.delete(id);
+    }
+  }
+  dom.count.textContent = `${active.length} / ${instances.length}`;
+  dom.instances.replaceChildren(...(active.length
+    ? active.map(renderSection)
+    : [el("p", "info-card__empty", "No active instances. Activate one on the Instances page.")]));
+  const inactive = instances.length - active.length;
+  dom.note.hidden = inactive === 0;
+  dom.note.textContent = inactive
+    ? `${inactive} inactive instance${inactive === 1 ? " is" : "s are"} not shown (see the Instances page).`
+    : "";
 }
 
-async function loadInstance(instance, token) {
+// --- loading ---
+
+async function readInstance(instance, full, token) {
   const id = instance.primary ? undefined : instance.id;
-  const keys = ["info", "namespaces", "databases", "processes", "webApps", "tasks", "health", "monitor", "storage"];
-  const settled = await Promise.allSettled([
-    IrisApi.getInfo(id),
-    IrisApi.getNamespaces(id),
-    IrisApi.getDatabases(id),
-    IrisApi.getProcesses(id),
-    IrisApi.getWebApps(id),
-    IrisApi.getTasks(id),
-    IrisApi.getHealthReport(id),
-    IrisApi.getMonitorDashboard(id),
-    IrisApi.getDatabaseStorage(id),
-  ]);
+  const calls = full
+    ? { info: IrisApi.getInfo(id), processes: IrisApi.getProcesses(id), health: IrisApi.getHealthReport(id),
+      monitor: IrisApi.getMonitorDashboard(id) }
+    : { monitor: IrisApi.getMonitorDashboard(id) };
+  const keys = Object.keys(calls);
+  const settled = await Promise.allSettled(Object.values(calls));
   if (token !== loadToken) return;
-  results.set(instance.id, Object.fromEntries(keys.map((key, i) => [key, settled[i]])));
-  render();
+  const entry = reads.get(instance.id) || { results: {} };
+  keys.forEach((key, i) => { entry.results[key] = settled[i]; });
+  entry.round = keys;
+  reads.set(instance.id, entry);
+  const monitor = resultOf(settledValue(entry.results.monitor));
+  if (settled[keys.indexOf("monitor")].status === "fulfilled" && monitor) {
+    const list = samples.get(instance.id) || [];
+    samples.set(instance.id, [...list, { time: Date.now(), globalRefsPerSecond: monitor.Performance?.GlobalRefsPerSecond }]
+      .slice(-MAX_SAMPLES));
+  }
+  renderSection(instance);
 }
 
+async function refresh(full) {
+  const token = loadToken;
+  if (full) {
+    let response;
+    try {
+      response = await IrisApi.getInstances();
+    } catch (error) {
+      if (token !== loadToken) return;
+      dom.errorText.textContent = error instanceof ApiError
+        ? `Could not load the instance list. ${error.message}`
+        : "Could not load the instance list.";
+      dom.error.hidden = false;
+      return;
+    }
+    if (token !== loadToken) return;
+    dom.error.hidden = true;
+    instances = Array.isArray(response && response.instances) ? response.instances : [];
+    renderAll();
+  }
+  // Each instance loads on its own; one that fails doesn't hold up the others.
+  await Promise.all(activeInstances().map((instance) => readInstance(instance, full, token)));
+  if (token === loadToken) dom.updated.textContent = new Date().toLocaleString();
+}
+
+function isActive() {
+  return !document.hidden && !dom.view.hidden;
+}
+
+function stopPolling() {
+  if (timer !== null) clearTimeout(timer);
+  timer = null;
+}
+
+function scheduleNext() {
+  stopPolling();
+  if (!isActive()) return;
+  timer = setTimeout(async () => {
+    timer = null;
+    if (!isActive()) return;
+    const token = loadToken;
+    tickCount += 1;
+    await refresh(tickCount % FULL_EVERY_TICKS === 0);
+    if (token === loadToken) scheduleNext();
+  }, REFRESH_INTERVAL_MS);
+}
+
+/** Read every active instance now and (re)start the refresh cycle. */
 export async function loadFleet() {
+  stopPolling();
+  tickCount = 0;
   const token = ++loadToken;
   dom.refresh.disabled = true;
   dom.refresh.classList.add("btn--spinning");
-  dom.error.hidden = true;
-  try {
-    const response = await IrisApi.getInstances();
-    if (token !== loadToken) return;
-    instances = Array.isArray(response && response.instances) ? response.instances : [];
-  } catch (error) {
-    if (token !== loadToken) return;
-    dom.errorText.textContent = error instanceof ApiError
-      ? `Could not load the instance list. ${error.message}`
-      : "Could not load the instance list.";
-    dom.error.hidden = false;
-    dom.refresh.disabled = false;
-    dom.refresh.classList.remove("btn--spinning");
-    return;
-  }
-  results = new Map();
-  render();
-  // Each instance loads on its own; one that fails doesn't hold up the others.
-  await Promise.all(activeInstances().map((instance) => loadInstance(instance, token)));
+  await refresh(true);
   if (token !== loadToken) return;
-  dom.updated.textContent = new Date().toLocaleString();
   dom.refresh.disabled = false;
   dom.refresh.classList.remove("btn--spinning");
+  scheduleNext();
 }
 
 export function initFleetControls() {
   dom.refresh.addEventListener("click", () => {
     loadFleet();
   });
-  dom.manage.addEventListener("click", () => navigateTo("instances"));
-  document.querySelectorAll("[data-fleet-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      showAll = button.dataset.fleetFilter === "all";
-      document.querySelectorAll("[data-fleet-filter]").forEach((other) => {
-        other.setAttribute("aria-pressed", String(other === button));
-      });
-      renderTable();
-    });
+  // A View link: select that instance in the header, then open the page.
+  dom.instances.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-fleet-view]");
+    if (!button || !selectInstanceContext(button.dataset.fleetOpen)) return;
+    if (button.dataset.fleetFocus) FOCUS[button.dataset.fleetFocus]();
+    navigateTo(button.dataset.fleetView);
+    const anchor = button.dataset.fleetAnchor ? $(button.dataset.fleetAnchor) : null;
+    if (anchor) anchor.scrollIntoView({ block: "start" });
   });
-  dom.tableBody.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-fleet-open]");
-    if (button && selectInstanceContext(button.dataset.fleetOpen)) navigateTo("dashboard");
+  // Pause while the tab is hidden; reload when it's visible again.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopPolling();
+    else if (!dom.view.hidden) loadFleet();
   });
 }

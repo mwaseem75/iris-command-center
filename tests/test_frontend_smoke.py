@@ -2453,7 +2453,7 @@ def test_global_instance_selector_is_in_the_header_and_context_only() -> None:
 
 
 def test_fleet_overview_is_read_only_and_reads_each_instance() -> None:
-    print("Checking the Fleet Overview: nav, view, read-only instance-scoped reads...")
+    print("Checking the Fleet Overview: nav, view, read-only per-instance reads...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
     js = (FRONTEND_DIR / "js" / "fleet.js").read_text(encoding="utf-8")
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
@@ -2462,13 +2462,12 @@ def test_fleet_overview_is_read_only_and_reads_each_instance() -> None:
           "the Fleet Overview nav item and view exist")
     check("fleet: () => loadFleet()," in app_js and "initFleetControls();" in app_js, "app.js wires the Fleet Overview")
     used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
-    check(used == ["getDatabaseStorage", "getDatabases", "getHealthReport", "getInfo", "getInstances",
-                   "getMonitorDashboard", "getNamespaces", "getProcesses", "getTasks", "getWebApps"],
+    check(used == ["getHealthReport", "getInfo", "getInstances", "getMonitorDashboard", "getProcesses"],
           f"fleet.js only reads ({used})")
     check("fetch(" not in js and "innerHTML" not in js, "fleet.js goes through IrisApi and renders with textContent")
-    check("const id = instance.primary ? undefined : instance.id;" in js and '"all"' not in js.split("loadInstance")[1][:400],
+    check("const id = instance.primary ? undefined : instance.id;" in js and '"all"' not in js.split("readInstance")[1][:500],
           "each instance is read with its own id (the Primary without ?instance=), never ?instance=all")
-    check("activeInstances().map((instance) => loadInstance(instance, token))" in js,
+    check("activeInstances().map((instance) => readInstance(instance, full, token))" in js,
           "only active instances are read, each on its own")
 
 

@@ -709,9 +709,11 @@ function formatClock(time) {
 }
 
 // Trend chart for one series: y axis from zero, gridlines, sample times.
-function renderTrendChart(label, pick) {
-  dom.resourcesChart.replaceChildren();
-  const values = samples.map(pick);
+// `series` is a list of samples ({ time, ... }), oldest first. Also used by
+// the Fleet Overview for each instance's own samples.
+export function renderTrendChart(container, series, label, pick) {
+  container.replaceChildren();
+  const values = series.map(pick);
   const points = values.map((v, i) => [i, v]).filter(([, v]) => typeof v === "number" && Number.isFinite(v));
   const head = document.createElement("div");
   head.className = "dash-trend__head";
@@ -722,12 +724,12 @@ function renderTrendChart(label, pick) {
   legend.className = "dash-trend__legend";
   legend.textContent = `${points.length} sample${points.length === 1 ? "" : "s"}`;
   head.append(title, legend);
-  dom.resourcesChart.append(head);
+  container.append(head);
   if (points.length < 2) {
     const wait = document.createElement("p");
     wait.className = "dash-trend__wait";
     wait.textContent = "The chart appears after two samples (15 s apart).";
-    dom.resourcesChart.append(wait);
+    container.append(wait);
     return;
   }
   const top = niceCeiling(Math.max(...points.map(([, v]) => v)));
@@ -777,14 +779,14 @@ function renderTrendChart(label, pick) {
 
   const times = document.createElement("div");
   times.className = "dash-trend__times";
-  const count = Math.min(5, samples.length);
+  const count = Math.min(5, series.length);
   for (let k = 0; k < count; k += 1) {
-    const index = Math.round((k * (samples.length - 1)) / Math.max(1, count - 1));
+    const index = Math.round((k * (series.length - 1)) / Math.max(1, count - 1));
     const tick = document.createElement("span");
-    tick.textContent = formatClock(samples[index].time);
+    tick.textContent = formatClock(series[index].time);
     times.append(tick);
   }
-  dom.resourcesChart.append(body, times);
+  container.append(body, times);
 }
 
 function renderResources(monitorAvailable) {
@@ -792,7 +794,7 @@ function renderResources(monitorAvailable) {
   dom.resources.replaceChildren();
   dom.resourcesChart.replaceChildren();
   if (samples.length === 0) return;
-  renderTrendChart("Global references / s", (s) => s.globalRefsPerSecond);
+  renderTrendChart(dom.resourcesChart, samples, "Global references / s", (s) => s.globalRefsPerSecond);
   const spanSeconds = samples.length > 1 ? Math.round((samples[samples.length - 1].time - samples[0].time) / 1000) : 0;
   RESOURCE_SERIES.forEach(([label, unit, pick], index) => {
     const values = samples.map(pick);

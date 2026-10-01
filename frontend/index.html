@@ -191,12 +191,13 @@
           <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
           <span id="context-notice-text"></span>
         </div>
-        <!-- Fleet Overview: every active instance side by side (js/fleet.js). Read-only. -->
+        <!-- Fleet Overview: one monitoring section per active instance, each
+             read on its own (js/fleet.js). Nothing is combined. Read-only. -->
         <section class="view" id="view-fleet" data-view="fleet" aria-labelledby="fleet-title" hidden>
           <div class="view__header">
             <div>
-              <h2 class="view__title" id="fleet-title">Multi-IRIS Command Center <span class="dash-scope">(All Active Instances)</span></h2>
-              <p class="view__subtitle view__subtitle--wide">A unified, read-only view of every active IRIS instance. Each instance is read through its own connection.</p>
+              <h2 class="view__title" id="fleet-title">All Active Instances</h2>
+              <p class="view__subtitle">Monitor each IRIS instance individually. Read-only.</p>
             </div>
             <div class="fleet-header-actions">
               <div class="fleet-updated">
@@ -207,6 +208,13 @@
                 <span class="btn__icon" aria-hidden="true">&#8635;</span>
                 Refresh All
               </button>
+              <div class="fleet-count" title="Active instances out of all registered instances">
+                <span class="fleet-count__dot" aria-hidden="true"></span>
+                <span>
+                  <span class="fleet-count__value" id="fleet-count">&mdash;</span>
+                  <span class="fleet-count__label">Active instances</span>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -215,85 +223,8 @@
             <span id="fleet-error-text"></span>
           </div>
 
-          <div class="fleet-kpis" id="fleet-kpis" aria-label="Fleet totals"></div>
-
-          <div class="fleet-grid fleet-grid--charts">
-            <section class="info-card fleet-panel" aria-labelledby="fleet-namespaces-title">
-              <h3 class="info-card__title" id="fleet-namespaces-title">Namespaces per Instance</h3>
-              <div class="fleet-bars" id="fleet-namespaces-chart"></div>
-            </section>
-            <section class="info-card fleet-panel" aria-labelledby="fleet-health-title">
-              <h3 class="info-card__title" id="fleet-health-title">Health Status</h3>
-              <div class="fleet-rings" id="fleet-health-rings"></div>
-            </section>
-            <section class="info-card fleet-panel" aria-labelledby="fleet-findings-title">
-              <h3 class="info-card__title" id="fleet-findings-title">Health Findings by Instance</h3>
-              <div class="fleet-bars" id="fleet-findings-chart"></div>
-              <div class="fleet-legend" id="fleet-findings-legend"></div>
-            </section>
-          </div>
-
-          <section class="info-card fleet-panel" aria-labelledby="fleet-table-title">
-            <div class="fleet-panel__head">
-              <h3 class="info-card__title" id="fleet-table-title">Instances Overview</h3>
-              <div class="fleet-panel__actions">
-                <div class="fleet-toggle" role="group" aria-label="Instances shown">
-                  <button class="fleet-toggle__option" type="button" data-fleet-filter="active" aria-pressed="true">Active Only</button>
-                  <button class="fleet-toggle__option" type="button" data-fleet-filter="all" aria-pressed="false">All Instances</button>
-                </div>
-                <button class="btn" type="button" id="fleet-manage-button">Manage Instances</button>
-              </div>
-            </div>
-            <div class="table-wrapper">
-              <table class="data-table fleet-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Version</th>
-                    <th scope="col">Namespaces</th>
-                    <th scope="col">Databases</th>
-                    <th scope="col">Processes</th>
-                    <th scope="col">Web Apps</th>
-                    <th scope="col">Tasks</th>
-                    <th scope="col">Findings</th>
-                    <th scope="col">Uptime</th>
-                    <th scope="col">License</th>
-                    <th scope="col">Last Check</th>
-                    <th scope="col"><span class="visually-hidden">Open</span></th>
-                  </tr>
-                </thead>
-                <tbody id="fleet-table-body"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <div class="fleet-grid fleet-grid--lower">
-            <section class="info-card fleet-panel" aria-labelledby="fleet-storage-title">
-              <h3 class="info-card__title" id="fleet-storage-title">Database Storage by Instance</h3>
-              <div class="fleet-hbars" id="fleet-storage-chart"></div>
-            </section>
-            <section class="info-card fleet-panel" aria-labelledby="fleet-activity-title">
-              <h3 class="info-card__title" id="fleet-activity-title">Current Activity by Instance</h3>
-              <div class="table-wrapper">
-                <table class="data-table data-table--compact">
-                  <thead>
-                    <tr>
-                      <th scope="col">Instance</th>
-                      <th scope="col">Global refs / s</th>
-                      <th scope="col">Cache efficiency</th>
-                      <th scope="col">Web sessions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="fleet-activity-body"></tbody>
-                </table>
-              </div>
-            </section>
-            <section class="info-card fleet-panel" aria-labelledby="fleet-findings-list-title">
-              <h3 class="info-card__title" id="fleet-findings-list-title">Health Findings (All Instances)</h3>
-              <ul class="fleet-findings" id="fleet-findings-list"></ul>
-            </section>
-          </div>
+          <div class="fleet-instances" id="fleet-instances"></div>
+          <p class="fleet-note" id="fleet-note" hidden></p>
         </section>
 
         <section class="view" id="view-dashboard" data-view="dashboard" aria-labelledby="dashboard-title">
