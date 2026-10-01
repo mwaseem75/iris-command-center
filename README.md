@@ -76,6 +76,7 @@ frameworks.
 
 | Area | What you can do |
 |---|---|
+| 🖥️ **Instances (Multi-IRIS)** | Register and manage multiple IRIS 2026.2+ instances, securely store connection credentials, test compatibility, monitor active instances through Fleet Overview, and switch supported read screens to any active instance |
 | 📊 **Dashboard** | View live system state, databases, processes, web apps, tasks, resources, alerts, Issues & Recommendations, and recent activity |
 | 🩺 **Health Center** | Review overall health and assessment coverage across six categories, with live Current Activity and an informational Performance Snapshot |
 | 🩺 **Issue Resolver** | Detect supported issues from live IRIS evidence, distinguish resolvable and detection-only issues, define custom detection rules, investigate or resolve safely, verify results, and follow the execution trace |
