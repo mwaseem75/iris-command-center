@@ -97,7 +97,7 @@ frameworks.
 
 ---
 
-# 🛰️ Multi-IRIS & Fleet Overview
+# 🛰️ Multi-IRIS Instances & Fleet Overview
 
 IRIS Command Center can manage and monitor several IRIS instances from one interface. You register connections on the **Instances** screen, check that they are compatible, and then monitor every active instance side by side in the **Fleet Overview** or open any single instance on the instance-aware screens.
 
@@ -125,11 +125,7 @@ All instance changes (add, edit, activate, deactivate, delete) go through the sa
 5. After a compatible test, confirm (*"I confirm that I want to add this instance."*) and select **Add Instance**. Changing any field afterwards requires a new test.
 6. The connection is saved and active. Its definition is stored in IRIS (`^CommandCenterInstance`) and its password in the IRIS Secure Wallet.
 
-[SCREENSHOT: Adding Connection]
-
-[SCREENSHOT: Adding Connection — optional second view]
-
-[SCREENSHOT: Adding Connection — optional result view]
+<img width="721" alt="image" src="https://github.com/user-attachments/assets/50982611-f7d0-475f-b548-81c6b408e755" />
 
 ## 2. Viewing Connections
 
@@ -137,37 +133,17 @@ The **Instances** screen lists every registered connection with its **Name**, **
 
 - **Status** — **Active** or **Inactive**, plus the result of the last compatibility check (**Compatible**, **Incompatible**, **Unreachable**, **Auth Failed**).
 - **Last Check** — when the connection was last checked; for a failed check, the reason is shown below the time.
-- When the Instances screen opens, the Primary and IRIS-2 are checked automatically, so their status is current. User-defined connections are checked on request.
-
-Available actions per connection:
-
-| Connection | Check | Activate / Deactivate | Edit | Delete |
-|---|---|---|---|---|
-| **Primary** | ✅ | — | — (protected) | — (protected) |
-| **IRIS-2** (Docker-managed) | ✅ | ✅ | — (protected) | — (protected) |
-| **User-defined** | ✅ | ✅ | ✅ | ✅ |
-
 - **Check** re-runs the compatibility check at any time.
 - **Edit** tests the changed connection as a dry run first; nothing is saved until you confirm. Leaving the password empty keeps the stored one.
 - **Activate**, **Deactivate** and **Delete** ask for explicit confirmation. Activating re-checks compatibility first.
 
-[SCREENSHOT: Connections List]
-
-[SCREENSHOT: Connections List — compatibility]
-
-[SCREENSHOT: Connections List — actions]
+<img width="2207" alt="image" src="https://github.com/user-attachments/assets/e6d282b9-7b89-4e3d-936b-8d299ff4f9c1" />
 
 ## 3. Fleet Overview
 
 **Fleet Overview** (*All Active Instances*) gives a compact, read-only monitoring view of all active IRIS instances, with an independent card for each instance. It is meant for a quick operational comparison without opening each instance separately. Values are never added up across instances.
 
 Each instance card shows its name and host, a **View Details →** button, and three rows:
-
-| Row | Metrics |
-|---|---|
-| **Row 1 — Health** | Status · Uptime · Database · Journal · Alerts · Issues |
-| **Row 2 — Runtime** | Processes · Global References /sec · Web Sessions · License Usage |
-| **Row 3 — Resources** | Namespaces · Databases · Web Apps · Tasks |
 
 - **Issues** is the number of active issues found by the issue checks — the same list as the Issue Resolver for that instance.
 - **Processes**, **Global References /sec** and **Web Sessions** show small live charts. They are sampled only while the page is open (every 15 s, with a full read every 60 s); no history is stored.
@@ -176,11 +152,8 @@ Each instance card shows its name and host, a **View Details →** button, and t
 - Inactive instances are not shown; a note says how many are hidden.
 - Each instance is read on its own. If one instance can't be read, only its card is marked unavailable and its links are disabled; the other cards keep loading, and nothing falls back to another instance.
 
-[SCREENSHOT: Fleet Overview]
+<img width="2176"  alt="image" src="https://github.com/user-attachments/assets/4178df71-6909-4396-85fd-cd87004a6579" />
 
-[SCREENSHOT: Fleet Overview — multiple instances]
-
-[SCREENSHOT: Fleet Overview — instance details]
 
 ---
 
