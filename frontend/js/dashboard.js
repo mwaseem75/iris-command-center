@@ -7,13 +7,11 @@
 // - Process Distribution: GET /api/iris/processes.
 // - Recent Operations: our execution traces plus the operations registry.
 //
-// Instance-aware (global selector, js/instance-context.js):
+// Instance-aware (instance selector, js/instance-context.js):
 // - Primary: everything above, exactly as before (no ?instance=).
 // - Another instance: the IRIS panels and counts read that instance
 //   (?instance=<id>; the backend resolves its credentials). Issues, Recent
 //   Operations and Demo Activity cover the Primary only, so they're hidden.
-// - All Active Instances: only the five counts, summed over the active
-//   instances that answered, with a note saying which are included.
 // Switching the selector clears the page and reloads it for the new context.
 //
 // Refreshes every REFRESH_INTERVAL_MS while the Dashboard is shown and the
@@ -92,10 +90,6 @@ const dom = {
   titleScope: $("dashboard-title-scope"),
   context: $("dashboard-context"),
   scopeNote: $("dashboard-scope-note"),
-  fleetNote: $("dashboard-fleet-note"),
-  fleetNoteText: $("dashboard-fleet-note-text"),
-  mainGrid: $("dashboard-main-grid"),
-  activityGrid: $("dashboard-activity-grid"),
   activityPanel: $("dashboard-activity-panel"),
   issuesPanel: $("dashboard-issues-panel"),
   demoButton: $("dashboard-demo-activity-button"),
@@ -668,7 +662,7 @@ function takeSample(monitor) {
   samples = [...samples, sample].slice(-MAX_SAMPLES);
 }
 
-function makeSparkline(values) {
+export function makeSparkline(values) {
   const width = 160;
   const height = 28;
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -996,15 +990,14 @@ function instanceParam(entry) {
 }
 
 function contextKey(ctx) {
-  return ctx.mode === "all" ? `all:${ctx.activeInstances.map((i) => i.id).join(",")}` : `instance:${ctx.instanceId}`;
+  return `instance:${ctx.instanceId}`;
 }
 
 function isPrimaryContext(ctx = getInstanceContext()) {
-  return ctx.mode === "instance" && Boolean(ctx.instance && ctx.instance.primary);
+  return Boolean(ctx.instance && ctx.instance.primary);
 }
 
 function contextName(ctx) {
-  if (ctx.mode === "all") return "All Active Instances";
   return ctx.instance ? ctx.instance.name : textOrPlaceholder(ctx.instanceId);
 }
 
@@ -1015,28 +1008,19 @@ function describeInstance(entry) {
 // Show or hide what belongs to the current context.
 function applyScope(ctx) {
   const primary = isPrimaryContext(ctx);
-  const all = ctx.mode === "all";
-  dom.titleScope.textContent = all ? "(All Active Instances)" : `· ${contextName(ctx)}`;
-  dom.context.hidden = all;
-  if (!all) dom.context.textContent = ctx.instance ? describeInstance(ctx.instance) : contextName(ctx);
-  dom.scopeNote.hidden = primary || all;
-  dom.mainGrid.hidden = all;
-  dom.activityGrid.hidden = all;
+  dom.titleScope.textContent = `· ${contextName(ctx)}`;
+  dom.context.hidden = false;
+  dom.context.textContent = ctx.instance ? describeInstance(ctx.instance) : contextName(ctx);
+  dom.scopeNote.hidden = primary;
   dom.activityPanel.hidden = !primary;
   dom.issuesPanel.hidden = !primary;
   dom.demoButton.hidden = !primary;
   dom.viewProcessesButton.hidden = !primary;
-  dom.alertsCard.hidden = all;
-  dom.fleetNote.hidden = !all;
   // The detail pages read the Primary, so the cards only link there in that context.
   dom.statGrid.dataset.scope = primary ? "primary" : "other";
-  dom.statGrid.dataset.mode = all ? "all" : "instance";
   dom.statGrid.querySelectorAll(".stat-card--interactive[data-card]").forEach((card) => {
     card.tabIndex = primary ? 0 : -1;
     card.setAttribute("aria-disabled", String(!primary));
-  });
-  dom.statGrid.querySelectorAll("[data-scope-meta]").forEach((meta) => {
-    meta.hidden = !all;
   });
 }
 
@@ -1055,10 +1039,6 @@ function resetForContext() {
     dom.statGrid.querySelector(cardSelector).classList.remove("stat-card--error");
   }
   for (const viz of [dom.databasesViz, dom.processesViz, dom.webAppsViz, dom.tasksViz]) viz.replaceChildren();
-  dom.statGrid.querySelectorAll("[data-scope-meta]").forEach((meta) => {
-    meta.textContent = "";
-  });
-  dom.fleetNoteText.textContent = "";
   dom.view.classList.add("dashboard--switching");
 }
 
@@ -1075,8 +1055,8 @@ function instanceFailureMessage(ctx, reason) {
   const name = contextName(ctx);
   const where = ctx.instance && ctx.instance.connection ? ` (${ctx.instance.connection})` : "";
   const status = reason instanceof ApiError ? reason.status : undefined;
-  if (status === 409) return `${name} is inactive. Activate it on the Instances screen, or choose another instance in the header.`;
-  if (status === 404) return `${name} is no longer registered. Choose another instance in the header.`;
+  if (status === 409) return `${name} is inactive. Activate it on the Instances screen, or choose another instance above.`;
+  if (status === 404) return `${name} is no longer registered. Choose another instance above.`;
   if (status === null) return "Could not reach the Command Center backend.";
   return `Could not load data from ${name}${where}. The instance may be unreachable or may have rejected its stored credentials.`;
 }
@@ -1096,9 +1076,7 @@ async function refresh({ includeSlow }) {
 
   const ctx = getInstanceContext();
   dom.loadingStateText.textContent = `Loading dashboard data for ${contextName(ctx)}…`;
-  const rendered = ctx.mode === "all"
-    ? await refreshAll(ctx)
-    : await refreshInstance(ctx, { includeSlow });
+  const rendered = await refreshInstance(ctx, { includeSlow });
 
   if (rendered) {
     loadedOnce = true;
@@ -1197,64 +1175,6 @@ async function refreshInstance(ctx, { includeSlow }) {
   return true;
 }
 
-// All Active Instances: the five counts, each summed over the instances that
-// answered. Nothing else is combined.
-const ALL_COUNTS = [
-  ["namespaces", (id) => IrisApi.getNamespaces(id), null],
-  ["databases", (id) => IrisApi.getDatabases(id), [dom.databasesViz, (db) => db.Status || "Unknown"]],
-  ["processes", (id) => IrisApi.getProcesses(id), [dom.processesViz, (p) => p.State || "Unknown"]],
-  ["webApps", (id) => IrisApi.getWebApps(id), [dom.webAppsViz, (app) => (app.Enabled ? "Enabled" : "Disabled")]],
-  // The plain task list: a count needs no per-task info calls.
-  ["tasks", (id) => IrisApi.getTasks(id), null],
-];
-
-async function refreshAll(ctx) {
-  const instances = ctx.activeInstances;
-  const perInstance = await Promise.all(
-    instances.map((entry) => Promise.allSettled(ALL_COUNTS.map(([, load]) => load(instanceParam(entry))))),
-  );
-  if (!stillCurrent(ctx)) return false;
-
-  const listOf = (result) => {
-    const value = fulfilled(result);
-    return value && Array.isArray(value.result) ? value.result : null;
-  };
-  ALL_COUNTS.forEach(([key, , viz], k) => {
-    const answered = perInstance.map((results) => listOf(results[k])).filter((list) => list !== null);
-    const meta = dom.statGrid.querySelector(`${STAT_CARDS[key].cardSelector} [data-scope-meta]`);
-    if (answered.length === 0) {
-      renderCountCard(key, null, () => 0);
-      meta.textContent = "No active instance answered";
-      return;
-    }
-    const combined = { status: "fulfilled", value: { result: answered.flat() } };
-    renderCountCard(key, combined, (body) => body.result.length);
-    meta.textContent = answered.length === instances.length
-      ? `Across ${instances.length} instance${instances.length === 1 ? "" : "s"}`
-      : `Across ${answered.length} of ${instances.length} instances`;
-    if (viz) renderMicroBar(viz[0], combined, viz[1], key === "webApps" ? 2 : 5);
-  });
-  dom.tasksViz.replaceChildren();
-
-  const included = instances.filter((_, i) => perInstance[i].some((result) => listOf(result) !== null));
-  const missing = instances.filter((entry) => !included.includes(entry));
-  let note = included.length
-    ? `Showing combined counts from ${included.length} active instance${included.length === 1 ? "" : "s"}: ${included.map(describeInstance).join(", ")}.`
-    : "No active instance could be read.";
-  if (missing.length) note += ` Not included (could not be read): ${missing.map(describeInstance).join(", ")}.`;
-  dom.fleetNoteText.textContent = note;
-
-  const failed = perInstance.flat().filter((result) => result.status === "rejected").length;
-  lastRefreshFailed = failed > 0;
-  if (included.length === 0) {
-    setErrorBanner("Could not load data from any active instance.");
-  } else {
-    setErrorBanner(null);
-    if (!failed) lastSuccess = new Date();
-  }
-  return true;
-}
-
 function stopPolling() {
   if (timer !== null) clearTimeout(timer);
   timer = null;
@@ -1337,7 +1257,7 @@ export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
     });
   });
 
-  // Follow the global instance selector: a new context clears the page and
+  // Follow the instance selector: a new context clears the page and
   // reloads it (straight away if the Dashboard is showing, else when shown).
   const initial = getInstanceContext();
   lastContextKey = contextKey(initial);

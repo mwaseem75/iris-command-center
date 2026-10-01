@@ -34,22 +34,6 @@
         </div>
       </div>
 
-      <!-- Global instance context (js/instance-context.js). Only a selection
-           for now: no screen uses it yet. -->
-      <div class="instance-selector" id="instance-selector">
-        <button class="instance-selector__button" type="button" id="instance-selector-button"
-                aria-haspopup="listbox" aria-expanded="false" aria-controls="instance-selector-list"
-                aria-label="IRIS instance context">
-          <span class="instance-selector__icon" id="instance-selector-icon" aria-hidden="true">&#8962;</span>
-          <span class="instance-selector__text">
-            <span class="instance-selector__name" id="instance-selector-name">Primary</span>
-            <span class="instance-selector__meta" id="instance-selector-meta"></span>
-          </span>
-          <span class="instance-selector__caret" aria-hidden="true">&#8964;</span>
-        </button>
-        <div class="instance-selector__list" id="instance-selector-list" role="listbox" aria-label="IRIS instances" hidden></div>
-      </div>
-
       <div class="header-status">
         <span class="header-status__version" id="header-version-meta"></span>
         <div class="connection-status" id="connection-status" data-state="checking">
@@ -186,10 +170,11 @@
       </nav>
 
       <main class="content" id="content">
-        <!-- Which instance the open page shows, or why it can't (js/app.js, global selector). -->
+        <!-- Which instance the open page shows, or why it can't (js/app.js, instance selector). -->
         <div class="banner banner--info context-notice" id="context-notice" hidden role="status">
           <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
           <span id="context-notice-text"></span>
+          <button class="btn btn--sm context-notice__action" type="button" id="context-notice-primary" hidden>Switch to Primary</button>
         </div>
         <!-- Fleet Overview: one monitoring section per active instance, each
              read on its own (js/fleet.js). Nothing is combined. Read-only. -->
@@ -232,9 +217,24 @@
             <div>
               <h2 class="view__title" id="dashboard-title">Dashboard <span class="dash-scope" id="dashboard-title-scope"></span></h2>
               <p class="view__subtitle view__subtitle--wide">A live view of the connected IRIS instance &mdash; health, resources, storage, alerts and activity, from IRIS&rsquo;s own data.</p>
-              <!-- The instance from the global selector (js/instance-context.js). -->
+              <!-- The instance from the instance selector (js/instance-context.js). -->
               <p class="dash-context" id="dashboard-context" hidden></p>
               <p class="dash-context__note" id="dashboard-scope-note" hidden>Issues, Recent Operations and Demo Activity cover the Primary instance only.</p>
+            </div>
+            <!-- Instance selector (js/instance-context.js): one element, moved by
+                 js/app.js into the open page's header where it applies. -->
+            <div class="instance-selector" id="instance-selector">
+              <button class="instance-selector__button" type="button" id="instance-selector-button"
+                      aria-haspopup="listbox" aria-expanded="false" aria-controls="instance-selector-list"
+                      aria-label="IRIS instance context">
+                <span class="instance-selector__icon" id="instance-selector-icon" aria-hidden="true">&#8962;</span>
+                <span class="instance-selector__text">
+                  <span class="instance-selector__name" id="instance-selector-name">Primary</span>
+                  <span class="instance-selector__meta" id="instance-selector-meta"></span>
+                </span>
+                <span class="instance-selector__caret" aria-hidden="true">&#8964;</span>
+              </button>
+              <div class="instance-selector__list" id="instance-selector-list" role="listbox" aria-label="IRIS instances" hidden></div>
             </div>
             <div class="dash-header-actions">
               <div class="dash-live" id="dashboard-live-status" data-state="checking" aria-live="polite">
@@ -268,7 +268,6 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Namespaces</h3>
                 <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
-                <p class="stat-card__meta" data-scope-meta hidden></p>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
@@ -278,7 +277,6 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Databases</h3>
                 <p class="stat-card__value" id="stat-databases">&mdash;</p>
-                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -289,7 +287,6 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Processes</h3>
                 <p class="stat-card__value" id="stat-processes">&mdash;</p>
-                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -300,7 +297,6 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Web Applications</h3>
                 <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
-                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -311,7 +307,6 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Tasks</h3>
                 <p class="stat-card__value" id="stat-tasks">&mdash;</p>
-                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -325,12 +320,6 @@
                 <p class="stat-card__meta" id="stat-alerts-meta"></p>
               </div>
             </article>
-          </div>
-
-          <!-- All Active Instances: which instances the combined counts include. -->
-          <div class="banner banner--info dash-fleet-note" id="dashboard-fleet-note" hidden role="status">
-            <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
-            <span id="dashboard-fleet-note-text"></span>
           </div>
 
           <div class="dash-grid dash-grid--main" id="dashboard-main-grid">
@@ -445,7 +434,7 @@
             </div>
           </div>
 
-          <!-- The instance chosen in the header selector (js/instance-context.js). -->
+          <!-- The instance chosen in the instance selector (js/instance-context.js). -->
           <div class="health-center__context" id="health-center-context" hidden>
             <span class="health-center__context-icon" aria-hidden="true">&#8801;</span>
             <div>
@@ -540,41 +529,6 @@
             </section>
           </div>
 
-          <!-- All Active Instances: counts only; health checks need one instance. -->
-          <div id="health-center-all" hidden>
-            <div class="stat-grid health-center__all-grid" aria-label="Combined counts">
-              <article class="stat-card">
-                <h3 class="stat-card__label">Total Namespaces</h3>
-                <p class="stat-card__value" id="health-center-all-namespaces">&mdash;</p>
-                <p class="stat-card__meta" id="health-center-all-namespaces-meta"></p>
-              </article>
-              <article class="stat-card">
-                <h3 class="stat-card__label">Total Databases</h3>
-                <p class="stat-card__value" id="health-center-all-databases">&mdash;</p>
-                <p class="stat-card__meta" id="health-center-all-databases-meta"></p>
-              </article>
-              <article class="stat-card">
-                <h3 class="stat-card__label">Total Processes</h3>
-                <p class="stat-card__value" id="health-center-all-processes">&mdash;</p>
-                <p class="stat-card__meta" id="health-center-all-processes-meta"></p>
-              </article>
-              <article class="stat-card">
-                <h3 class="stat-card__label">Total Web Applications</h3>
-                <p class="stat-card__value" id="health-center-all-web-apps">&mdash;</p>
-                <p class="stat-card__meta" id="health-center-all-web-apps-meta"></p>
-              </article>
-              <article class="stat-card">
-                <h3 class="stat-card__label">Total Tasks</h3>
-                <p class="stat-card__value" id="health-center-all-tasks">&mdash;</p>
-                <p class="stat-card__meta" id="health-center-all-tasks-meta"></p>
-              </article>
-            </div>
-            <div class="banner banner--info health-center__all-note" role="status">
-              <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
-              <span id="health-center-all-note"></span>
-            </div>
-            <p class="ns-hint">Health checks and scores are per instance. Choose an instance in the header to run its health check.</p>
-          </div>
         </section>
 
         <section class="view" id="view-system" data-view="system" aria-labelledby="system-title" hidden>

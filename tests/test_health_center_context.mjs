@@ -80,7 +80,7 @@ function registry({ iris2Active = true } = {}) {
   return [
     { id: PRIMARY, name: "Primary", base_url: "http://iris:52773", active: true, primary: true },
     { id: IRIS2, name: "IRIS-2", base_url: "http://iris-2:52773", active: iris2Active, primary: false,
-      password: SECRET, credential_ref: `CommandCenter.${IRIS2}` },
+      last_check: { status: "compatible" }, password: SECRET, credential_ref: `CommandCenter.${IRIS2}` },
   ];
 }
 
@@ -135,7 +135,7 @@ test("Primary: the existing Health Center reads, without ?instance=", async () =
   assert.equal(text("health-center-title-scope"), "· Primary");
   assert.equal(text("health-center-context-name"), "Primary");
   assert.equal(text("health-center-context-meta"), "iris:52773 · IRIS 2026.2 (primary) · API v2");
-  assert.ok(shown("health-center-content") && !shown("health-center-error") && !shown("health-center-all"));
+  assert.ok(shown("health-center-content") && !shown("health-center-error"));
 });
 
 test("IRIS-2 selected: the switch reloads, and every read targets IRIS-2", async () => {
@@ -210,35 +210,10 @@ test("a slow IRIS-2 answer after switching back is ignored (no stale data)", asy
   assert.equal(text("health-center-context-meta"), "iris:52773 · IRIS 2026.2 (primary) · API v2");
 });
 
-test("All Active Instances: the five counts summed, with the included instances", async () => {
-  context.selectInstanceContext(context.ALL_ACTIVE);
-  await settle();
-  assert.ok(!reads().some((r) => r.path === "/api/iris/health"), "no health report in this mode");
-  assert.equal(text("health-center-all-namespaces"), "9");
-  assert.equal(text("health-center-all-databases"), "15");
-  assert.equal(text("health-center-all-processes"), "21");
-  assert.equal(text("health-center-all-web-apps"), "33");
-  assert.equal(text("health-center-all-tasks"), "39");
-  assert.equal(text("health-center-all-tasks-meta"), "Across 2 instances");
-  assert.equal(text("health-center-all-note"),
-    "Showing combined counts from 2 active instances: Primary (iris:52773), IRIS-2 (iris-2:52773).");
-  assert.equal(text("health-center-title-scope"), "(All Active Instances)");
-  assert.ok(shown("health-center-all") && !shown("health-center-content") && !shown("health-center-context"));
-});
-
-test("All Active Instances: an unreadable instance is named, not counted", async () => {
-  fail = { id: IRIS2, status: 502 };
-  context.selectInstanceContext(context.ALL_ACTIVE);
-  await settle();
-  assert.equal(text("health-center-all-namespaces"), "3");
-  assert.equal(text("health-center-all-namespaces-meta"), "Across 1 of 2 instances");
-  assert.match(text("health-center-all-note"), /Not included \(could not be read\): IRIS-2 \(iris-2:52773\)\./);
-});
-
 test("no password or Wallet reference is sent or shown", async () => {
   context.selectInstanceContext(IRIS2);
   await settle();
-  context.selectInstanceContext(context.ALL_ACTIVE);
+  context.selectInstanceContext(PRIMARY);
   await settle();
   for (const r of requests) {
     assert.equal(r.init.body, undefined);

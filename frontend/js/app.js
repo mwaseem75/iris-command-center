@@ -5,7 +5,15 @@
 
 import { initNavigation, navigateTo } from "./nav.js";
 import { initThemeSelector } from "./theme.js";
-import { getInstanceContext, initInstanceSelector, onInstanceContextChange } from "./instance-context.js";
+import {
+  PRIMARY_ID,
+  getInstanceContext,
+  initInstanceSelector,
+  onInstanceContextChange,
+  placeInstanceSelector,
+  refreshInstanceContext,
+  selectInstanceContext,
+} from "./instance-context.js";
 import { loadDashboard, initDashboardControls, onDashboardShown } from "./dashboard.js";
 import { loadSystemInfo, initSystemControls } from "./system.js";
 import { loadNamespaces, initNamespacesControls } from "./namespaces.js";
@@ -42,9 +50,7 @@ import { loadMessageLog, initMessageLogControls } from "./message-log.js";
 import { loadInstances, initInstancesControls } from "./instances.js";
 import { loadFleet, initFleetControls } from "./fleet.js";
 
-// Pages that show the selected instance's IRIS data. With All Active
-// Instances selected they ask for one instance instead: only the Dashboard and
-// Health Center combine instances.
+// Pages that show the selected instance's IRIS data.
 const INSTANCE_VIEWS = new Set([
   "system", "namespaces", "processes", "databases", "web-apps", "tasks", "security",
   "journal", "investigation", "extensions", "ai-assistant",
@@ -53,6 +59,11 @@ const INSTANCE_VIEWS = new Set([
 const VIEWS_WITH_CHANGES = new Set(["namespaces", "databases", "web-apps", "tasks", "security", "ai-assistant"]);
 // Pages that exist to make changes, so they work on the Primary only.
 const PRIMARY_ONLY_VIEWS = { "issue-resolver": "Issue Resolver", operations: "Operations" };
+// Pages with the instance selector in their header: the instance pages plus
+// the Dashboard and Health Center (which follow the selection themselves).
+// Not the Fleet Overview (every active instance), the Primary-only pages or
+// Command Center's own pages.
+const SELECTOR_VIEWS = new Set([...INSTANCE_VIEWS, "dashboard", "health-center"]);
 
 // What each page loads when it's opened (and again when the instance changes).
 const LOADERS = {
@@ -88,11 +99,11 @@ let currentView = "dashboard";
 let currentLoad = Promise.resolve();
 
 function isPrimarySelected(ctx = getInstanceContext()) {
-  return ctx.mode === "instance" && Boolean(ctx.instance && ctx.instance.primary);
+  return Boolean(ctx.instance && ctx.instance.primary);
 }
 
 function contextKey(ctx) {
-  return ctx.mode === "all" ? `all:${ctx.activeInstances.map((i) => i.id).join(",")}` : ctx.instanceId;
+  return ctx.instanceId;
 }
 
 // Says which instance the page shows, or why it can't show the selection;
@@ -105,11 +116,10 @@ function applyInstanceScope(view) {
   let message = "";
   let blocked = false;
   if (PRIMARY_ONLY_VIEWS[view] && !primary) {
-    message = `${PRIMARY_ONLY_VIEWS[view]} makes changes, which run on the Primary instance only. Choose Primary in the header to use it.`;
+    message = `${PRIMARY_ONLY_VIEWS[view]} makes changes, which run on the Primary instance only. Switch to Primary to use it.`;
     blocked = true;
-  } else if (INSTANCE_VIEWS.has(view) && ctx.mode === "all") {
-    message = "This page shows one instance at a time. Choose an instance in the header.";
-    blocked = true;
+  } else if (SELECTOR_VIEWS.has(view) && primary && ctx.fallbackFrom) {
+    message = `${ctx.fallbackFrom} isn't reachable right now, so the Primary instance is selected.`;
   } else if (INSTANCE_VIEWS.has(view) && !primary && ctx.instance) {
     const where = ctx.instance.connection ? `${ctx.instance.name} (${ctx.instance.connection})` : ctx.instance.name;
     message = `Showing ${where}.`;
@@ -117,14 +127,26 @@ function applyInstanceScope(view) {
   }
   document.getElementById("context-notice-text").textContent = message;
   document.getElementById("context-notice").hidden = !message;
+  // These pages have no instance selector, so the notice offers the switch.
+  document.getElementById("context-notice-primary").hidden = !(PRIMARY_ONLY_VIEWS[view] && !primary);
   document.querySelectorAll(".view[data-view]").forEach((section) => {
     section.toggleAttribute("data-context-blocked", blocked && section.dataset.view === view);
   });
   return blocked;
 }
 
+// The instance selector goes in the open page's header, where it applies,
+// and the instances are checked again so it only offers reachable ones (a
+// selected instance that stopped answering falls back to the Primary).
+function placeSelectorFor(view) {
+  const shown = SELECTOR_VIEWS.has(view);
+  placeInstanceSelector(shown ? document.querySelector(`#view-${view} > .view__header`) : null);
+  if (shown) refreshInstanceContext();
+}
+
 function openView(view) {
   currentView = view;
+  placeSelectorFor(view);
   if (applyInstanceScope(view) || !LOADERS[view]) return;
   currentLoad = Promise.resolve(LOADERS[view]()).catch(() => {});
 }
@@ -219,12 +241,17 @@ function init() {
   // Reload data each time a page is opened so it's never stale.
   initNavigation(openView);
 
-  // A different instance in the header selector: close any open detail
+  document.getElementById("context-notice-primary").addEventListener("click", () => {
+    selectInstanceContext(PRIMARY_ID);
+  });
+
+  // A different instance in the instance selector: close any open detail
   // panel and reload the open page once its current load (for the old
   // instance) has finished, so the last data shown is the new instance's.
   // The Dashboard and Health Center follow the selector themselves, and the
   // Fleet Overview always shows every active instance.
   let lastKey = contextKey(getInstanceContext());
+  placeSelectorFor(currentView);
   applyInstanceScope(currentView);
   onInstanceContextChange((ctx) => {
     const key = contextKey(ctx);

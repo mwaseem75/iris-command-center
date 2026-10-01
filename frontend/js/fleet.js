@@ -15,16 +15,19 @@
 // again every REFRESH_INTERVAL_MS and everything every FULL_EVERY_TICKS
 // ticks; the Global References trend is drawn from those samples, like the
 // Dashboard's, so it's a live trend that starts when the page is opened (no
-// history is stored or fetched). A value an instance didn't return shows as "—", and an
+// history is stored or fetched). The metric cards' mini charts use the same
+// samples, and the process counts from the full reads. A value an instance didn't return shows as "—", and an
 // instance that answered nothing shows as unavailable while the others still
 // load.
 //
-// Every View link selects that instance in the header selector and opens the
-// existing page for it.
+// Every View link selects that instance in the instance selector and opens the
+// existing page for it. An instance that can't be read is shown unavailable
+// with its links disabled; if the selector can't select an instance (it
+// doesn't answer its check), the link says so in that section instead.
 
 import { IrisApi, ApiError } from "./api.js";
-import { renderTrendChart } from "./dashboard.js";
-import { selectInstanceContext } from "./instance-context.js";
+import { makeSparkline, renderTrendChart } from "./dashboard.js";
+import { refreshInstanceContext, selectInstanceContext } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { focusWebSessions } from "./web-apps.js";
 
@@ -66,7 +69,8 @@ const dom = {
 
 let instances = [];           // from GET /api/iris/instances
 const reads = new Map();      // instance id -> { results: {key: settled}, round: [keys read last] }
-const samples = new Map();    // instance id -> [{ time, globalRefsPerSecond }], oldest first
+const samples = new Map();    // instance id -> [{ time, globalRefsPerSecond, cspSessions }], oldest first
+const processCounts = new Map();  // instance id -> process counts from the full reads, oldest first
 const sections = new Map();   // instance id -> its <article>
 let loadToken = 0;
 let timer = null;
@@ -146,7 +150,8 @@ function summarize(instance) {
 
 // --- one instance's section ---
 
-function link(instance, target, text, className = "fleet-link") {
+// With `unavailable`, the link is disabled: that instance can't be opened.
+function link(instance, target, text, className = "fleet-link", unavailable = false) {
   const [view, page, anchor, focus] = TARGETS[target];
   const button = el("button", className, text);
   button.type = "button";
@@ -155,6 +160,10 @@ function link(instance, target, text, className = "fleet-link") {
   if (anchor) button.dataset.fleetAnchor = anchor;
   if (focus) button.dataset.fleetFocus = focus;
   button.title = `Select ${instance.name} and open ${page}`;
+  if (unavailable) {
+    button.disabled = true;
+    button.title = `${instance.name} isn't reachable right now, so its pages can't be opened`;
+  }
   return button;
 }
 
@@ -164,8 +173,8 @@ function statusTone(text) {
 }
 
 // One fact in the header row; with a target it's a button to that page.
-function fact(instance, label, value, { meta, tone, target, title } = {}) {
-  const node = target ? link(instance, target, undefined, "fleet-fact fleet-fact--link") : el("div", "fleet-fact");
+function fact(instance, label, value, { meta, tone, target, title, unavailable } = {}) {
+  const node = target ? link(instance, target, undefined, "fleet-fact fleet-fact--link", unavailable) : el("div", "fleet-fact");
   node.append(el("span", "fleet-fact__label", label));
   const valueNode = el("span", "fleet-fact__value", value);
   if (tone) {
@@ -174,7 +183,7 @@ function fact(instance, label, value, { meta, tone, target, title } = {}) {
   }
   node.append(valueNode);
   if (meta) node.append(el("span", "fleet-fact__meta", meta));
-  if (title) node.title = node.title ? `${title} ${node.title}.` : title;
+  if (title && !unavailable) node.title = node.title ? `${title} ${node.title}.` : title;
   return node;
 }
 
@@ -197,41 +206,73 @@ function renderHead(instance, s) {
   const alerts = s.monitor?.Alerts?.SeriousAlerts;
   const findings = s.health && Array.isArray(s.health.findings) ? s.health.findings.length : null;
   const status = { loading: ["Loading…", "neutral"], unavailable: ["Unavailable", "error"], ok: ["Connected", "ok"] }[s.state];
+  const unavailable = s.state === "unavailable";
 
   const facts = el("div", "fleet-instance__facts");
   facts.append(
     fact(instance, "Status", status[0], { tone: status[1], meta: shortVersion(s.info?.serverVersion) }),
     fact(instance, "Uptime", typeof s.monitor?.Status?.UpTime === "string" ? s.monitor.Status.UpTime.replace(/\s+/g, " ") : PLACEHOLDER),
-    fact(instance, "Database", usage?.DatabaseSpace || PLACEHOLDER, { tone: statusTone(usage?.DatabaseSpace), target: "databases",
+    fact(instance, "Database", usage?.DatabaseSpace || PLACEHOLDER, { tone: statusTone(usage?.DatabaseSpace), target: "databases", unavailable,
       title: "Database space (IRIS System Dashboard)." }),
-    fact(instance, "Journal", journalStatus, { tone: statusTone(journalStatus === PLACEHOLDER ? null : journalStatus), target: "journal",
+    fact(instance, "Journal", journalStatus, { tone: statusTone(journalStatus === PLACEHOLDER ? null : journalStatus), target: "journal", unavailable,
       title: `Database journal: ${usage?.DatabaseJournal || PLACEHOLDER} · Journal space: ${usage?.JournalSpace || PLACEHOLDER}.` }),
     fact(instance, "Alerts", formatNumber(alerts), {
       tone: typeof alerts === "number" ? (alerts > 0 ? "warning" : "ok") : null,
       meta: s.health ? `Health: ${capitalize(s.health.status)} · ${findings} finding${findings === 1 ? "" : "s"}` : "No health report",
       target: "health",
+      unavailable,
       title: "Serious alerts (IRIS System Dashboard) and the health checks.",
     }),
   );
-  head.append(identity, facts, link(instance, "details", "View Details →", "btn btn--primary fleet-instance__details"));
+  head.append(identity, facts, link(instance, "details", "View Details →", "btn btn--primary fleet-instance__details", unavailable));
   return head;
 }
 
-function tile(instance, label, value, { target, meta, percent } = {}) {
+// A compact metric card: label and View on top, the value beside a small
+// chart of that instance's own readings, one line of context below.
+function tile(instance, label, value, gadget, meta, target, live = false) {
   const node = el("div", "fleet-tile");
   const top = el("div", "fleet-tile__top");
-  top.append(el("span", "fleet-tile__label", label));
-  if (target) top.append(link(instance, target, "View →"));
-  node.append(top, el("span", "fleet-tile__value", value));
-  if (typeof percent === "number") {
-    const bar = el("div", "fleet-tile__bar");
-    const fill = el("div", "fleet-tile__fill");
-    fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-    bar.append(fill);
-    node.append(bar);
-  }
-  if (meta) node.append(el("span", "fleet-tile__meta", meta));
+  top.append(el("span", "fleet-tile__label", label), link(instance, target, "View →"));
+  const body = el("div", "fleet-tile__body");
+  body.append(el("span", "fleet-tile__value", value), gadget);
+  node.append(top, body, el("span", live ? "fleet-tile__meta fleet-tile__meta--live" : "fleet-tile__meta", meta));
   return node;
+}
+
+// Mini bar chart of the last few counts, scaled to the largest.
+function miniBars(counts) {
+  const bars = el("div", "fleet-tile__gadget fleet-bars-mini");
+  const top = Math.max(1, ...counts);
+  for (const count of counts) {
+    const bar = el("span", "fleet-bars-mini__bar");
+    bar.style.height = `${Math.max(8, (count / top) * 100)}%`;
+    bar.title = String(count);
+    bars.append(bar);
+  }
+  return bars;
+}
+
+function sparkline(values) {
+  const box = el("div", "fleet-tile__gadget fleet-tile__spark");
+  box.append(makeSparkline(values));
+  return box;
+}
+
+// Usage bar with a tick at the peak.
+function usageBar(percent, peak) {
+  const bar = el("div", "fleet-tile__gadget fleet-usage");
+  const clamp = (value) => `${Math.max(0, Math.min(100, value))}%`;
+  const fill = el("span", "fleet-usage__fill");
+  fill.style.width = typeof percent === "number" ? clamp(percent) : "0%";
+  bar.append(fill);
+  if (typeof peak === "number") {
+    const mark = el("span", "fleet-usage__peak");
+    mark.style.left = clamp(peak);
+    mark.title = `peak ${peak}%`;
+    bar.append(mark);
+  }
+  return bar;
 }
 
 function renderTiles(instance, s) {
@@ -239,17 +280,27 @@ function renderTiles(instance, s) {
   const licensing = s.monitor?.Licensing;
   const license = licensing?.LicenseUse;
   const peak = licensing?.LicenseUseHigh;
+  const series = samples.get(instance.id) || [];
+  const counts = (processCounts.get(instance.id) || []).slice(-12);
+  const change = counts.length > 1 ? counts[counts.length - 1] - counts[counts.length - 2] : null;
+  const refs = series.map((sample) => sample.globalRefsPerSecond).filter((v) => typeof v === "number");
+  const sessions = series.map((sample) => sample.cspSessions);
+
   const tiles = el("div", "fleet-instance__tiles");
   tiles.append(
-    tile(instance, "Processes", formatNumber(s.processes), { target: "processes" }),
-    tile(instance, "Global References / sec", typeof perf?.GlobalRefsPerSecond === "number" ? `${formatNumber(perf.GlobalRefsPerSecond)} /s` : PLACEHOLDER,
-      { target: "performance" }),
-    tile(instance, "Web Sessions", formatNumber(s.monitor?.SystemUsage?.CSPSessions), { target: "sessions" }),
-    tile(instance, "License Usage", typeof license === "number" ? `${license}%` : license === "" ? "No limit" : PLACEHOLDER, {
-      target: "license",
-      percent: typeof license === "number" ? license : undefined,
-      meta: typeof peak === "number" ? `peak ${peak}%` : undefined,
-    }),
+    tile(instance, "Processes", formatNumber(s.processes), miniBars(counts),
+      change === null ? "first reading" : change === 0 ? "no change since last read"
+        : `${change > 0 ? "▲" : "▼"} ${Math.abs(change)} since last read`, "processes"),
+    tile(instance, "Global References / sec",
+      typeof perf?.GlobalRefsPerSecond === "number" ? `${formatNumber(perf.GlobalRefsPerSecond)} /s` : PLACEHOLDER,
+      sparkline(series.map((sample) => sample.globalRefsPerSecond)),
+      refs.length > 1 ? `range ${formatNumber(Math.min(...refs))}–${formatNumber(Math.max(...refs))} /s` : "sampling every 15 s",
+      "performance"),
+    tile(instance, "Web Sessions", formatNumber(s.monitor?.SystemUsage?.CSPSessions), sparkline(sessions),
+      "live · every 15 s", "sessions", true),
+    tile(instance, "License Usage", typeof license === "number" ? `${license}%` : license === "" ? "No limit" : PLACEHOLDER,
+      usageBar(typeof license === "number" ? license : null, peak),
+      typeof peak === "number" ? `peak ${peak}%` : PLACEHOLDER, "license"),
   );
   return tiles;
 }
@@ -330,6 +381,7 @@ function renderAll() {
       sections.delete(id);
       reads.delete(id);
       samples.delete(id);
+      processCounts.delete(id);
     }
   }
   dom.count.textContent = `${active.length} / ${instances.length}`;
@@ -361,8 +413,12 @@ async function readInstance(instance, full, token) {
   const monitor = resultOf(settledValue(entry.results.monitor));
   if (settled[keys.indexOf("monitor")].status === "fulfilled" && monitor) {
     const list = samples.get(instance.id) || [];
-    samples.set(instance.id, [...list, { time: Date.now(), globalRefsPerSecond: monitor.Performance?.GlobalRefsPerSecond }]
-      .slice(-MAX_SAMPLES));
+    samples.set(instance.id, [...list, { time: Date.now(), globalRefsPerSecond: monitor.Performance?.GlobalRefsPerSecond,
+      cspSessions: monitor.SystemUsage?.CSPSessions }].slice(-MAX_SAMPLES));
+  }
+  const processes = resultOf(settledValue(entry.results.processes));
+  if (keys.includes("processes") && settled[keys.indexOf("processes")].status === "fulfilled" && Array.isArray(processes)) {
+    processCounts.set(instance.id, [...(processCounts.get(instance.id) || []), processes.length].slice(-MAX_SAMPLES));
   }
   renderSection(instance);
 }
@@ -427,14 +483,36 @@ export async function loadFleet() {
   scheduleNext();
 }
 
+// In that instance's section: its pages can't be opened right now.
+function showNotSelectable(id) {
+  const instance = instances.find((entry) => entry.id === id);
+  const section = sections.get(id);
+  if (!instance || !section) return;
+  const notice = el("p", "fleet-instance__notice",
+    `${instance.name} isn't reachable from the Command Center right now, so its pages can't be opened. Try Refresh All.`);
+  notice.setAttribute("role", "status");
+  notice.dataset.fleetBlocked = "true";
+  const old = section.children ? [...section.children].find((child) => child.dataset && child.dataset.fleetBlocked) : null;
+  if (old) old.replaceWith(notice);
+  else section.append(notice);
+}
+
 export function initFleetControls() {
   dom.refresh.addEventListener("click", () => {
     loadFleet();
   });
-  // A View link: select that instance in the header, then open the page.
-  dom.instances.addEventListener("click", (event) => {
+  // A View link: select that instance in the instance selector, then open the page.
+  dom.instances.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-fleet-view]");
-    if (!button || !selectInstanceContext(button.dataset.fleetOpen)) return;
+    if (!button || button.disabled) return;
+    const id = button.dataset.fleetOpen;
+    // The selector only takes instances that answer now: check them first,
+    // and if this one doesn't, say so rather than doing nothing.
+    await refreshInstanceContext();
+    if (!selectInstanceContext(id)) {
+      showNotSelectable(id);
+      return;
+    }
     if (button.dataset.fleetFocus) FOCUS[button.dataset.fleetFocus]();
     navigateTo(button.dataset.fleetView);
     const anchor = button.dataset.fleetAnchor ? $(button.dataset.fleetAnchor) : null;

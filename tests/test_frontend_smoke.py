@@ -1531,9 +1531,7 @@ def test_dashboard_is_the_landing_screen_with_activity() -> None:
         "IrisApi.getTaskOverview" in dashboard_js,
         "dashboard.js calls IrisApi.getTaskOverview() for its Tasks card",
     )
-    # Only the All Active Instances counts use the plain task list (a count needs no per-task info).
-    check(dashboard_js.count("IrisApi.getTasks(") == 1 and '["tasks", (id) => IrisApi.getTasks(id), null]' in dashboard_js,
-          "dashboard.js uses IrisApi.getTasks() only for the All Active Instances task count")
+    check("IrisApi.getTasks(" not in dashboard_js, "dashboard.js doesn't use the plain task list (there are no combined counts)")
     check(
         re.search(r"task\.State\b", dashboard_js) is not None
         and re.search(r"task\.Suspended\b", dashboard_js) is None,
@@ -2413,8 +2411,8 @@ def test_instances_page_uses_instance_routes_and_confirmed_operations() -> None:
     check("innerHTML" not in js, "instances.js renders with textContent only")
 
 
-def test_global_instance_selector_is_in_the_header_and_context_only() -> None:
-    print("Checking the global instance selector: header markup, wiring, context-only, no credentials...")
+def test_instance_selector_is_in_page_headers_and_context_only() -> None:
+    print("Checking the instance selector: page-header placement, selectable instances only, context-only, no credentials...")
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
     js = (FRONTEND_DIR / "js" / "instance-context.js").read_text(encoding="utf-8")
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
@@ -2422,18 +2420,36 @@ def test_global_instance_selector_is_in_the_header_and_context_only() -> None:
 
     header = re.search(r'<header class="app-header">.*?</header>', html, re.S)
     header_html = header.group(0) if header else ""
-    check('id="instance-selector"' in header_html and 'role="listbox"' in header_html
-          and 'aria-haspopup="listbox"' in header_html, "the selector is in the application header (button + listbox)")
-    check(header_html.index('class="brand"') < header_html.index('id="instance-selector"') < header_html.index('class="header-status"'),
-          "it sits right after the brand, before the status/theme controls")
+    check("instance-selector" not in header_html, "the application header has no instance selector")
+    check(html.count('id="instance-selector"') == 1, "there is exactly one selector")
+    dashboard_header = re.search(r'<section class="view" id="view-dashboard".*?<div class="view__header">(.*?)\n          </div>\n', html, re.S)
+    selector_html = dashboard_header.group(1) if dashboard_header else ""
+    check('id="instance-selector"' in selector_html and 'role="listbox"' in selector_html
+          and 'aria-haspopup="listbox"' in selector_html, "it starts in the Dashboard's page header (button + listbox)")
     check("initInstanceSelector();" in app_js, "app.js initialises the selector")
+    selector_views = re.search(r"const SELECTOR_VIEWS = new Set\(\[\.\.\.INSTANCE_VIEWS, ([^\]]*)\]\);", app_js)
+    check(selector_views is not None and selector_views.group(1) == '"dashboard", "health-center"',
+          "the selector is placed on the instance pages plus the Dashboard and Health Center")
+    instance_views = re.search(r"const INSTANCE_VIEWS = new Set\(\[(.*?)\]\);", app_js, re.S)
+    for name in ("fleet", "issue-resolver", "operations"):
+        check(instance_views is not None and f'"{name}"' not in instance_views.group(1),
+              f"{name} gets no instance selector")
+    check("const shown = SELECTOR_VIEWS.has(view);" in app_js and "placeInstanceSelector(shown ?" in app_js,
+          "app.js moves it into the open page's header")
+    check("if (shown) refreshInstanceContext();" in app_js, "opening an instance page checks the instances again")
+    check('id="context-notice-primary"' in html and "selectInstanceContext(PRIMARY_ID)" in app_js,
+          "the Primary-only pages offer an explicit switch to Primary instead of a selector")
     check("updateInstanceContextList(instances);" in instances_js, "the Instances screen refreshes the selector after it reloads")
 
     used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
-    check(used == ["getInstances"], f"instance-context.js only reads GET /api/iris/instances ({used})")
+    check(used == ["getInfo", "getInstances"],
+          f"instance-context.js only reads GET /api/iris/instances and, to check reachability, GET /api/iris/info ({used})")
     check("fetch(" not in js, "instance-context.js makes no raw fetch() call")
-    check('"All Active Instances"' in js and "ALL_ACTIVE" in js, "it offers All Active Instances")
-    check("button.disabled = true" in js and "disabled: !entry.active" in js, "inactive instances are shown but not selectable")
+    check("All Active Instances" not in js and "ALL_ACTIVE" not in js, "there is no All Active Instances option")
+    check("selectable: active && (primary || reachable.has(String(instance.id)))" in js
+          and "checkInstance: (id) => IrisApi.getInfo(id).then(() => true, () => false)" in js
+          and "filter((entry) => entry.selectable)" in js,
+          "only active instances that answer now (or the Primary) are offered")
     check('STORAGE_KEY = "icc-instance-context"' in js and "localStorage" in js, "the choice is persisted in localStorage")
     check("CONTEXT_EVENT" in js and "export function getInstanceContext" in js and "export function onInstanceContextChange" in js,
           "the context is exposed as getInstanceContext()/onInstanceContextChange() and a document event")
@@ -2532,7 +2548,7 @@ def main() -> None:
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
         test_instances_page_uses_instance_routes_and_confirmed_operations,
-        test_global_instance_selector_is_in_the_header_and_context_only,
+        test_instance_selector_is_in_page_headers_and_context_only,
         test_fleet_overview_is_read_only_and_reads_each_instance,
     ]
     for test in tests:

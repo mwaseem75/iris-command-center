@@ -765,7 +765,7 @@ async function answer(message) {
   if (classification && classification.intent === "resolution_request") {
     // Copilot changes are planned, authorized and run on the Primary only.
     if (selectedInstanceId()) {
-      return { text: "Changes run on the Primary instance only. Switch to Primary in the header to plan this change." };
+      return { text: "Changes run on the Primary instance only. Switch to Primary in the instance selector above to plan this change." };
     }
     const reasoning = await IrisApi.askCopilot(message, selectedInstanceId());
     const planning = await IrisApi.planCopilotOperation(message, reasoning);

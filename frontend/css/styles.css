@@ -7461,19 +7461,19 @@ html.detail-workspace-open {
   }
 }
 
-/* --- Global instance selector (header): the current instance with its
-   host:port, and a dropdown of instances plus "All Active Instances".
-   Behaviour in js/instance-context.js. --- */
+/* --- Instance selector: at the right of an instance-aware page's header
+   (moved there by js/app.js), the current instance with its host:port and a
+   dropdown of the selectable instances. Behaviour in js/instance-context.js. --- */
 
 .instance-selector {
   position: relative;
-  margin: 0 auto 0 28px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
-/* With the selector in the header, the brand and selector keep their width
-   and the long IRIS version text gives way (it already truncates). */
-.app-header > .brand,
-.instance-selector {
+/* The brand keeps its width; the long IRIS version text gives way (it
+   already truncates). */
+.app-header > .brand {
   flex-shrink: 0;
 }
 
@@ -7486,9 +7486,9 @@ html.detail-workspace-open {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 260px;
-  max-width: 340px;
-  padding: 7px 0 7px 14px;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 5px 0 5px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
@@ -7555,7 +7555,7 @@ html.detail-workspace-open {
 .instance-selector__list {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  right: 0;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -7606,22 +7606,30 @@ html.detail-workspace-open {
   font-weight: 700;
 }
 
-.instance-selector__divider {
-  margin: 4px 6px;
-  border-top: 1px solid var(--color-border-subtle);
-}
-
 @media (max-width: 900px) {
-  .instance-selector {
-    margin-left: 12px;
-  }
-
   .instance-selector__button {
     min-width: 0;
   }
 
   .instance-selector__meta {
     display: none;
+  }
+}
+
+/* Stacked page headers: the selector takes the full width, list included. */
+@media (max-width: 480px) {
+  .instance-selector {
+    margin-left: 0;
+  }
+
+  .instance-selector__button {
+    width: 100%;
+    max-width: none;
+  }
+
+  .instance-selector__list {
+    left: 0;
+    width: 100%;
   }
 }
 
@@ -7648,12 +7656,6 @@ html.detail-workspace-open {
   color: var(--color-text-faint);
 }
 
-.dash-fleet-note {
-  align-items: flex-start;
-  margin-top: 14px;
-  font-weight: 400;
-}
-
 .stat-grid[data-scope="other"] .stat-card__link {
   display: none;
 }
@@ -7672,20 +7674,7 @@ html.detail-workspace-open {
   transition: opacity var(--transition-base);
 }
 
-/* All Active Instances: five count cards (no alerts card) fill the row, and
-   their "Across N instances" line isn't cut off. */
-@media (min-width: 1401px) {
-  #view-dashboard .stat-grid[data-mode="all"] {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-#view-dashboard .stat-grid [data-scope-meta] {
-  white-space: normal;
-}
-
-/* --- Health Center: instance context banner and the All Active Instances
-   counts (global selector). --- */
+/* --- Health Center: instance context banner (instance selector). --- */
 
 .health-center__context {
   display: flex;
@@ -7716,17 +7705,7 @@ html.detail-workspace-open {
   color: var(--color-text-muted);
 }
 
-.health-center__all-grid {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-}
-
-.health-center__all-note {
-  align-items: flex-start;
-  margin-top: 14px;
-  font-weight: 400;
-}
-
-/* --- Instance context (global selector): changes run on the Primary only,
+/* --- Instance context (instance selector): changes run on the Primary only,
    so their controls are hidden while another instance is selected; pages
    that can't show the selection say so instead (js/app.js). --- */
 
@@ -7738,6 +7717,11 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 .context-notice {
   align-items: flex-start;
   font-weight: 400;
+}
+
+.context-notice__action {
+  flex: none;
+  margin-left: auto;
 }
 
 .view[data-context-blocked] > :not(.view__header) {
@@ -7984,8 +7968,8 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 .fleet-tile {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
+  gap: 2px;
+  padding: 9px 12px 8px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
@@ -8000,32 +7984,99 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 }
 
 .fleet-tile__label {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--color-text-muted);
 }
 
-.fleet-tile__value {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
+/* Value on the left, its mini chart on the right. */
+.fleet-tile__body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.fleet-tile__bar {
-  height: 6px;
+.fleet-tile__value {
+  flex: none;
+  min-width: 64px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fleet-tile__gadget {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+}
+
+.fleet-tile__spark {
+  --spark-color: var(--fleet-instance-color);
+}
+
+.fleet-tile__spark .dash-spark__chart {
+  height: 100%;
+}
+
+.fleet-bars-mini {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.fleet-bars-mini__bar {
+  flex: 1 1 0;
+  max-width: 10px;
+  border-radius: 2px 2px 0 0;
+  background: var(--fleet-instance-color);
+  opacity: 0.8;
+}
+
+.fleet-bars-mini__bar:last-child {
+  opacity: 1;
+}
+
+.fleet-usage {
+  position: relative;
+  align-self: center;
+  height: 8px;
   border-radius: var(--radius-pill);
   background: var(--color-border);
-  overflow: hidden;
 }
 
-.fleet-tile__fill {
-  height: 100%;
+.fleet-usage__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
   border-radius: inherit;
   background: var(--color-warning);
 }
 
+.fleet-usage__peak {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--color-text-muted);
+}
+
 .fleet-tile__meta {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--color-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fleet-tile__meta--live::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--color-success);
+  vertical-align: 1px;
 }
 
 .fleet-link {
@@ -8043,6 +8094,14 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 .fleet-link:hover,
 .fleet-link:focus-visible {
   background: var(--color-accent-soft);
+}
+
+/* An instance that can't be opened right now. */
+.fleet-link:disabled,
+.fleet-fact--link:disabled {
+  opacity: 0.55;
+  background: none;
+  cursor: not-allowed;
 }
 
 /* Trend and Performance Context panels. */

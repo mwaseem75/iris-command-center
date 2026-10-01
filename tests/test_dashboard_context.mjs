@@ -102,7 +102,7 @@ function registry({ iris2Active = true } = {}) {
     { id: PRIMARY, name: "Primary", base_url: "http://iris:52773", username: "_SYSTEM", namespace: "USER",
       active: true, primary: true, has_credential: true, last_check: null },
     { id: IRIS2, name: "IRIS-2", base_url: "http://iris-2:52773", username: "_SYSTEM", namespace: "USER",
-      active: iris2Active, primary: false, has_credential: true, last_check: null,
+      active: iris2Active, primary: false, has_credential: true, last_check: { status: "compatible" },
       password: SECRET, credential_ref: `CommandCenter.${IRIS2}` },
   ];
 }
@@ -236,39 +236,10 @@ test("an inactive instance can't become the Dashboard's context", async () => {
   assert.ok(irisReads().every((r) => r.instance !== IRIS2));
 });
 
-test("All Active Instances: the five counts summed over the active instances, with a note", async () => {
-  context.selectInstanceContext(context.ALL_ACTIVE);
-  await settle();
-  const reads = irisReads();
-  const scoped = new Set(reads.map((r) => `${r.path}|${r.instance}`));
-  for (const path of ["/api/iris/namespaces", "/api/iris/databases", "/api/iris/processes", "/api/iris/web-apps", "/api/iris/tasks"]) {
-    assert.ok(scoped.has(`${path}|null`) && scoped.has(`${path}|${IRIS2}`), path);
-  }
-  assert.ok(!reads.some((r) => ["/api/iris/monitor/dashboard", "/api/iris/issues", "/api/iris/info"].includes(r.path)));
-  assert.equal(text("stat-namespaces"), String(3 + 6));
-  assert.equal(text("stat-databases"), String(5 + 10));
-  assert.equal(text("stat-processes"), String(7 + 14));
-  assert.equal(text("stat-web-apps"), String(11 + 22));
-  assert.equal(text("stat-tasks"), String(13 + 26));
-  assert.equal(text("dashboard-title-scope"), "(All Active Instances)");
-  assert.equal(text("dashboard-fleet-note-text"),
-    "Showing combined counts from 2 active instances: Primary (iris:52773), IRIS-2 (iris-2:52773).");
-  assert.equal(element("dashboard-main-grid").hidden, true);
-  assert.equal(element("stat-alerts-card").hidden, true);
-});
-
-test("All Active Instances: an instance that can't be read is named, not counted", async () => {
-  failInstance = { id: IRIS2, status: 502 };
-  context.selectInstanceContext(context.ALL_ACTIVE);
-  await settle();
-  assert.equal(text("stat-namespaces"), "3");
-  assert.match(text("dashboard-fleet-note-text"), /Not included \(could not be read\): IRIS-2 \(iris-2:52773\)\./);
-});
-
 test("no password or Wallet reference is sent or shown", async () => {
   context.selectInstanceContext(IRIS2);
   await settle();
-  context.selectInstanceContext(context.ALL_ACTIVE);
+  context.selectInstanceContext(PRIMARY);
   await settle();
   for (const r of requests) {
     assert.ok(r.init.body === undefined, `${r.path} sends no body`);

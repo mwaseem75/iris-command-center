@@ -46,7 +46,12 @@ async function fetchIris(path) {
   }
 
   if (!response.ok) {
-    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    // The pill shows the Command Center backend. A registered instance that
+    // can't be read (?instance=, e.g. one that is down) is that instance's
+    // error: the backend answered, so the pill is left as it is.
+    if (!/[?&]instance=/.test(path)) {
+      setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    }
     throw new ApiError(`Backend returned HTTP ${response.status} for ${path}.`, {
       status: response.status,
       path,

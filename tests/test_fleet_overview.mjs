@@ -58,6 +58,7 @@ let requests = [];
 let instances = [];
 let failing = new Set();
 let healthStillAnswers = false;  // like the backend: /health is 200 "unavailable" when IRIS is down
+let infoDown = new Set();        // instances whose /info fails (the selector's reachability check)
 
 function envelope(result) {
   return { status: { errors: [] }, result };
@@ -92,6 +93,9 @@ async function fakeFetch(url, init = {}) {
   const parsed = new URL(url);
   const instance = parsed.searchParams.get("instance");
   requests.push({ path: parsed.pathname, instance, init });
+  if (instance && infoDown.has(instance) && parsed.pathname === "/api/iris/info") {
+    return { ok: false, status: 502, json: async () => ({ detail: "Could not connect to IRIS" }) };
+  }
   if (instance && failing.has(instance)) {
     if (healthStillAnswers && parsed.pathname === "/api/iris/health") {
       return { ok: true, status: 200, json: async () => ({ status: "unavailable", findings: [] }) };
@@ -115,6 +119,7 @@ function registry({ withIris3 = false, withInactive = false } = {}) {
 let fleet;
 let context;
 let webApps;
+let api;
 let navigations = [];
 
 before(async () => {
@@ -141,6 +146,7 @@ before(async () => {
   nav.initNavigation((view) => navigations.push(view));
   fleet = await import("../frontend/js/fleet.js");
   webApps = await import("../frontend/js/web-apps.js");
+  api = await import("../frontend/js/api.js");
   fleet.initFleetControls();
 });
 
@@ -149,6 +155,7 @@ beforeEach(() => {
   navigations = [];
   failing = new Set();
   healthStillAnswers = false;
+  infoDown = new Set();
   instances = registry();
 });
 
@@ -183,13 +190,14 @@ test("each instance has its own section with only its own values; nothing is com
   const primary = text(section(PRIMARY));
   assert.match(primary, /^⬢ Primary ★ Primary iris:52773 Status Connected IRIS 2026\.2 \(121U\) Uptime 1d 1h 01m /);
   assert.match(primary, /Database Normal Journal Normal Alerts 0 Health: Healthy · 0 findings/);
-  assert.match(primary, /Processes View → 7 Global References \/ sec View → 100 \/s Web Sessions View → 4 License Usage View → 10% peak 15%/);
+  // Card context lines depend on earlier readings (module state), hence the alternatives.
+  assert.match(primary, /Processes View → 7 (first reading|no change since last read) Global References \/ sec View → 100 \/s (sampling every 15 s|range 100–100 \/s) Web Sessions View → 4 live · every 15 s License Usage View → 10% peak 15%/);
   assert.match(primary, /Cache Efficiency 91 Global References Since Startup 1M Disk Reads Since Startup 1K Disk Writes Since Startup 500/);
 
   const iris2 = text(section(IRIS2));
   assert.match(iris2, /^⬢ IRIS-2 iris-2:52773 Status Connected IRIS 2026\.2 \(221U\) Uptime 2d 1h 02m /);
   assert.match(iris2, /Database Normal Journal Troubled Alerts 1 Health: Partial · 1 finding/);
-  assert.match(iris2, /Processes View → 14 Global References \/ sec View → 200 \/s Web Sessions View → 8 License Usage View → 20% peak 30%/);
+  assert.match(iris2, /Processes View → 14 (first reading|no change since last read) Global References \/ sec View → 200 \/s (sampling every 15 s|range 200–200 \/s) Web Sessions View → 8 live · every 15 s License Usage View → 20% peak 30%/);
   assert.match(iris2, /Cache Efficiency 92 Global References Since Startup 2M Disk Reads Since Startup 2K Disk Writes Since Startup 1K/);
 
   // No Primary value in IRIS-2's section, and the other way round.
@@ -197,6 +205,34 @@ test("each instance has its own section with only its own values; nothing is com
   // No fleet totals anywhere (7 + 14 processes, 100 + 200 refs/s).
   const page = sections().map(text).join(" ");
   assert.ok(!/\b21\b/.test(page) && !page.includes("300 /s"));
+});
+
+test("the four metric cards draw only that instance's own readings", async () => {
+  await fleet.loadFleet();
+  await fleet.loadFleet();
+  const cards = (id) => [...walk(section(id))].filter((n) => n.className === "fleet-tile");
+  const find = (node, className) => [...walk(node)].find((n) => String(n.className).split(" ").includes(className));
+  for (const [id, n] of [[PRIMARY, 1], [IRIS2, 2]]) {
+    const [processes, refs, sessions, license] = cards(id);
+    assert.equal(cards(id).length, 4);
+    // Processes: mini bars of this instance's process counts, newest last.
+    const bars = find(processes, "fleet-bars-mini").children;
+    assert.ok(bars.length >= 2 && bars.every((bar) => bar.title === String(7 * n)));
+    assert.match(text(processes), /no change since last read$/);
+    // Global References and Web Sessions: sparklines from this instance's samples.
+    for (const card of [refs, sessions]) {
+      const svg = find(card, "fleet-tile__spark").children[0];
+      const line = svg.children.find((child) => child.attributes.class === "dash-spark__line");
+      assert.ok(line && line.attributes.points.split(" ").length >= 2, "a line through at least two samples");
+    }
+    assert.match(text(refs), new RegExp(`range ${100 * n}–${100 * n} /s$`));
+    assert.equal(find(sessions, "fleet-tile__meta--live").textContent, "live · every 15 s");
+    // License: usage bar at the current use, with a tick at the peak.
+    assert.equal(find(license, "fleet-usage__fill").style.width, `${10 * n}%`);
+    assert.equal(find(license, "fleet-usage__peak").style.left, `${15 * n}%`);
+    assert.match(text(license), new RegExp(`^License Usage View → ${10 * n}% peak ${15 * n}%$`));
+    assert.ok(links(processes).length === 1 && links(license).length === 1, "View → on every card");
+  }
 });
 
 test("three instances: three sections, in registry order", async () => {
@@ -219,6 +255,33 @@ test("one instance unavailable: only its section says so; the others load and no
   assert.equal(section(IRIS3).dataset.state, "ok");
   assert.match(text(section(IRIS3)), /Processes View → 21 /);
   assert.equal(reads().filter((r) => r.instance === null).length, 4);  // the Primary's own four reads only
+  // Its links are disabled (it can't be opened), the others' aren't.
+  assert.ok(links(iris2).length > 0 && links(iris2).every((n) => n.disabled === true));
+  assert.ok(links(section(PRIMARY)).every((n) => n.disabled !== true));
+});
+
+test("a link to an instance the selector can't select says so instead of doing nothing", async () => {
+  infoDown = new Set([IRIS2]);   // Fleet still reads IRIS-2, but it fails the selector's check
+  await context.refreshInstanceContext();
+  context.selectInstanceContext(PRIMARY);
+  await fleet.loadFleet();
+  assert.equal(section(IRIS2).dataset.state, "ok");
+  const details = links(section(IRIS2)).find((n) => n.dataset.fleetView === "dashboard" && !n.dataset.fleetAnchor);
+  navigations = [];
+  requests = [];
+  const [click] = element("fleet-instances").listeners.click;
+  await click({ target: { closest: () => details } });
+  assert.deepEqual(navigations, [], "no page is opened");
+  assert.equal(context.getInstanceContext().instanceId, PRIMARY);
+  assert.ok(requests.some((r) => r.path === "/api/iris/info" && r.instance === IRIS2), "it checked IRIS-2 again first");
+  const notice = section(IRIS2).children.find((n) => n.dataset.fleetBlocked);
+  assert.equal(notice.textContent,
+    "IRIS-2 isn't reachable from the Command Center right now, so its pages can't be opened. Try Refresh All.");
+  // Reachable again: the same link works.
+  infoDown = new Set();
+  await click({ target: { closest: () => details } });
+  assert.deepEqual(navigations, ["dashboard"]);
+  assert.equal(context.getInstanceContext().instanceId, IRIS2);
 });
 
 test("an instance whose only answer is a 200 'unavailable' health report is unavailable", async () => {
@@ -264,7 +327,7 @@ test("View links select that instance and open the existing page for it", async 
       [["web-apps", "web-sessions"]]);
     for (const button of found) {
       navigations = [];
-      click({ target: { closest: () => button } });
+      await click({ target: { closest: () => button } });
       assert.equal(context.getInstanceContext().instanceId, id);
       assert.deepEqual(navigations, [button.dataset.fleetView]);
     }
@@ -281,7 +344,7 @@ test("Web Sessions: Web Apps shows its Web Sessions section once that instance's
     const button = links(section(id)).find((n) => n.dataset.fleetFocus === "web-sessions");
     navigations = [];
     scrolls = 0;
-    click({ target: { closest: () => button } });
+    await click({ target: { closest: () => button } });
     assert.equal(context.getInstanceContext().instanceId, id);
     assert.deepEqual(navigations, ["web-apps"]);
     assert.equal(scrolls, 0, "Fleet doesn't scroll; the Web Apps page does once it has loaded");
@@ -329,6 +392,32 @@ test("while shown, every 15 s it re-reads only each instance's monitor; it stops
     element("view-fleet").hidden = true;
     mock.timers.reset();
   }
+});
+
+test("an unreachable instance doesn't mark the Command Center backend as disconnected", async () => {
+  const pill = () => [element("connection-status").dataset.state, element("connection-status-label").textContent];
+  await fleet.loadFleet();
+  assert.deepEqual(pill(), ["connected", "Connected to backend"]);
+  failing = new Set([IRIS2]);
+  await context.refreshInstanceContext();   // its reachability check fails...
+  await fleet.loadFleet();                  // ...and so do its Fleet reads
+  assert.ok(requests.some((r) => r.path === "/api/iris/info" && r.instance === IRIS2));
+  assert.equal(context.getInstanceContext().instances.find((i) => i.id === IRIS2).selectable, false);
+  assert.equal(section(IRIS2).dataset.state, "unavailable");
+  // The last request is a failed IRIS-2 read, so nothing later resets the pill.
+  await assert.rejects(api.IrisApi.getInfo(IRIS2));
+  assert.deepEqual(pill(), ["connected", "Connected to backend"]);
+  // The pill still reports the backend itself: when it can't be reached, it says so.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  try {
+    await assert.rejects(api.IrisApi.getInfo());
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(pill(), ["error", "Could not reach the Command Center backend"]);
+  await api.IrisApi.getInfo();   // and recovers
+  assert.deepEqual(pill(), ["connected", "Connected to backend"]);
 });
 
 test("no password or Wallet reference is sent or shown", async () => {
