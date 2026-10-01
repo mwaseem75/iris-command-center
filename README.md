@@ -97,6 +97,93 @@ frameworks.
 
 ---
 
+# 🛰️ Multi-IRIS & Fleet Overview
+
+IRIS Command Center can manage and monitor several IRIS instances from one interface. You register connections on the **Instances** screen, check that they are compatible, and then monitor every active instance side by side in the **Fleet Overview** or open any single instance on the instance-aware screens.
+
+- **Primary instance** — the IRIS instance configured in the backend environment (`IRIS_BASE_URL`, `IRIS_USERNAME`, `IRIS_PASSWORD`). It is always available and can't be edited or deleted from the UI.
+- **User-defined connections** — additional IRIS 2026.2+ instances you add yourself (name, URL, username, namespace, password).
+- **Secure credential storage** — passwords are stored in the **IRIS Secure Wallet**, never in plain text. Passwords and credential references are never returned by the API or shown in the browser.
+- **Connection testing and compatibility** — a connection is tested before it is saved, and can be re-checked at any time.
+- **Active / inactive** — only active connections can be selected and monitored; an inactive connection is kept but ignored.
+- **Instance-specific monitoring** — instance-aware screens have an instance selector in their page header. The browser sends only the instance id; the backend resolves the connection and credentials.
+- **Fleet Overview** — one read-only page showing every active instance together.
+- **Protected instances** — the Primary and the Docker-managed **IRIS-2** (the `iris-2` Docker Compose service) can't be edited or deleted; the backend refuses these changes too.
+
+All instance changes (add, edit, activate, deactivate, delete) go through the same authorization → confirmation → execution → verification → trace framework as other Command Center operations.
+
+## 1. Adding a New Connection
+
+1. Open **Instances** in the sidebar.
+2. Select **Add Instance**.
+3. Enter the **Name**, **URL** (for example `http://iris-host:52773`), **Username**, **Namespace** and **Password**.
+4. Select **Test Connection**. The backend runs a live compatibility check:
+   - the instance must be **InterSystems IRIS 2026.2 or later**;
+   - the System Administration API (`/api/admin`, API v2) and every Management API endpoint Command Center uses must answer.
+
+   The result is shown as **Compatible**, **Incompatible** (with the reported IRIS version), **Unreachable** or **Auth Failed**.
+5. After a compatible test, confirm (*"I confirm that I want to add this instance."*) and select **Add Instance**. Changing any field afterwards requires a new test.
+6. The connection is saved and active. Its definition is stored in IRIS (`^CommandCenterInstance`) and its password in the IRIS Secure Wallet.
+
+[SCREENSHOT: Adding Connection]
+
+[SCREENSHOT: Adding Connection — optional second view]
+
+[SCREENSHOT: Adding Connection — optional result view]
+
+## 2. Viewing Connections
+
+The **Instances** screen lists every registered connection with its **Name**, **ID**, **URL**, **Username**, **Namespace**, **Status** and **Last Check**.
+
+- **Status** — **Active** or **Inactive**, plus the result of the last compatibility check (**Compatible**, **Incompatible**, **Unreachable**, **Auth Failed**).
+- **Last Check** — when the connection was last checked; for a failed check, the reason is shown below the time.
+- When the Instances screen opens, the Primary and IRIS-2 are checked automatically, so their status is current. User-defined connections are checked on request.
+
+Available actions per connection:
+
+| Connection | Check | Activate / Deactivate | Edit | Delete |
+|---|---|---|---|---|
+| **Primary** | ✅ | — | — (protected) | — (protected) |
+| **IRIS-2** (Docker-managed) | ✅ | ✅ | — (protected) | — (protected) |
+| **User-defined** | ✅ | ✅ | ✅ | ✅ |
+
+- **Check** re-runs the compatibility check at any time.
+- **Edit** tests the changed connection as a dry run first; nothing is saved until you confirm. Leaving the password empty keeps the stored one.
+- **Activate**, **Deactivate** and **Delete** ask for explicit confirmation. Activating re-checks compatibility first.
+
+[SCREENSHOT: Connections List]
+
+[SCREENSHOT: Connections List — compatibility]
+
+[SCREENSHOT: Connections List — actions]
+
+## 3. Fleet Overview
+
+**Fleet Overview** (*All Active Instances*) gives a compact, read-only monitoring view of all active IRIS instances, with an independent card for each instance. It is meant for a quick operational comparison without opening each instance separately. Values are never added up across instances.
+
+Each instance card shows its name and host, a **View Details →** button, and three rows:
+
+| Row | Metrics |
+|---|---|
+| **Row 1 — Health** | Status · Uptime · Database · Journal · Alerts · Issues |
+| **Row 2 — Runtime** | Processes · Global References /sec · Web Sessions · License Usage |
+| **Row 3 — Resources** | Namespaces · Databases · Web Apps · Tasks |
+
+- **Issues** is the number of active issues found by the issue checks — the same list as the Issue Resolver for that instance.
+- **Processes**, **Global References /sec** and **Web Sessions** show small live charts. They are sampled only while the page is open (every 15 s, with a full read every 60 s); no history is stored.
+- **Resources** are the counts of the lists shown on the Namespaces, Databases, Web Apps and Tasks pages.
+- Most metrics have a link (or **View →**) that selects that instance and opens the matching page.
+- Inactive instances are not shown; a note says how many are hidden.
+- Each instance is read on its own. If one instance can't be read, only its card is marked unavailable and its links are disabled; the other cards keep loading, and nothing falls back to another instance.
+
+[SCREENSHOT: Fleet Overview]
+
+[SCREENSHOT: Fleet Overview — multiple instances]
+
+[SCREENSHOT: Fleet Overview — instance details]
+
+---
+
 # 🤖 IRIS Ops Skill — Issue-aware Copilot
 
 **IRIS Ops Skill** is a reusable, safety-oriented AI operations capability for InterSystems IRIS. It answers operational questions from live, read-only IRIS evidence and can resolve a small, closed set of approved problems — but only through a deterministic plan, explicit confirmation, server-side authorization, the existing operation executor and post-change verification, with every step traced.
