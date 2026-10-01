@@ -17,6 +17,7 @@
 // (from GET /api/iris/observability/traces), with an Open Trace button.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { assignColors, countBy, topCategories } from "./viz.js";
 
@@ -591,8 +592,8 @@ export async function loadInvestigation() {
 
   const filters = collectFilters();
   const [auditEnabledResult, recordsResult, tracesResult] = await Promise.allSettled([
-    IrisApi.getAuditEnabled(),
-    IrisApi.getAuditRecords(filters),
+    IrisApi.getAuditEnabled(selectedInstanceId()),
+    IrisApi.getAuditRecords(filters, selectedInstanceId()),
     // From our own trace store, just for the +/-30 s matching. If it fails,
     // matching shows as unknown; the audit results are unaffected.
     IrisApi.getExecutionTraces(),

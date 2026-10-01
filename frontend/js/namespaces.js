@@ -19,6 +19,7 @@
 // it. The database counts and colors are worked out from those fields.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
@@ -382,7 +383,7 @@ async function populateDatabaseSelects() {
   let names = [];
   let loadError = false;
   try {
-    const response = await IrisApi.getDatabases();
+    const response = await IrisApi.getDatabases(selectedInstanceId());
     names = Array.isArray(response && response.result)
       ? response.result.map((db) => db && db.Name).filter((name) => typeof name === "string" && name)
       : [];
@@ -690,7 +691,7 @@ export async function loadNamespaces() {
 
   let response;
   try {
-    response = await IrisApi.getNamespaces();
+    response = await IrisApi.getNamespaces(selectedInstanceId());
   } catch (err) {
     // ApiError messages are already safe to show (see api.js).
     const message =

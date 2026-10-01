@@ -7,6 +7,15 @@
 // - Process Distribution: GET /api/iris/processes.
 // - Recent Operations: our execution traces plus the operations registry.
 //
+// Instance-aware (global selector, js/instance-context.js):
+// - Primary: everything above, exactly as before (no ?instance=).
+// - Another instance: the IRIS panels and counts read that instance
+//   (?instance=<id>; the backend resolves its credentials). Issues, Recent
+//   Operations and Demo Activity cover the Primary only, so they're hidden.
+// - All Active Instances: only the five counts, summed over the active
+//   instances that answered, with a note saying which are included.
+// Switching the selector clears the page and reloads it for the new context.
+//
 // Refreshes every REFRESH_INTERVAL_MS while the Dashboard is shown and the
 // tab is visible. Fast panels update every tick; the heavier ones (counts,
 // storage, tasks, registry) every SLOW_EVERY_TICKS. Refreshes are chained
@@ -19,6 +28,7 @@
 
 import { IrisApi, ApiError } from "./api.js";
 import { navigateTo } from "./nav.js";
+import { getInstanceContext, onInstanceContextChange } from "./instance-context.js";
 import { countBy, renderDonut, renderStackedBar, topCategories } from "./viz.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
@@ -78,6 +88,17 @@ const dom = {
   processesViz: $("stat-processes-viz"),
   webAppsViz: $("stat-web-apps-viz"),
   tasksViz: $("stat-tasks-viz"),
+  loadingStateText: $("loading-state-text"),
+  titleScope: $("dashboard-title-scope"),
+  context: $("dashboard-context"),
+  scopeNote: $("dashboard-scope-note"),
+  fleetNote: $("dashboard-fleet-note"),
+  fleetNoteText: $("dashboard-fleet-note-text"),
+  mainGrid: $("dashboard-main-grid"),
+  activityGrid: $("dashboard-activity-grid"),
+  activityPanel: $("dashboard-activity-panel"),
+  issuesPanel: $("dashboard-issues-panel"),
+  demoButton: $("dashboard-demo-activity-button"),
 };
 
 const STAT_CARDS = {
@@ -121,6 +142,8 @@ let lastRefreshFailed = false;
 let databaseNames = new Map(); // Directory → Name, from the last database list
 let loadedOnce = false;
 let onOpenTrace = null; // app.js: opens a trace in Observability's detail view
+let reloadPending = false; // the context changed while a refresh was running
+let lastContextKey = null;
 
 // --- small helpers ---
 
@@ -963,51 +986,179 @@ function renderOperationsSummary(operationsResult, tracesResult) {
   else if (operationsResult) dom.operationsSummary.textContent = "Operations registry unavailable.";
 }
 
+// --- instance context ---
+
+// The Primary is read without ?instance=, exactly as before.
+function instanceParam(entry) {
+  return entry && !entry.primary ? entry.id : undefined;
+}
+
+function contextKey(ctx) {
+  return ctx.mode === "all" ? `all:${ctx.activeInstances.map((i) => i.id).join(",")}` : `instance:${ctx.instanceId}`;
+}
+
+function isPrimaryContext(ctx = getInstanceContext()) {
+  return ctx.mode === "instance" && Boolean(ctx.instance && ctx.instance.primary);
+}
+
+function contextName(ctx) {
+  if (ctx.mode === "all") return "All Active Instances";
+  return ctx.instance ? ctx.instance.name : textOrPlaceholder(ctx.instanceId);
+}
+
+function describeInstance(entry) {
+  return entry.connection ? `${entry.name} (${entry.connection})` : entry.name;
+}
+
+// Show or hide what belongs to the current context.
+function applyScope(ctx) {
+  const primary = isPrimaryContext(ctx);
+  const all = ctx.mode === "all";
+  dom.titleScope.textContent = all ? "(All Active Instances)" : `· ${contextName(ctx)}`;
+  dom.context.hidden = all;
+  if (!all) dom.context.textContent = ctx.instance ? describeInstance(ctx.instance) : contextName(ctx);
+  dom.scopeNote.hidden = primary || all;
+  dom.mainGrid.hidden = all;
+  dom.activityGrid.hidden = all;
+  dom.activityPanel.hidden = !primary;
+  dom.issuesPanel.hidden = !primary;
+  dom.demoButton.hidden = !primary;
+  dom.viewProcessesButton.hidden = !primary;
+  dom.alertsCard.hidden = all;
+  dom.fleetNote.hidden = !all;
+  // The detail pages read the Primary, so the cards only link there in that context.
+  dom.statGrid.dataset.scope = primary ? "primary" : "other";
+  dom.statGrid.dataset.mode = all ? "all" : "instance";
+  dom.statGrid.querySelectorAll(".stat-card--interactive[data-card]").forEach((card) => {
+    card.tabIndex = primary ? 0 : -1;
+    card.setAttribute("aria-disabled", String(!primary));
+  });
+  dom.statGrid.querySelectorAll("[data-scope-meta]").forEach((meta) => {
+    meta.hidden = !all;
+  });
+}
+
+// Clear everything from the previous context before loading the new one.
+function resetForContext() {
+  samples = [];
+  databaseNames = new Map();
+  loadedOnce = false;
+  lastSuccess = null;
+  lastRefreshFailed = false;
+  setErrorBanner(null);
+  for (const { valueEl, cardSelector } of Object.values(STAT_CARDS)) {
+    const valueNode = $(valueEl);
+    valueNode.textContent = PLACEHOLDER;
+    valueNode.classList.remove("stat-card__value--unavailable");
+    dom.statGrid.querySelector(cardSelector).classList.remove("stat-card--error");
+  }
+  for (const viz of [dom.databasesViz, dom.processesViz, dom.webAppsViz, dom.tasksViz]) viz.replaceChildren();
+  dom.statGrid.querySelectorAll("[data-scope-meta]").forEach((meta) => {
+    meta.textContent = "";
+  });
+  dom.fleetNoteText.textContent = "";
+  dom.view.classList.add("dashboard--switching");
+}
+
+function renderContextLine(ctx, infoResult) {
+  const value = fulfilled(infoResult);
+  const info = value && value.result;
+  const parts = [ctx.instance ? describeInstance(ctx.instance) : contextName(ctx)];
+  if (info) parts.push(`${info.serverVersion || "Unknown version"} · API v${info.apiVersion ?? "?"}`);
+  dom.context.textContent = parts.join(" · ");
+}
+
+// A whole-instance failure, without raw backend text.
+function instanceFailureMessage(ctx, reason) {
+  const name = contextName(ctx);
+  const where = ctx.instance && ctx.instance.connection ? ` (${ctx.instance.connection})` : "";
+  const status = reason instanceof ApiError ? reason.status : undefined;
+  if (status === 409) return `${name} is inactive. Activate it on the Instances screen, or choose another instance in the header.`;
+  if (status === 404) return `${name} is no longer registered. Choose another instance in the header.`;
+  if (status === null) return "Could not reach the Command Center backend.";
+  return `Could not load data from ${name}${where}. The instance may be unreachable or may have rejected its stored credentials.`;
+}
+
 // --- refresh cycle ---
 
 async function refresh({ includeSlow }) {
-  if (refreshing) return;
+  if (refreshing) {
+    reloadPending = true;
+    return;
+  }
   refreshing = true;
   dom.refreshButton.disabled = true;
   dom.refreshButton.classList.toggle("btn--spinning", true);
   dom.loadingState.hidden = loadedOnce;
   renderLiveStatus();
 
+  const ctx = getInstanceContext();
+  dom.loadingStateText.textContent = `Loading dashboard data for ${contextName(ctx)}…`;
+  const rendered = ctx.mode === "all"
+    ? await refreshAll(ctx)
+    : await refreshInstance(ctx, { includeSlow });
+
+  if (rendered) {
+    loadedOnce = true;
+    dom.view.classList.remove("dashboard--switching");
+  }
+  refreshing = false;
+  dom.loadingState.hidden = loadedOnce;
+  dom.refreshButton.disabled = false;
+  dom.refreshButton.classList.toggle("btn--spinning", false);
+  renderLiveStatus();
+  if (reloadPending) {
+    reloadPending = false;
+    setTimeout(loadDashboard, 0);
+  }
+}
+
+// Results for a context that's no longer selected are dropped.
+function stillCurrent(ctx) {
+  if (contextKey(getInstanceContext()) === contextKey(ctx)) return true;
+  reloadPending = true;
+  return false;
+}
+
+async function refreshInstance(ctx, { includeSlow }) {
+  const primary = isPrimaryContext(ctx);
+  const id = instanceParam(ctx.instance);
   const fast = {
-    info: IrisApi.getInfo(),
-    monitor: IrisApi.getMonitorDashboard(),
-    processes: IrisApi.getProcesses(),
-    traces: IrisApi.getExecutionTraces(),
+    info: IrisApi.getInfo(id),
+    monitor: IrisApi.getMonitorDashboard(id),
+    processes: IrisApi.getProcesses(id),
+    ...(primary ? { traces: IrisApi.getExecutionTraces() } : {}),
   };
   const slow = includeSlow
     ? {
-        namespaces: IrisApi.getNamespaces(),
-        databases: IrisApi.getDatabases(),
-        webApps: IrisApi.getWebApps(),
-        tasks: IrisApi.getTaskOverview(),
-        storage: IrisApi.getDatabaseStorage(),
-        operations: IrisApi.getOperations(),
-        issues: IrisApi.getIssues(),
+        namespaces: IrisApi.getNamespaces(id),
+        databases: IrisApi.getDatabases(id),
+        webApps: IrisApi.getWebApps(id),
+        tasks: IrisApi.getTaskOverview(id),
+        storage: IrisApi.getDatabaseStorage(id),
+        ...(primary ? { operations: IrisApi.getOperations(), issues: IrisApi.getIssues() } : {}),
       }
     : {};
   const keys = [...Object.keys(fast), ...Object.keys(slow)];
   const settled = await Promise.allSettled([...Object.values(fast), ...Object.values(slow)]);
+  if (!stillCurrent(ctx)) return false;
   const r = Object.fromEntries(keys.map((key, i) => [key, settled[i]]));
 
   const monitorValue = fulfilled(r.monitor);
   const monitor = monitorValue && monitorValue.result ? monitorValue.result : null;
   if (monitor) takeSample(monitor);
 
-  renderInfo(r.info);
+  if (primary) renderInfo(r.info);  // the header shows the Primary connection
+  renderContextLine(getInstanceContext(), r.info);  // same context; its details may have loaded meanwhile
   const sysMon = findSystemMonitorProcess(r.processes);
   renderMonitorKpis(monitor, sysMon);
   renderHealth(monitor, sysMon);
-  renderIssues(r.issues);
+  if (primary) renderIssues(r.issues);
   renderResources(Boolean(monitor));
   renderProcesses(r.processes);
   renderCountCard("processes", r.processes, (body) => body.result.length);
   renderMicroBar(dom.processesViz, r.processes, (p) => p.State || "Unknown");
-  renderRecentActivity(r.traces);
+  if (primary) renderRecentActivity(r.traces);
 
   if (includeSlow) {
     const databases = fulfilled(r.databases);
@@ -1024,28 +1175,82 @@ async function refresh({ includeSlow }) {
     // not the list's Suspended flag.
     renderMicroBar(dom.tasksViz, r.tasks, (task) => task.State || "Unknown");
     renderStorage(r.storage);
-    renderOperationsSummary(r.operations, r.traces);
-  } else {
+    if (primary) renderOperationsSummary(r.operations, r.traces);
+  } else if (primary) {
     renderOperationsSummary(null, r.traces);
   }
 
   const failures = keys.filter((key) => r[key].status === "rejected");
   lastRefreshFailed = failures.length > 0;
   if (failures.length === keys.length) {
-    setErrorBanner("Could not load dashboard data right now. The Command Center backend may be unreachable.");
+    setErrorBanner(primary
+      ? "Could not load dashboard data right now. The Command Center backend may be unreachable."
+      : instanceFailureMessage(ctx, r[keys[0]].reason));
   } else if (failures.length > 0) {
     setErrorBanner(`Some dashboard data could not be loaded (${failures.length} of ${keys.length} sources). The rest is shown below.`);
   } else {
     setErrorBanner(null);
     lastSuccess = new Date();
   }
+  return true;
+}
 
-  loadedOnce = true;
-  refreshing = false;
-  dom.loadingState.hidden = true;
-  dom.refreshButton.disabled = false;
-  dom.refreshButton.classList.toggle("btn--spinning", false);
-  renderLiveStatus();
+// All Active Instances: the five counts, each summed over the instances that
+// answered. Nothing else is combined.
+const ALL_COUNTS = [
+  ["namespaces", (id) => IrisApi.getNamespaces(id), null],
+  ["databases", (id) => IrisApi.getDatabases(id), [dom.databasesViz, (db) => db.Status || "Unknown"]],
+  ["processes", (id) => IrisApi.getProcesses(id), [dom.processesViz, (p) => p.State || "Unknown"]],
+  ["webApps", (id) => IrisApi.getWebApps(id), [dom.webAppsViz, (app) => (app.Enabled ? "Enabled" : "Disabled")]],
+  // The plain task list: a count needs no per-task info calls.
+  ["tasks", (id) => IrisApi.getTasks(id), null],
+];
+
+async function refreshAll(ctx) {
+  const instances = ctx.activeInstances;
+  const perInstance = await Promise.all(
+    instances.map((entry) => Promise.allSettled(ALL_COUNTS.map(([, load]) => load(instanceParam(entry))))),
+  );
+  if (!stillCurrent(ctx)) return false;
+
+  const listOf = (result) => {
+    const value = fulfilled(result);
+    return value && Array.isArray(value.result) ? value.result : null;
+  };
+  ALL_COUNTS.forEach(([key, , viz], k) => {
+    const answered = perInstance.map((results) => listOf(results[k])).filter((list) => list !== null);
+    const meta = dom.statGrid.querySelector(`${STAT_CARDS[key].cardSelector} [data-scope-meta]`);
+    if (answered.length === 0) {
+      renderCountCard(key, null, () => 0);
+      meta.textContent = "No active instance answered";
+      return;
+    }
+    const combined = { status: "fulfilled", value: { result: answered.flat() } };
+    renderCountCard(key, combined, (body) => body.result.length);
+    meta.textContent = answered.length === instances.length
+      ? `Across ${instances.length} instance${instances.length === 1 ? "" : "s"}`
+      : `Across ${answered.length} of ${instances.length} instances`;
+    if (viz) renderMicroBar(viz[0], combined, viz[1], key === "webApps" ? 2 : 5);
+  });
+  dom.tasksViz.replaceChildren();
+
+  const included = instances.filter((_, i) => perInstance[i].some((result) => listOf(result) !== null));
+  const missing = instances.filter((entry) => !included.includes(entry));
+  let note = included.length
+    ? `Showing combined counts from ${included.length} active instance${included.length === 1 ? "" : "s"}: ${included.map(describeInstance).join(", ")}.`
+    : "No active instance could be read.";
+  if (missing.length) note += ` Not included (could not be read): ${missing.map(describeInstance).join(", ")}.`;
+  dom.fleetNoteText.textContent = note;
+
+  const failed = perInstance.flat().filter((result) => result.status === "rejected").length;
+  lastRefreshFailed = failed > 0;
+  if (included.length === 0) {
+    setErrorBanner("Could not load data from any active instance.");
+  } else {
+    setErrorBanner(null);
+    if (!failed) lastSuccess = new Date();
+  }
+  return true;
 }
 
 function stopPolling() {
@@ -1118,16 +1323,33 @@ export function initDashboardControls({ onOpenTrace: openTrace } = {}) {
     navigateTo("processes");
   });
 
-  // The count cards also link to their pages.
+  // The count cards also link to their pages (which read the Primary).
   dom.statGrid.querySelectorAll(".stat-card--interactive[data-card]").forEach((card) => {
     card.addEventListener("click", () => {
-      navigateTo(card.dataset.card);
+      if (isPrimaryContext()) navigateTo(card.dataset.card);
     });
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      navigateTo(card.dataset.card);
+      if (isPrimaryContext()) navigateTo(card.dataset.card);
     });
+  });
+
+  // Follow the global instance selector: a new context clears the page and
+  // reloads it (straight away if the Dashboard is showing, else when shown).
+  const initial = getInstanceContext();
+  lastContextKey = contextKey(initial);
+  applyScope(initial);
+  onInstanceContextChange((ctx) => {
+    const key = contextKey(ctx);
+    if (key === lastContextKey) {
+      applyScope(ctx);  // e.g. a renamed instance
+      return;
+    }
+    lastContextKey = key;
+    resetForContext();
+    applyScope(ctx);
+    if (isDashboardShown()) loadDashboard();
   });
 }
 

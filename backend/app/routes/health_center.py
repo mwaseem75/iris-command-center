@@ -1,4 +1,8 @@
-"""Read-only health report built from existing Issue Resolver checks."""
+"""Read-only health report built from existing Issue Resolver checks.
+
+Like the Dashboard reads, it takes ?instance=<id> to check another registered,
+active instance (dependencies.get_read_client); without it, the Primary.
+"""
 
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -6,7 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
-from app.dependencies import get_iris_client
+from app.dependencies import get_read_client
 from app.iris_client.client import IRISClient
 from app.models.schemas import (
     HealthCategoryId,
@@ -118,7 +122,7 @@ def _finding(issue: Any, resolution: Any, category: HealthCategoryId) -> HealthF
 
 @router.get("/health", response_model=HealthReport)
 async def get_health_report(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> HealthReport:
     rules = custom_rules.list_rules()
     check_categories = {

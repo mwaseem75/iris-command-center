@@ -8,6 +8,7 @@
 // back empty, so their columns are taken from whatever fields IRIS returns.
 
 import { IrisApi } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -363,9 +364,9 @@ export async function loadExtensions() {
   setConnectionState("checking", "Checking connection…", "");
 
   const [extLangServers, fsAccessPurposes, walletCollections] = await Promise.allSettled([
-    IrisApi.getExtLangServers(),
-    IrisApi.getFsAccessPurposes(),
-    IrisApi.getWalletCollections(),
+    IrisApi.getExtLangServers(selectedInstanceId()),
+    IrisApi.getFsAccessPurposes(selectedInstanceId()),
+    IrisApi.getWalletCollections(selectedInstanceId()),
   ]);
 
   const servers = resultList(extLangServers);

@@ -10,7 +10,7 @@ What it checks:
 - each page has its nav item and view, the nav item is enabled, and the
   page's JS only calls the IrisApi methods it's supposed to;
 - the only mutating calls are the POST wrappers in api.js, each tied to
-  its own route; no PUT/PATCH/DELETE anywhere;
+  its own route, plus PUT/DELETE for /api/iris/instances/{id}; no PATCH;
 - pages that mutate go through the api.js wrappers and only run an
   operation from the confirm button, never on load;
 - Observability and Investigation link to each other by time window;
@@ -70,6 +70,8 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "theme.js",
         FRONTEND_DIR / "js" / "demo-activity.js",
         FRONTEND_DIR / "js" / "detail-workspace.js",
+        FRONTEND_DIR / "js" / "instances.js",
+        FRONTEND_DIR / "js" / "instance-context.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -131,6 +133,7 @@ def test_sidebar_navigation_order() -> None:
         ("web-apps", "Web Apps"), ("tasks", "Tasks"), ("security", "Security"), ("journal", "Journal"),
         ("operations", "Operations"), ("observability", "Observability"), ("investigation", "Investigation"),
         ("ai-assistant", "AI Assistant"), ("extensions", "Extensions"), ("capabilities", "API Explorer"),
+        ("instances", "Instances"),
     ]
     check(items == expected, f"the sidebar lists its pages in the agreed order (found {[label for _, label in items]})")
     check('data-view="dashboard" aria-current="page"' in (nav.group(0) if nav else ""),
@@ -289,7 +292,7 @@ def test_databases_nav_and_view_exist_and_are_enabled() -> None:
     check('id="databases-drawer"' in html, "the databases detail drawer element exists")
     # The "+ New Database" button opens the wizard (database.create).
     nav_button_match = re.search(
-        r'<button class="btn btn--primary" type="button" id="databases-create-button">', html
+        r'<button class="btn btn--primary" type="button" id="databases-create-button"(?: data-primary-only)?>', html
     )
     check(nav_button_match is not None, "the '+ New Database' button exists and is enabled")
     check(
@@ -1526,7 +1529,9 @@ def test_dashboard_is_the_landing_screen_with_activity() -> None:
         "IrisApi.getTaskOverview" in dashboard_js,
         "dashboard.js calls IrisApi.getTaskOverview() for its Tasks card",
     )
-    check("IrisApi.getTasks(" not in dashboard_js, "dashboard.js no longer calls IrisApi.getTasks()")
+    # Only the All Active Instances counts use the plain task list (a count needs no per-task info).
+    check(dashboard_js.count("IrisApi.getTasks(") == 1 and '["tasks", (id) => IrisApi.getTasks(id), null]' in dashboard_js,
+          "dashboard.js uses IrisApi.getTasks() only for the All Active Instances task count")
     check(
         re.search(r"task\.State\b", dashboard_js) is not None
         and re.search(r"task\.Suspended\b", dashboard_js) is None,
@@ -1574,7 +1579,7 @@ def test_dashboard_live_monitoring_uses_real_read_only_sources() -> None:
 
     dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
     for method in ("getMonitorDashboard", "getDatabaseStorage", "getProcesses"):
-        check(f"IrisApi.{method}()" in dashboard_js, f"dashboard.js calls IrisApi.{method}()")
+        check(f"IrisApi.{method}(id)" in dashboard_js, f"dashboard.js calls IrisApi.{method}() (for the selected instance)")
     check("REFRESH_INTERVAL_MS = 15000" in dashboard_js, "dashboard.js refreshes every 15 s")
     check(
         re.search(r"MAX_SAMPLES = (\d+)", dashboard_js) is not None
@@ -1956,7 +1961,7 @@ def test_tasks_views_use_only_existing_live_task_data() -> None:
     check('managerStatus !== "Running"' in upcoming, "Upcoming warns when the Task Manager isn't running")
 
     # Schedule: the existing detail read, no GUID resolution.
-    check("IrisApi.getTaskDetail(id)" in code and "if (scheduleDetails) {" in code,
+    check("IrisApi.getTaskDetail(id, selectedInstanceId())" in code and "if (scheduleDetails) {" in code,
           "Schedule reads each task's existing detail once per refresh")
     check("describeSchedule(detail)" in code, "Schedule reuses the drawer's schedule description")
     views = re.sub(r"//[^\n]*", "", js.split("// --- Views", 1)[-1].split("// --- Detail drawer", 1)[0])
@@ -2010,7 +2015,7 @@ def test_message_log_is_read_only_with_search_levels_paging_and_detail() -> None
           "search, level and paging are local over the returned entries")
     check('level === "1+" ? entry.level < 1' in code, "Warning or higher keeps levels 1-3")
     check("dom.drawerMessage.textContent = entry.message;" in code, "the detail shows the full message as text")
-    check("loadMessageLog();" in app_js and "initMessageLogControls();" in app_js,
+    check("loadMessageLog()" in app_js and "initMessageLogControls();" in app_js,
           "app.js loads the Message Log with the Investigation page")
 
 
@@ -2063,7 +2068,8 @@ def test_system_shows_instance_identity_and_api_findings() -> None:
     for field in ("diagnostics.hostname", "diagnostics.platform", "diagnostics.cpu_count", "diagnostics.manager_directory",
                   "monitor.result.Status.UpTime", "buildTargetOf(info.serverVersion)"):
         check(field in code, f"the identity card reads {field}")
-    check("settled(IrisApi.getPythonDiagnostics())" in code and "settled(IrisApi.getMonitorDashboard())" in code
+    check("settled(python)" in code and "IrisApi.getPythonDiagnostics()" in code
+          and "settled(IrisApi.getMonitorDashboard(selectedInstanceId()))" in code
           and 'const UNAVAILABLE = "Unavailable";' in code,
           "a failed identity read shows Unavailable without breaking the page")
     for word in ("fetch(", "innerHTML", "method:", "confirmed"):
@@ -2129,7 +2135,8 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     # postDatabaseMount, postDatabaseDismount, postWebAppSetEnabled,
     # postWebAppUpdateDescription, postUserSetEnabled, postTaskRunNow,
     # postDemoRehearsal, and postIssueRule (Custom Issue Rules create/delete).
-    # PUT and PATCH aren't allowed anywhere (the backend has no such routes).
+    # PATCH isn't allowed anywhere. PUT and DELETE appear only in api.js, for
+    # the instance routes (sendInstanceRequest, checked below).
     allowed_post_file = "api.js"
 
     for js_file in sorted(js_dir.glob("*.js")):
@@ -2138,6 +2145,13 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
             # Match the quoted verb (method: "POST"), not any word containing "post".
             pattern = rf'["\']{method}["\']'
             found = re.search(pattern, content) is not None
+            if method in ("PUT", "DELETE") and js_file.name == allowed_post_file:
+                calls = re.findall(rf'sendInstanceRequest\("{method}", instancePath\(id\)', content)
+                check(
+                    found and len(re.findall(pattern, content)) == len(calls) == 1,
+                    f"{js_file.relative_to(REPO_ROOT)} uses {method} only for /api/iris/instances/{{id}}",
+                )
+                continue
             if method == "POST" and js_file.name == allowed_post_file:
                 check(
                     found,
@@ -2345,6 +2359,97 @@ def test_detail_views_use_one_centered_workspace_pattern() -> None:
         check('"Escape"' in content, f"{name}.js still closes its detail workspace on Escape")
 
 
+def test_instances_page_uses_instance_routes_and_confirmed_operations() -> None:
+    print("Checking the Instances page: nav, view, routes, Primary protection and confirmation...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "instances.js").read_text(encoding="utf-8")
+    api_js = (FRONTEND_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    nav = re.search(r'<button class="nav-item"[^>]*data-view="instances"[^>]*>', html)
+    check(nav is not None and "disabled" not in nav.group(0), "the Instances nav item exists and is enabled")
+    check('<section class="view" id="view-instances" data-view="instances"' in html, "the Instances view exists")
+    check("initInstancesControls();" in app_js and "instances: () => loadInstances()," in app_js,
+          "app.js wires the page and reloads it each time it is opened")
+
+    used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
+    check(used == ["checkInstance", "createInstance", "deleteInstance", "getInstances", "setInstanceActive",
+                   "testInstanceConnection", "updateInstance"], f"instances.js calls only the instance API ({used})")
+    check("fetch(" not in js, "instances.js makes no raw fetch() call (goes through IrisApi)")
+    for route in ('"/api/iris/instances"', '"/api/iris/instances/test"'):
+        check(route in api_js, f"api.js targets the {route} route")
+
+    # Real changes (confirmed=true, dry_run=false) only from the confirm buttons.
+    real_calls = re.findall(r"IrisApi\.(?:createInstance|updateInstance)\([^;\n]*true, false\)|runConfirmAction\(confirmState, false\)", js)
+    check(len(real_calls) == 3, "create/update/activate/deactivate/delete run for real only from the submit/confirm handlers")
+    check(js.count("runConfirmAction(confirmState, true)") == 1 and "updateInstance(formState.instance.id, changes, true, true)" in js,
+          "edit and activate/deactivate/delete are previewed with a dry run first")
+    check("formState.tested = check.status === \"compatible\"" in js and "!formState.tested" in js,
+          "Add Instance is enabled only after a compatible connection test")
+    check('id="instance-form-submit-button" disabled' in html and 'id="instance-confirm-button" disabled' in html,
+          "the add/update and confirm buttons start disabled")
+    check("ackCheckbox.checked" in js and 'id="instance-confirm-ack-checkbox"' in html and 'id="instance-form-ack-checkbox"' in html,
+          "every change needs the explicit confirmation checkbox")
+
+    # The Primary is protected in the UI (the backend also refuses).
+    check("if (instance.primary) {" in js and "disabled: true, title: reason" in js,
+          "the Primary's Edit and Delete are disabled and it has no Deactivate")
+    check('!instance.primary) openForm("edit"' in js and "!instance.primary) openConfirm(action" in js,
+          "row actions never open a change dialog for the Primary")
+
+    # Passwords: only read from the field to send, never displayed, stored or logged.
+    check("console." not in js, "instances.js doesn't log")
+    check(re.findall(r"password\.value(?! = \"\")", js) and all(
+        "textContent" not in line and "innerHTML" not in line for line in js.splitlines() if "password.value" in line),
+        "the password field value is never written into the page")
+    check("localStorage" not in js and "sessionStorage" not in js, "nothing is kept in browser storage")
+    check('formDom.password.value = "";' in js and 'autocomplete="new-password"' in html,
+          "the password field is cleared when the dialog closes or after a successful save")
+    check("placeholder = isEdit ? \"Enter new password to change (leave blank to keep current)\"" in js
+          and "if (formDom.password.value) changes.password" in js,
+          "a blank password on Edit keeps the stored one (it isn't sent)")
+    check("innerHTML" not in js, "instances.js renders with textContent only")
+
+
+def test_global_instance_selector_is_in_the_header_and_context_only() -> None:
+    print("Checking the global instance selector: header markup, wiring, context-only, no credentials...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "instance-context.js").read_text(encoding="utf-8")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    instances_js = (FRONTEND_DIR / "js" / "instances.js").read_text(encoding="utf-8")
+
+    header = re.search(r'<header class="app-header">.*?</header>', html, re.S)
+    header_html = header.group(0) if header else ""
+    check('id="instance-selector"' in header_html and 'role="listbox"' in header_html
+          and 'aria-haspopup="listbox"' in header_html, "the selector is in the application header (button + listbox)")
+    check(header_html.index('class="brand"') < header_html.index('id="instance-selector"') < header_html.index('class="header-status"'),
+          "it sits right after the brand, before the status/theme controls")
+    check("initInstanceSelector();" in app_js, "app.js initialises the selector")
+    check("updateInstanceContextList(instances);" in instances_js, "the Instances screen refreshes the selector after it reloads")
+
+    used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
+    check(used == ["getInstances"], f"instance-context.js only reads GET /api/iris/instances ({used})")
+    check("fetch(" not in js, "instance-context.js makes no raw fetch() call")
+    check('"All Active Instances"' in js and "ALL_ACTIVE" in js, "it offers All Active Instances")
+    check("button.disabled = true" in js and "disabled: !entry.active" in js, "inactive instances are shown but not selectable")
+    check('STORAGE_KEY = "icc-instance-context"' in js and "localStorage" in js, "the choice is persisted in localStorage")
+    check("CONTEXT_EVENT" in js and "export function getInstanceContext" in js and "export function onInstanceContextChange" in js,
+          "the context is exposed as getInstanceContext()/onInstanceContextChange() and a document event")
+    check("credential_ref" not in js and ".password" not in js and ".username" not in js and "innerHTML" not in js,
+          "the context keeps no credential fields and renders with textContent only")
+
+    # Pages that read IRIS data follow the selector; Primary-only pages and
+    # Command Center's own data don't.
+    for name in ("dashboard", "health-center", "system", "namespaces", "processes", "databases", "web-apps", "tasks",
+                 "security", "security-access", "security-auth", "security-wallet", "security-x509", "journal",
+                 "investigation", "extensions", "ai-assistant"):
+        check("instance-context" in (FRONTEND_DIR / "js" / f"{name}.js").read_text(encoding="utf-8"),
+              f"{name}.js reads the selected instance")
+    for name in ("issue-resolver", "operations", "message-log", "observability", "capabilities", "demo-activity"):
+        check("instance-context" not in (FRONTEND_DIR / "js" / f"{name}.js").read_text(encoding="utf-8"),
+              f"{name}.js stays on the Primary / Command Center data")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -2405,6 +2510,8 @@ def main() -> None:
         test_system_shows_instance_identity_and_api_findings,
         test_theme_selector_offers_four_persisted_themes,
         test_no_mutating_http_method_anywhere_in_frontend_js,
+        test_instances_page_uses_instance_routes_and_confirmed_operations,
+        test_global_instance_selector_is_in_the_header_and_context_only,
     ]
     for test in tests:
         print(f"\n{test.__name__}")

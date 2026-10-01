@@ -39,8 +39,12 @@ from app.routes.demo import router as demo_router
 from app.routes.health import router as health_router
 from app.routes.health_center import router as health_center_router
 from app.routes.iris import router as iris_router
+from app.instances.clients import InstanceClientPool
+from app.instances.credentials import WalletCredentialStore
+from app.instances.registry import InstanceRegistry, IRISInstanceWriter, primary_from_settings
 from app.resolution import custom_rules
 from app.routes.issue_rules import router as issue_rules_router
+from app.routes.instances import router as instances_router
 from app.routes.issues import router as issues_router
 from app.routes.security_access import router as security_access_router
 from app.routes.security_users import router as security_users_router
@@ -80,6 +84,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         custom_rules.hydrate_rules(saved)
         custom_rules.set_rule_persister(rule_writer)
 
+    # IRIS instances: the Primary from the environment plus saved ones from
+    # ^CommandCenterInstance; their passwords live in the IRIS Wallet.
+    instance_writer = IRISInstanceWriter(settings)
+    instance_registry = InstanceRegistry(primary_from_settings(settings), instance_writer)
+    saved_instances = await asyncio.get_running_loop().run_in_executor(None, instance_writer.load_all_sync)
+    instance_registry.load(saved_instances)
+    app.state.instance_registry = instance_registry
+    app.state.credential_store = WalletCredentialStore(app.state.iris_client, settings)
+    # IRIS clients for instance-scoped reads (?instance=<id>), see dependencies.get_read_client.
+    app.state.instance_clients = InstanceClientPool(
+        app.state.iris_client, settings, app.state.credential_store, instance_registry
+    )
+
     knowledge_store: IRISKnowledgeStore | None = None
     if settings.enable_knowledge_search:
         knowledge_store = IRISKnowledgeStore(settings)
@@ -103,8 +120,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if demo_activity is not None:
             await demo_activity.stop()
+        await app.state.instance_clients.aclose()
         await app.state.iris_client.aclose()
         app.state.python_diagnostics.close()
+        app.state.credential_store.close()
+        instance_writer.close()
         if knowledge_store is not None:
             knowledge_store.close()
         if trace_writer is not None:
@@ -131,9 +151,12 @@ def _json_safe(value: Any) -> Any:
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """FastAPI's own 422 response, except that a rejected NaN/Infinity in the
-    echoed input no longer turns it into a 500 (the body must be valid JSON)."""
-    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
+    """FastAPI's own 422 response, minus each error's `input`: that's the value
+    submitted (for a missing field, the whole request body), which can hold a
+    password. loc/msg/type/ctx stay. A rejected NaN/Infinity no longer turns it
+    into a 500 either (the body must be valid JSON)."""
+    errors = [{key: value for key, value in error.items() if key != "input"} for error in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(errors))})
 
 app.add_middleware(
     CORSMiddleware,
@@ -163,3 +186,4 @@ app.include_router(python_router)
 app.include_router(knowledge_router)
 app.include_router(issues_router)
 app.include_router(issue_rules_router)
+app.include_router(instances_router)

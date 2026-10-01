@@ -6,6 +6,9 @@
 #             ^CommandCenterTrace.
 #   backend   FastAPI Command Center API — starts once IRIS is healthy and
 #             reaches it over the Compose network (iris:52773 / iris:1972).
+#   iris-2    A second, independent IRIS 2026.2 instance with durable %SYS
+#             (iris-2-data volume), on host ports 52774 / 1974. Not registered
+#             in the Command Center automatically.
 #
 # The web console is served by IRIS itself: on every start IRIS installs the
 # iris-command-center IPM package (module.xml + frontend/, mounted read-only),
@@ -14,7 +17,8 @@
 # The console calls the backend at http://localhost:8000 (its CORS allows the
 # IRIS origin, http://localhost:52773).
 #
-# Host ports: IRIS 52773 / 1973 (superserver) / 53773, backend 8000.
+# Host ports: IRIS 52773 / 1973 (superserver) / 53773, backend 8000,
+# iris-2 52774 / 1974 (superserver).
 #
 # Credentials come from `.env` (copy .env.example). They must match the IRIS
 # instance's own login.
@@ -79,5 +83,65 @@ services:
       # USER stops it from running again).
       AUTO_RUN_DEMO_ACTIVITY: "true"
 
+  # ---------------------------------------------------------------------------
+  # iris-2: a second, independent IRIS instance (same image) that can be
+  # registered in the Command Center as an additional instance. Nothing
+  # registers it automatically.
+  #
+  # Durable %SYS: ISC_DATA_DIRECTORY keeps its whole data directory
+  # (configuration, users, databases) on the iris-2-data volume, so it
+  # survives container re-creation. Host ports: 52774 (web) / 1974
+  # (superserver). Its password comes from IRIS2_PASSWORD in `.env`, passed as
+  # a Compose secret (a file, not an environment variable of the container).
+  # ---------------------------------------------------------------------------
+
+  # One-shot: a new named volume mounted where the image has no directory is
+  # owned by root; give it to irisowner (uid 51773) so IRIS can create its
+  # durable data directory. Safe to repeat.
+  iris-2-init:
+    image: intersystemsdc/iris-community:2026.2
+    user: root
+    entrypoint: ["chown", "51773:51773", "/durable"]
+    volumes:
+      - iris-2-data:/durable
+    restart: "no"
+
+  iris-2:
+    image: intersystemsdc/iris-community:2026.2
+    # Same start-up as `iris` (see there); its own --after script sets the
+    # iris-2 password on every start.
+    entrypoint: ["/tini", "--", "/iris-main"]
+    command:
+      - "--ISCAgent"
+      - "false"
+      - "--after"
+      - "sh /home/irisowner/iris-2-after-start.sh"
+    environment:
+      ISC_DATA_DIRECTORY: /durable/iris
+    ports:
+      - "52774:52773"
+      - "1974:1972"
+    volumes:
+      - iris-2-data:/durable
+      - ./docker/iris-2-after-start.sh:/home/irisowner/iris-2-after-start.sh:ro
+    secrets:
+      - iris_2_password
+    depends_on:
+      iris-2-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/irisHealth.sh"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 60s
+
 volumes:
   iris-user:
+  iris-2-data:
+
+secrets:
+  iris_2_password:
+    environment: IRIS2_PASSWORD

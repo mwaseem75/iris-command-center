@@ -34,6 +34,22 @@
         </div>
       </div>
 
+      <!-- Global instance context (js/instance-context.js). Only a selection
+           for now: no screen uses it yet. -->
+      <div class="instance-selector" id="instance-selector">
+        <button class="instance-selector__button" type="button" id="instance-selector-button"
+                aria-haspopup="listbox" aria-expanded="false" aria-controls="instance-selector-list"
+                aria-label="IRIS instance context">
+          <span class="instance-selector__icon" id="instance-selector-icon" aria-hidden="true">&#8962;</span>
+          <span class="instance-selector__text">
+            <span class="instance-selector__name" id="instance-selector-name">Primary</span>
+            <span class="instance-selector__meta" id="instance-selector-meta"></span>
+          </span>
+          <span class="instance-selector__caret" aria-hidden="true">&#8964;</span>
+        </button>
+        <div class="instance-selector__list" id="instance-selector-list" role="listbox" aria-label="IRIS instances" hidden></div>
+      </div>
+
       <div class="header-status">
         <span class="header-status__version" id="header-version-meta"></span>
         <div class="connection-status" id="connection-status" data-state="checking">
@@ -154,15 +170,29 @@
               <span>API Explorer</span>
             </button>
           </li>
+          <li>
+            <button class="nav-item" type="button" data-view="instances">
+              <span class="nav-item__icon" aria-hidden="true">&#9636;&#9636;</span>
+              <span>Instances</span>
+            </button>
+          </li>
         </ul>
       </nav>
 
       <main class="content" id="content">
+        <!-- Which instance the open page shows, or why it can't (js/app.js, global selector). -->
+        <div class="banner banner--info context-notice" id="context-notice" hidden role="status">
+          <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
+          <span id="context-notice-text"></span>
+        </div>
         <section class="view" id="view-dashboard" data-view="dashboard" aria-labelledby="dashboard-title">
           <div class="view__header">
             <div>
-              <h2 class="view__title" id="dashboard-title">Dashboard</h2>
+              <h2 class="view__title" id="dashboard-title">Dashboard <span class="dash-scope" id="dashboard-title-scope"></span></h2>
               <p class="view__subtitle view__subtitle--wide">A live view of the connected IRIS instance &mdash; health, resources, storage, alerts and activity, from IRIS&rsquo;s own data.</p>
+              <!-- The instance from the global selector (js/instance-context.js). -->
+              <p class="dash-context" id="dashboard-context" hidden></p>
+              <p class="dash-context__note" id="dashboard-scope-note" hidden>Issues, Recent Operations and Demo Activity cover the Primary instance only.</p>
             </div>
             <div class="dash-header-actions">
               <div class="dash-live" id="dashboard-live-status" data-state="checking" aria-live="polite">
@@ -187,7 +217,7 @@
 
           <div class="loading-state" id="loading-state" hidden>
             <span class="spinner" aria-hidden="true"></span>
-            <span>Loading dashboard data&hellip;</span>
+            <span id="loading-state-text">Loading dashboard data&hellip;</span>
           </div>
 
           <div class="stat-grid" id="stat-grid" aria-label="Key figures">
@@ -196,6 +226,7 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Namespaces</h3>
                 <p class="stat-card__value" id="stat-namespaces">&mdash;</p>
+                <p class="stat-card__meta" data-scope-meta hidden></p>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
             </article>
@@ -205,6 +236,7 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Databases</h3>
                 <p class="stat-card__value" id="stat-databases">&mdash;</p>
+                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -215,6 +247,7 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Processes</h3>
                 <p class="stat-card__value" id="stat-processes">&mdash;</p>
+                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -225,6 +258,7 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Web Applications</h3>
                 <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
+                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -235,6 +269,7 @@
               <div class="dash-kpi__body">
                 <h3 class="stat-card__label">Tasks</h3>
                 <p class="stat-card__value" id="stat-tasks">&mdash;</p>
+                <p class="stat-card__meta" data-scope-meta hidden></p>
                 <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
               </div>
               <span class="stat-card__link">View details &rarr;</span>
@@ -250,7 +285,13 @@
             </article>
           </div>
 
-          <div class="dash-grid dash-grid--main">
+          <!-- All Active Instances: which instances the combined counts include. -->
+          <div class="banner banner--info dash-fleet-note" id="dashboard-fleet-note" hidden role="status">
+            <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
+            <span id="dashboard-fleet-note-text"></span>
+          </div>
+
+          <div class="dash-grid dash-grid--main" id="dashboard-main-grid">
             <section class="info-card dash-panel dash-panel--resources" aria-labelledby="dashboard-resources-title">
               <header class="dash-panel__head">
                 <h3 class="info-card__title" id="dashboard-resources-title"><span class="dash-panel__icon" aria-hidden="true">&#8767;</span>System Resource Usage</h3>
@@ -292,8 +333,8 @@
             </section>
           </div>
 
-          <div class="dash-grid dash-grid--activity">
-            <section class="info-card dash-panel dash-panel--activity" aria-labelledby="dashboard-activity-title">
+          <div class="dash-grid dash-grid--activity" id="dashboard-activity-grid">
+            <section class="info-card dash-panel dash-panel--activity" id="dashboard-activity-panel" aria-labelledby="dashboard-activity-title">
               <header class="dash-panel__head">
                 <h3 class="info-card__title" id="dashboard-activity-title"><span class="dash-panel__icon" aria-hidden="true">&#9654;</span>Recent Operations</h3>
                 <button class="dash-panel__link" type="button" id="dashboard-view-observability-button">View all &rarr;</button>
@@ -316,7 +357,7 @@
             </section>
 
             <!-- Issues from GET /api/iris/issues, explained with the Issue Resolution Catalog. -->
-            <section class="info-card dash-panel dash-panel--alerts" aria-labelledby="dashboard-issues-title">
+            <section class="info-card dash-panel dash-panel--alerts" id="dashboard-issues-panel" aria-labelledby="dashboard-issues-title">
               <header class="dash-panel__head">
                 <h3 class="info-card__title" id="dashboard-issues-title"><span class="dash-panel__icon" aria-hidden="true">&#9888;</span>Issues &amp; Recommendations</h3>
                 <button class="dash-panel__link" type="button" id="dashboard-open-issue-resolver-button" title="Detected in live IRIS data by the Command Center&rsquo;s issue check (GET /api/iris/issues). Opens the Issue Resolver.">Issue Resolver &rarr;</button>
@@ -350,7 +391,7 @@
         <section class="view" id="view-health-center" data-view="health-center" aria-labelledby="health-center-title" hidden>
           <div class="view__header">
             <div>
-              <h2 class="view__title" id="health-center-title">Health Center</h2>
+              <h2 class="view__title" id="health-center-title">Health Center <span class="dash-scope" id="health-center-title-scope"></span></h2>
               <p class="view__subtitle">Read-only health assessment of the connected IRIS instance.</p>
             </div>
             <div class="health-center__header-actions">
@@ -362,6 +403,15 @@
             </div>
           </div>
 
+          <!-- The instance chosen in the header selector (js/instance-context.js). -->
+          <div class="health-center__context" id="health-center-context" hidden>
+            <span class="health-center__context-icon" aria-hidden="true">&#8801;</span>
+            <div>
+              <p class="health-center__context-name" id="health-center-context-name"></p>
+              <p class="health-center__context-meta" id="health-center-context-meta"></p>
+            </div>
+          </div>
+
           <div class="banner banner--error" id="health-center-error" hidden role="alert">
             <span class="banner__icon" aria-hidden="true">&#9888;</span>
             <span id="health-center-error-text"></span>
@@ -369,7 +419,7 @@
 
           <div class="loading-state" id="health-center-loading" hidden>
             <span class="spinner" aria-hidden="true"></span>
-            <span>Checking IRIS health&hellip;</span>
+            <span id="health-center-loading-text">Checking IRIS health&hellip;</span>
           </div>
 
           <div id="health-center-content" hidden>
@@ -446,6 +496,42 @@
               <h3 class="info-card__title" id="health-center-recommendations-title">Recommendations</h3>
               <ul class="health-center__recommendations" id="health-center-recommendations"></ul>
             </section>
+          </div>
+
+          <!-- All Active Instances: counts only; health checks need one instance. -->
+          <div id="health-center-all" hidden>
+            <div class="stat-grid health-center__all-grid" aria-label="Combined counts">
+              <article class="stat-card">
+                <h3 class="stat-card__label">Total Namespaces</h3>
+                <p class="stat-card__value" id="health-center-all-namespaces">&mdash;</p>
+                <p class="stat-card__meta" id="health-center-all-namespaces-meta"></p>
+              </article>
+              <article class="stat-card">
+                <h3 class="stat-card__label">Total Databases</h3>
+                <p class="stat-card__value" id="health-center-all-databases">&mdash;</p>
+                <p class="stat-card__meta" id="health-center-all-databases-meta"></p>
+              </article>
+              <article class="stat-card">
+                <h3 class="stat-card__label">Total Processes</h3>
+                <p class="stat-card__value" id="health-center-all-processes">&mdash;</p>
+                <p class="stat-card__meta" id="health-center-all-processes-meta"></p>
+              </article>
+              <article class="stat-card">
+                <h3 class="stat-card__label">Total Web Applications</h3>
+                <p class="stat-card__value" id="health-center-all-web-apps">&mdash;</p>
+                <p class="stat-card__meta" id="health-center-all-web-apps-meta"></p>
+              </article>
+              <article class="stat-card">
+                <h3 class="stat-card__label">Total Tasks</h3>
+                <p class="stat-card__value" id="health-center-all-tasks">&mdash;</p>
+                <p class="stat-card__meta" id="health-center-all-tasks-meta"></p>
+              </article>
+            </div>
+            <div class="banner banner--info health-center__all-note" role="status">
+              <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
+              <span id="health-center-all-note"></span>
+            </div>
+            <p class="ns-hint">Health checks and scores are per instance. Choose an instance in the header to run its health check.</p>
           </div>
         </section>
 
@@ -702,7 +788,7 @@
             <div class="ns-section">
               <div class="ns-section__header">
                 <h3 class="section-heading section-heading--secondary">Namespaces</h3>
-                <button class="btn btn--primary" type="button" id="namespaces-create-button">
+                <button class="btn btn--primary" type="button" id="namespaces-create-button" data-primary-only>
                   <span class="btn__icon" aria-hidden="true">+</span>
                   New Namespace
                 </button>
@@ -970,7 +1056,7 @@
 
           <!-- Resolve Issues: detected via GET /api/iris/issues; resolving goes through the
                normal database.mount flow in the database drawer. -->
-          <section class="info-card db-issues" aria-labelledby="databases-issues-title">
+          <section class="info-card db-issues" aria-labelledby="databases-issues-title" data-primary-only>
             <h3 class="info-card__title" id="databases-issues-title">Resolve Issues</h3>
             <div id="databases-issues-body"><p class="ns-hint">Checking for actionable issues&hellip;</p></div>
           </section>
@@ -1001,7 +1087,7 @@
             <div class="ns-section">
               <div class="ns-section__header">
                 <h3 class="section-heading section-heading--secondary">Databases</h3>
-                <button class="btn btn--primary" type="button" id="databases-create-button">
+                <button class="btn btn--primary" type="button" id="databases-create-button" data-primary-only>
                   <span class="btn__icon" aria-hidden="true">+</span>
                   New Database
                 </button>
@@ -1062,7 +1148,7 @@
               <p class="stat-card__label" id="databases-drawer-integrity-console-label" hidden>Console</p>
               <pre class="integrity-console" id="databases-drawer-integrity-console" hidden></pre>
             </div>
-            <div class="ns-drawer__section">
+            <div class="ns-drawer__section" data-primary-only>
               <div class="ns-section__header">
                 <h4 class="ns-drawer__section-title">Mount</h4>
                 <button class="btn" type="button" id="databases-drawer-mount-check-button">Check Mount</button>
@@ -1099,7 +1185,7 @@
               </div>
               <dl class="info-list" id="databases-drawer-mount-result" hidden></dl>
             </div>
-            <div class="ns-drawer__section">
+            <div class="ns-drawer__section" data-primary-only>
               <div class="ns-section__header">
                 <h4 class="ns-drawer__section-title">Dismount</h4>
                 <button class="btn" type="button" id="databases-drawer-dismount-check-button">Check Dismount</button>
@@ -1421,7 +1507,7 @@
             </div>
             <div id="web-apps-panel-config" role="tabpanel" aria-labelledby="web-apps-tab-config">
               <dl class="info-list" id="web-apps-drawer-summary"></dl>
-              <div class="ns-drawer__section" id="web-apps-enable-section">
+              <div class="ns-drawer__section" id="web-apps-enable-section" data-primary-only>
                 <div class="ns-section__header">
                   <h4 class="ns-drawer__section-title">Enabled State</h4>
                   <button class="btn" type="button" id="web-apps-enable-check-button">Check</button>
@@ -1454,7 +1540,7 @@
                 </div>
                 <dl class="info-list" id="web-apps-enable-result" hidden></dl>
               </div>
-              <div class="ns-drawer__section" id="web-apps-description-section">
+              <div class="ns-drawer__section" id="web-apps-description-section" data-primary-only>
                 <div class="ns-section__header">
                   <h4 class="ns-drawer__section-title">Description</h4>
                   <button class="btn" type="button" id="web-apps-description-check-button">Check</button>
@@ -3395,7 +3481,8 @@
 
           <div id="investigation-panel-messages" role="tabpanel" aria-labelledby="investigation-tab-messages" hidden>
           <!-- Message Log: the tail of IRIS's messages.log (read-only). -->
-          <section class="info-card inv-card" id="message-log-section" aria-labelledby="message-log-title">
+          <p class="ns-hint" data-primary-only-note>The message log is read through the Primary&rsquo;s own connection, so it&rsquo;s available for the Primary instance only.</p>
+          <section class="info-card inv-card" id="message-log-section" aria-labelledby="message-log-title" data-primary-only>
             <div class="ns-section__header">
               <h3 class="info-card__title" id="message-log-title">Message Log</h3>
               <button class="btn" type="button" id="message-log-refresh">
@@ -3582,6 +3669,200 @@
               <tbody id="capabilities-table-body"></tbody>
             </table>
           </div>
+        </section>
+
+        <!-- Instances: GET /api/iris/instances; changes go through the backend's
+             instance.* operations (authorization -> confirmation -> execution ->
+             verification). Passwords are only ever typed into the forms below. -->
+        <section class="view" id="view-instances" data-view="instances" aria-labelledby="instances-title" hidden>
+          <div class="view__header">
+            <div>
+              <h2 class="view__title" id="instances-title">Instances</h2>
+              <p class="view__subtitle">Manage IRIS instances. The Primary instance is always available and cannot be modified.</p>
+            </div>
+            <div class="btn-row">
+              <button class="btn" type="button" id="instances-refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+              <button class="btn btn--primary" type="button" id="instances-add-button">
+                <span class="btn__icon" aria-hidden="true">+</span>
+                Add Instance
+              </button>
+            </div>
+          </div>
+
+          <div class="banner banner--info inst-primary-note">
+            <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
+            <div>
+              <strong class="inst-primary-note__title">Primary Instance</strong>
+              <span>The Primary instance uses the credentials from the environment and cannot be modified, deactivated or deleted.</span>
+            </div>
+          </div>
+
+          <div class="banner banner--error" id="instances-error-banner" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="instances-error-banner-text"></span>
+          </div>
+
+          <div class="loading-state" id="instances-loading-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading instances&hellip;</span>
+          </div>
+
+          <p class="empty-state" id="instances-empty" hidden>No instances reported.</p>
+
+          <div class="info-card inst-table-card" id="instances-content" hidden>
+            <div class="table-wrapper">
+              <table class="data-table inst-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">ID</th>
+                    <th scope="col">URL</th>
+                    <th scope="col">Username</th>
+                    <th scope="col">Namespace</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Last Check</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="instances-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Add / Edit Instance -->
+          <div class="ns-drawer-backdrop" id="instance-form-backdrop" hidden></div>
+          <aside class="ns-drawer inst-dialog" id="instance-form-drawer" hidden aria-labelledby="instance-form-title">
+            <div class="ns-drawer__header">
+              <h3 class="ns-drawer__title" id="instance-form-title">Add Instance</h3>
+              <button class="ns-drawer__close" type="button" id="instance-form-close" aria-label="Close">&times;</button>
+            </div>
+
+            <form id="instance-form" autocomplete="off" novalidate>
+              <p class="ns-hint" id="instance-form-hint"></p>
+              <div class="inst-form-grid">
+                <div class="filter-field">
+                  <label for="instance-form-name">Name <span class="inst-required" aria-hidden="true">*</span></label>
+                  <input type="text" id="instance-form-name" maxlength="80" autocomplete="off" required />
+                </div>
+                <div class="filter-field">
+                  <label for="instance-form-url">URL <span class="inst-required" aria-hidden="true">*</span></label>
+                  <input type="url" id="instance-form-url" placeholder="http://iris-host:52773" autocomplete="off" required />
+                </div>
+                <div class="filter-field">
+                  <label for="instance-form-username">Username <span class="inst-required" aria-hidden="true">*</span></label>
+                  <input type="text" id="instance-form-username" maxlength="160" autocomplete="off" required />
+                </div>
+                <div class="filter-field">
+                  <label for="instance-form-namespace">Namespace <span class="inst-required" aria-hidden="true">*</span></label>
+                  <input type="text" id="instance-form-namespace" maxlength="64" autocomplete="off" required />
+                </div>
+                <div class="filter-field inst-form-grid__full">
+                  <label for="instance-form-password">Password <span class="inst-required" id="instance-form-password-required" aria-hidden="true">*</span></label>
+                  <div class="inst-password">
+                    <input type="password" id="instance-form-password" autocomplete="new-password" spellcheck="false" />
+                    <button class="inst-password__toggle" type="button" id="instance-form-password-toggle" aria-label="Show password" aria-pressed="false">&#128065;&#65038;</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="loading-state" id="instance-form-loading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span id="instance-form-loading-text">Testing connection&hellip;</span>
+              </div>
+
+              <div class="banner banner--error" id="instance-form-error" hidden role="alert">
+                <span class="banner__icon" aria-hidden="true">&#9888;</span>
+                <span id="instance-form-error-text"></span>
+              </div>
+
+              <div class="inst-check" id="instance-form-test-result" hidden aria-live="polite"></div>
+
+              <label class="ns-form-checkbox" id="instance-form-ack" hidden>
+                <input type="checkbox" id="instance-form-ack-checkbox" />
+                <span id="instance-form-ack-label">I confirm that I want to add this instance.</span>
+              </label>
+
+              <div class="inst-result" id="instance-form-result" hidden aria-live="polite">
+                <dl class="info-list" id="instance-form-result-list"></dl>
+              </div>
+
+              <div class="btn-row inst-dialog__actions">
+                <button class="btn" type="button" id="instance-form-cancel">Cancel</button>
+                <button class="btn btn--primary" type="submit" id="instance-form-test-button">Test Connection</button>
+                <button class="btn btn--warning" type="button" id="instance-form-submit-button" disabled>Add Instance</button>
+              </div>
+            </form>
+          </aside>
+
+          <!-- Activate / Deactivate / Delete confirmation -->
+          <div class="ns-drawer-backdrop" id="instance-confirm-backdrop" hidden></div>
+          <aside class="ns-drawer inst-dialog" id="instance-confirm-drawer" hidden aria-labelledby="instance-confirm-title">
+            <div class="ns-drawer__header">
+              <h3 class="ns-drawer__title" id="instance-confirm-title">Confirm</h3>
+              <button class="ns-drawer__close" type="button" id="instance-confirm-close" aria-label="Close">&times;</button>
+            </div>
+
+            <div class="banner inst-confirm-banner" id="instance-confirm-banner">
+              <span class="banner__icon inst-confirm-banner__icon" aria-hidden="true">&#9888;</span>
+              <div>
+                <strong class="inst-confirm-banner__title" id="instance-confirm-heading"></strong>
+                <span id="instance-confirm-message"></span>
+              </div>
+            </div>
+
+            <dl class="info-list" id="instance-confirm-target"></dl>
+
+            <div class="loading-state" id="instance-confirm-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span id="instance-confirm-loading-text">Checking with the backend (dry run)&hellip;</span>
+            </div>
+
+            <div class="banner banner--error" id="instance-confirm-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="instance-confirm-error-text"></span>
+            </div>
+
+            <p class="ns-hint" id="instance-confirm-preview" hidden></p>
+
+            <label class="ns-form-checkbox" id="instance-confirm-ack" hidden>
+              <input type="checkbox" id="instance-confirm-ack-checkbox" />
+              <span id="instance-confirm-ack-label"></span>
+            </label>
+
+            <div class="inst-result" id="instance-confirm-result" hidden aria-live="polite">
+              <dl class="info-list" id="instance-confirm-result-list"></dl>
+            </div>
+
+            <div class="btn-row inst-dialog__actions">
+              <button class="btn" type="button" id="instance-confirm-cancel">Cancel</button>
+              <button class="btn btn--warning" type="button" id="instance-confirm-button" disabled>Confirm</button>
+            </div>
+          </aside>
+
+          <!-- Saved check result (POST /api/iris/instances/{id}/check) -->
+          <div class="ns-drawer-backdrop" id="instance-check-backdrop" hidden></div>
+          <aside class="ns-drawer inst-dialog" id="instance-check-drawer" hidden aria-labelledby="instance-check-title">
+            <div class="ns-drawer__header">
+              <h3 class="ns-drawer__title" id="instance-check-title">Connection Check Result</h3>
+              <button class="ns-drawer__close" type="button" id="instance-check-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="ns-hint" id="instance-check-subtitle"></p>
+            <div class="loading-state" id="instance-check-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Checking the instance&hellip;</span>
+            </div>
+            <div class="banner banner--error" id="instance-check-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="instance-check-error-text"></span>
+            </div>
+            <div class="inst-check" id="instance-check-result" hidden aria-live="polite"></div>
+            <div class="btn-row inst-dialog__actions">
+              <button class="btn" type="button" id="instance-check-done">Close</button>
+            </div>
+          </aside>
         </section>
 
         <section class="view view--placeholder" id="view-placeholder" hidden>

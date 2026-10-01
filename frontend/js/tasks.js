@@ -25,6 +25,7 @@
 // never parsed.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar } from "./viz.js";
 
@@ -690,7 +691,7 @@ async function loadScheduleDetails() {
   dom.scheduleWrapper.hidden = true;
   dom.scheduleWarning.hidden = true;
   const details = await Promise.all(ids.map((id) =>
-    IrisApi.getTaskDetail(id)
+    IrisApi.getTaskDetail(id, selectedInstanceId())
       .then((response) => (response && response.result && typeof response.result === "object" ? response.result : null))
       .catch(() => null)));
   if (seq !== scheduleRequestSeq) return;  // a refresh replaced the list meanwhile
@@ -829,6 +830,7 @@ function makeRunResultRows(result) {
 
 function buildRunNowSection(task) {
   const section = makeSection("Run Now", []);
+  section.dataset.primaryOnly = "";
   const hint = document.createElement("p");
   hint.className = "ns-hint";
   hint.textContent =
@@ -1130,7 +1132,7 @@ async function loadDrawerDetail(id) {
   dom.drawerLoading.hidden = false;
 
   try {
-    const response = await IrisApi.getTaskDetail(id);
+    const response = await IrisApi.getTaskDetail(id, selectedInstanceId());
     if (seq !== detailRequestSeq) return;
     const detail = response && response.result && typeof response.result === "object" ? response.result : null;
     if (!detail) {
@@ -1245,7 +1247,7 @@ function renderTasks(tasks) {
  */
 async function fetchManagerStatus() {
   try {
-    const response = await IrisApi.getTaskManager();
+    const response = await IrisApi.getTaskManager(selectedInstanceId());
     const status = response && response.result ? response.result.Status : null;
     return typeof status === "string" ? status : null;
   } catch {
@@ -1263,7 +1265,7 @@ export async function loadTasks() {
 
   let response;
   try {
-    response = await IrisApi.getTaskOverview();
+    response = await IrisApi.getTaskOverview(selectedInstanceId());
   } catch (err) {
     // ApiError messages are already safe to show (see api.js).
     const message =

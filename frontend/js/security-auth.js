@@ -11,6 +11,7 @@
 // is reopened.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
 
 const PLACEHOLDER = "—";
@@ -442,7 +443,7 @@ async function renderServiceDrawer(name, isCurrent) {
   ui.setDrawerHeader("Service", name, listEntry ? (listEntry.Enabled ? ["Enabled", "status-badge--ok"] : ["Disabled", "status-badge--neutral"]) : null);
   ui.drawerHint.textContent = "Read-only. Methods from IRIS's service list; the bitmask from the service's own detail.";
 
-  const response = await IrisApi.getSecurityServiceDetail(name);
+  const response = await IrisApi.getSecurityServiceDetail(name, selectedInstanceId());
   if (!isCurrent()) return;
   const detail = response && response.result;
   if (!detail || typeof detail !== "object") throw new Error("unexpected shape");
@@ -530,10 +531,10 @@ async function loadSecurityAuth() {
   dom.errorBanner.hidden = true;
 
   const [servicesResult, webAuthResult, superserversResult, classAccessResult] = await Promise.allSettled([
-    IrisApi.getSecurityServices(),
-    IrisApi.getSecurityWebAuth(),
-    IrisApi.getSecuritySuperservers(),
-    IrisApi.getSecurityClassAccess(),
+    IrisApi.getSecurityServices(selectedInstanceId()),
+    IrisApi.getSecurityWebAuth(selectedInstanceId()),
+    IrisApi.getSecuritySuperservers(selectedInstanceId()),
+    IrisApi.getSecurityClassAccess(selectedInstanceId()),
   ]);
   if (seq !== loadSeq) return;
 

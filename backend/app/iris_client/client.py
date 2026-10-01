@@ -101,6 +101,10 @@ class IRISClient:
         response = await self._request("PUT", path, params=params, json=json)
         return response.json()
 
+    async def delete(self, path: str, params: dict[str, Any] | None = None) -> None:
+        """DELETE a path under /api/admin (e.g. DELETE /v2/wallet/secret?name=...)."""
+        await self._request("DELETE", path, params=params)
+
     async def post(
         self,
         path: str,

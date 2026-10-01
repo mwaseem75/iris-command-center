@@ -296,6 +296,57 @@ OPERATION_REGISTRY: dict[str, OperationDefinition] = {
         risk_level=RiskLevel.MEDIUM,
         confirmation_required=True,
     ),
+    "instance.create": OperationDefinition(
+        name="instance.create",
+        description=(
+            "Register another IRIS instance with Command Center. The connection is "
+            "checked live first (System Administration API, identity, API version 2 and "
+            "the required endpoints) and only a compatible instance is saved. Its "
+            "password goes to the Primary's IRIS Wallet (CommandCenter collection), and "
+            "the definition, without the password, to ^CommandCenterInstance. See "
+            "app/execution/instance_handlers.py."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.WALLET}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
+    "instance.update": OperationDefinition(
+        name="instance.update",
+        description=(
+            "Change a registered instance's name, URL, user, namespace or password. A "
+            "blank password keeps the stored one. Changing how an active instance "
+            "connects requires a passing live compatibility check. The Primary comes "
+            "from the environment and can't be changed."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.WALLET}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
+    "instance.set_active": OperationDefinition(
+        name="instance.set_active",
+        description=(
+            "Activate or deactivate a registered instance. Activation requires a passing "
+            "live compatibility check; deactivation keeps the definition and credential. "
+            "The Primary can't be deactivated."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.MANAGE}),
+        risk_level=RiskLevel.LOW,
+        confirmation_required=True,
+    ),
+    "instance.delete": OperationDefinition(
+        name="instance.delete",
+        description=(
+            "Remove a registered instance: its Wallet secret first, then its definition. "
+            "The Primary can't be deleted."
+        ),
+        kind=OperationKind.MUTATING,
+        required_privileges=frozenset({IRISPrivilege.WALLET}),
+        risk_level=RiskLevel.MEDIUM,
+        confirmation_required=True,
+    ),
 }
 
 

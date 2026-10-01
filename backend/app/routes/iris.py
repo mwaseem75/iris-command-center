@@ -1,6 +1,8 @@
 """Read-only routes over the IRIS Admin REST API.
 
-Login and tokens are handled by the shared IRISClient. None of these routes
+Login and tokens are handled by the shared IRISClient. Every route here
+also takes ?instance=<id> to read from another registered, active instance
+(dependencies.get_read_client). None of these routes
 change IRIS state. Audit records, database info and integrity checks are
 IRIS async tasks (a POST to start, then polling), but they're still reads.
 """
@@ -12,7 +14,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
-from app.dependencies import get_iris_client
+from app.dependencies import get_read_client
 from app.iris_client.client import IRISClient
 from app.iris_client.exceptions import (
     IRISAsyncTaskError,
@@ -87,7 +89,7 @@ def _as_http_exception(
 
 
 @router.get("/info", response_model=IRISEnvelope[InfoResult])
-async def get_info(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[InfoResult]:
+async def get_info(client: IRISClient = Depends(get_read_client)) -> IRISEnvelope[InfoResult]:
     try:
         raw = await client.get("/info")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -97,7 +99,7 @@ async def get_info(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelop
 
 @router.get("/namespaces", response_model=IRISEnvelope[list[NamespaceEntry]])
 async def get_namespaces(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[NamespaceEntry]]:
     try:
         raw = await client.get("/v2/namespaces")
@@ -108,7 +110,7 @@ async def get_namespaces(
 
 @router.get("/databases", response_model=IRISEnvelope[list[DatabaseEntry]])
 async def get_databases(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[DatabaseEntry]]:
     try:
         raw = await client.get("/v2/databases")
@@ -120,7 +122,7 @@ async def get_databases(
 @router.get("/databases/info", response_model=IRISEnvelope[DatabaseInfoResult])
 async def get_database_info(
     dir: str,
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[DatabaseInfoResult]:
     """Storage info for one database (sizes, free space, mount state), keyed by
     its Directory. Backs the "View Info" action on the Databases page.
@@ -143,7 +145,7 @@ async def get_database_integrity_check(
     dir: str,
     maxProcesses: int | None = None,
     partialCheck: bool | None = None,
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> DatabaseIntegrityCheckResult:
     """Run an integrity check on one database, keyed by its Directory.
 
@@ -170,7 +172,7 @@ async def get_database_integrity_check(
 
 @router.get("/databases/storage", response_model=IRISEnvelope[list[DatabaseStorageEntry]])
 async def get_database_storage(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[DatabaseStorageEntry]]:
     """Size and status of every local database (GET /v2/database-dirs)."""
     try:
@@ -182,7 +184,7 @@ async def get_database_storage(
 
 @router.get("/monitor/dashboard", response_model=IRISEnvelope[MonitorDashboard])
 async def get_monitor_dashboard(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[MonitorDashboard]:
     """IRIS system dashboard: performance, health, alerts, licensing, upcoming tasks."""
     try:
@@ -194,7 +196,7 @@ async def get_monitor_dashboard(
 
 @router.get("/processes", response_model=IRISEnvelope[list[ProcessEntry]])
 async def get_processes(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[ProcessEntry]]:
     try:
         raw = await client.get("/v2/processes")
@@ -205,7 +207,7 @@ async def get_processes(
 
 @router.get("/web-apps", response_model=IRISEnvelope[list[WebAppEntry]])
 async def get_web_apps(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[WebAppEntry]]:
     try:
         raw = await client.get("/v2/web-apps")
@@ -217,7 +219,7 @@ async def get_web_apps(
 @router.get("/web-apps/detail", response_model=IRISEnvelope[WebAppDetail])
 async def get_web_app_detail(
     name: str,
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[WebAppDetail]:
     """Full configuration of one web application, looked up by Name.
 
@@ -233,7 +235,7 @@ async def get_web_app_detail(
 
 @router.get("/web-sessions", response_model=IRISEnvelope[list[WebSessionEntry]])
 async def get_web_sessions(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[WebSessionEntry]]:
     """Active web sessions (GET /v2/web-sessions).
 
@@ -314,7 +316,7 @@ def _rest_endpoints(spec: dict[str, Any]) -> list[RestEndpoint]:
 @router.get("/web-apps/rest-endpoints", response_model=IRISEnvelope[RestRouteMap])
 async def get_web_app_rest_endpoints(
     name: str,
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[RestRouteMap]:
     """REST route map of one web application (the "REST Endpoints" tab).
 
@@ -375,7 +377,7 @@ async def get_web_app_rest_endpoints(
 
 @router.get("/ext-lang-servers", response_model=IRISEnvelope[list[ExternalLanguageServerEntry]])
 async def get_ext_lang_servers(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[ExternalLanguageServerEntry]]:
     try:
         raw = await client.get("/v2/ext-lang-servers")
@@ -385,7 +387,7 @@ async def get_ext_lang_servers(
 
 
 @router.get("/tasks", response_model=IRISEnvelope[list[TaskEntry]])
-async def get_tasks(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[list[TaskEntry]]:
+async def get_tasks(client: IRISClient = Depends(get_read_client)) -> IRISEnvelope[list[TaskEntry]]:
     try:
         raw = await client.get("/v2/tasks")
     except _IRIS_CLIENT_ERRORS as exc:
@@ -415,7 +417,7 @@ def _task_state(info: TaskInfo | None) -> str | None:
 
 @router.get("/tasks/overview", response_model=IRISEnvelope[list[TaskOverviewEntry]])
 async def get_tasks_overview(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[TaskOverviewEntry]]:
     """All tasks, each combined with its /v2/task/info and a derived State.
 
@@ -511,7 +513,7 @@ def _redact_settings(value: Any, path: str, redacted: list[str]) -> Any:
 @router.get("/tasks/detail", response_model=IRISEnvelope[TaskDetail])
 async def get_task_detail(
     id: int,
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[TaskDetail]:
     """Full configuration of one task (GET /v2/task?id=), with sensitive
     Settings redacted. An unknown id returns 404.
@@ -536,7 +538,7 @@ async def get_task_detail(
 
 @router.get("/tasks/manager", response_model=IRISEnvelope[TaskManagerStatus])
 async def get_task_manager(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[TaskManagerStatus]:
     """Task Manager status (GET /v2/task/manager)."""
     try:
@@ -548,7 +550,7 @@ async def get_task_manager(
 
 @router.get("/fs-access-purposes", response_model=IRISEnvelope[list[Any]])
 async def get_fs_access_purposes(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[Any]]:
     # We've only ever seen an empty list here.
     try:
@@ -560,7 +562,7 @@ async def get_fs_access_purposes(
 
 @router.get("/journal/settings", response_model=IRISEnvelope[JournalSettings])
 async def get_journal_settings(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[JournalSettings]:
     try:
         raw = await client.get("/v2/journal/settings")
@@ -581,7 +583,7 @@ async def get_journal_settings(
     response_model_exclude_none=True,
 )
 async def get_oauth2_server(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[OAuth2ServerConfigView]:
     """OAuth2 Authorization Server configuration.
 
@@ -606,7 +608,7 @@ async def get_oauth2_server(
     response_model_exclude_none=True,
 )
 async def get_oauth2_client_server_definitions(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[OAuth2ServerDefinitionEntry]]:
     # We've only ever seen an empty list here.
     try:
@@ -622,7 +624,7 @@ async def get_oauth2_client_server_definitions(
     response_model_exclude_none=True,
 )
 async def get_oauth2_server_clients(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[OAuth2ServerClientEntry]]:
     # We've only ever seen an empty list here.
     try:
@@ -634,7 +636,7 @@ async def get_oauth2_server_clients(
 
 @router.get("/wallet/collections", response_model=IRISEnvelope[list[Any]])
 async def get_wallet_collections(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[Any]]:
     # We've only ever seen an empty list here.
     try:
@@ -646,7 +648,7 @@ async def get_wallet_collections(
 
 @router.get("/security/audit/enabled", response_model=IRISEnvelope[AuditEnabledResult])
 async def get_audit_enabled(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[AuditEnabledResult]:
     try:
         raw = await client.get("/v2/security/audit/enabled")
@@ -657,7 +659,7 @@ async def get_audit_enabled(
 
 @router.get("/security/audit/records", response_model=IRISEnvelope[list[AuditRecordEntry]])
 async def get_audit_records(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
     beginDateTime: str | None = None,
     endDateTime: str | None = None,
     eventSources: str | None = None,

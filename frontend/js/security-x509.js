@@ -13,6 +13,7 @@
 // is reopened.
 
 import { IrisApi } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
 
 const PLACEHOLDER = "—";
@@ -227,8 +228,8 @@ async function renderCredentialDrawer(alias, isCurrent) {
   ui.drawerHint.textContent = "Read-only. Certificate metadata only — key material and key passwords are never requested.";
 
   const [detailResult, certificateResult] = await Promise.allSettled([
-    IrisApi.getSecurityX509CredentialDetail(alias),
-    IrisApi.getSecurityX509Certificate(alias),
+    IrisApi.getSecurityX509CredentialDetail(alias, selectedInstanceId()),
+    IrisApi.getSecurityX509Certificate(alias, selectedInstanceId()),
   ]);
   if (!isCurrent()) return;
   if (detailResult.status === "rejected") throw detailResult.reason;
@@ -320,7 +321,7 @@ async function loadSecurityX509() {
   let response = null;
   let failed = false;
   try {
-    response = await IrisApi.getSecurityX509Overview();
+    response = await IrisApi.getSecurityX509Overview(selectedInstanceId());
   } catch {
     failed = true;
   }

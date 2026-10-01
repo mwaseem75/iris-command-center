@@ -20,6 +20,7 @@
 // next to it.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar } from "./viz.js";
 
@@ -624,7 +625,7 @@ async function loadDrawerDetail(name) {
   dom.drawerLoading.hidden = false;
 
   try {
-    const response = await IrisApi.getWebAppDetail(name);
+    const response = await IrisApi.getWebAppDetail(name, selectedInstanceId());
     if (seq !== detailRequestSeq) return;
     const detail = response && response.result && typeof response.result === "object" ? response.result : null;
     if (!detail) {
@@ -1051,7 +1052,7 @@ async function loadRestEndpoints(name) {
   dom.restLoading.hidden = false;
 
   try {
-    const response = await IrisApi.getWebAppRestEndpoints(name);
+    const response = await IrisApi.getWebAppRestEndpoints(name, selectedInstanceId());
     if (seq !== restRequestSeq) return;
     const routeMap = response && response.result;
     if (!routeMap || !Array.isArray(routeMap.endpoints)) {
@@ -1334,7 +1335,7 @@ function sessionsForApp(app) {
  */
 async function fetchWebSessions() {
   try {
-    const response = await IrisApi.getWebSessions();
+    const response = await IrisApi.getWebSessions(selectedInstanceId());
     if (response && Array.isArray(response.result)) return { sessions: response.result };
     return { error: "IRIS did not return the expected web session information." };
   } catch (err) {
@@ -1528,7 +1529,7 @@ export async function loadWebApps() {
 
   let response;
   try {
-    response = await IrisApi.getWebApps();
+    response = await IrisApi.getWebApps(selectedInstanceId());
   } catch (err) {
     // ApiError messages are already safe to show (see api.js).
     const message =

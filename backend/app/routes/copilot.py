@@ -11,7 +11,7 @@ from app.copilot.execution import CopilotExecutionService
 from app.copilot.intents import CopilotIntent, classify_intent, is_task_detail_question
 from app.copilot.planner import CatalogOperation, CopilotPlanningService, catalog_operation_for
 from app.copilot.reasoning import CopilotReasoningService
-from app.dependencies import get_caller_privileges, get_iris_client
+from app.dependencies import get_caller_privileges, get_iris_client, get_read_client
 from app.iris_client.client import IRISClient
 from app.models.copilot import (
     CopilotAskResponse,
@@ -65,7 +65,7 @@ async def list_copilot_capabilities() -> CopilotCapabilitiesResponse:
 
 @router.get("/context", response_model=CopilotOperationalContext)
 async def get_copilot_context(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> CopilotOperationalContext:
     return await CopilotContextService(client).get_context()
 
@@ -73,7 +73,7 @@ async def get_copilot_context(
 @router.post("/ask", response_model=CopilotAskResponse)
 async def ask_copilot(
     body: CopilotClassifyRequest,
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
     provider: CopilotAIProvider = Depends(get_copilot_ai_provider),
 ) -> CopilotAskResponse:
     intent = classify_intent(body.message)

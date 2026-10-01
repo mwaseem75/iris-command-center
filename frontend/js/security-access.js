@@ -15,6 +15,7 @@
 // IRIS list" and aren't counted.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 
 const PLACEHOLDER = "—";
 const SUPER_USER_ROLE = "%All";
@@ -674,6 +675,7 @@ function makeResultList(result) {
 
 function makeLoginAccessSection(name, enabled) {
   const section = makeSection("Login Access");
+  section.dataset.primaryOnly = "";
   if (typeof enabled !== "boolean") {
     section.append(makeNote("IRIS did not report whether this user is enabled, so it cannot be changed here."));
     return section;
@@ -824,7 +826,7 @@ async function renderUserDrawer(name, seq) {
   setDrawerHeader("User", name, listEntry ? (listEntry.Enabled ? ["Enabled", "status-badge--ok"] : ["Disabled", "status-badge--neutral"]) : null);
   dom.drawerHint.textContent = "Personal fields are withheld by the Command Center backend.";
 
-  const response = await IrisApi.getSecurityUserDetail(name);
+  const response = await IrisApi.getSecurityUserDetail(name, selectedInstanceId());
   if (seq !== drawerSeq) return;
   const user = response && response.result;
   if (!user || typeof user !== "object") throw new Error("unexpected shape");
@@ -867,8 +869,8 @@ async function renderRoleDrawer(name, seq) {
   dom.drawerHint.textContent = "Read-only. Grants and holders exactly as IRIS reports them.";
 
   const [detailResult, ownersResult] = await Promise.allSettled([
-    IrisApi.getSecurityRoleDetail(name),
-    IrisApi.getSecurityRoleOwners(name),
+    IrisApi.getSecurityRoleDetail(name, selectedInstanceId()),
+    IrisApi.getSecurityRoleOwners(name, selectedInstanceId()),
   ]);
   if (seq !== drawerSeq) return;
   if (detailResult.status === "rejected") throw detailResult.reason;
@@ -926,7 +928,7 @@ async function renderResourceDrawer(name, seq) {
   setDrawerHeader("Resource", name, listEntry ? [listEntry.ResourceType, "status-badge--neutral"] : null);
   dom.drawerHint.textContent = "Read-only. Granting roles come from each role's IRIS detail.";
 
-  const response = await IrisApi.getSecurityResourceDetail(name);
+  const response = await IrisApi.getSecurityResourceDetail(name, selectedInstanceId());
   if (seq !== drawerSeq) return;
   const resource = response && response.result;
   if (!resource || typeof resource !== "object") throw new Error("unexpected shape");
@@ -1026,11 +1028,11 @@ export async function loadSecurityAccess() {
   setErrorBanner(null);
 
   const results = await Promise.allSettled([
-    IrisApi.getSecurityUsers(),
-    IrisApi.getSecurityRoles(),
-    IrisApi.getSecurityRoleAccessMap(),
-    IrisApi.getSecurityResources(),
-    IrisApi.getSecurityRoleOwners(SUPER_USER_ROLE),
+    IrisApi.getSecurityUsers(selectedInstanceId()),
+    IrisApi.getSecurityRoles(selectedInstanceId()),
+    IrisApi.getSecurityRoleAccessMap(selectedInstanceId()),
+    IrisApi.getSecurityResources(selectedInstanceId()),
+    IrisApi.getSecurityRoleOwners(SUPER_USER_ROLE, selectedInstanceId()),
   ]);
   if (seq !== loadSeq) return;
   const [usersResult, rolesResult, mapResult, resourcesResult, ownersResult] = results;

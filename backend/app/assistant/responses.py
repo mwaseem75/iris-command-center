@@ -11,6 +11,9 @@ UNKNOWN_REPLY = (
 )
 
 UNREACHABLE_REPLY = "I couldn't reach IRIS to answer that just now. Please try again shortly."
+PRIMARY_ONLY_REPLY = (
+    "Changes run on the Primary instance only. Switch to Primary in the header to make this change."
+)
 
 
 def format_system_status(info: InfoResult) -> str:

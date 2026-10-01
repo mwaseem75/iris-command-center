@@ -1,4 +1,5 @@
-import { IrisApi } from "./api.js";
+import { IrisApi, ApiError } from "./api.js";
+import { getInstanceContext, onInstanceContextChange } from "./instance-context.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,7 +29,28 @@ const dom = {
   recommendations: $("health-center-recommendations"),
   unavailableSection: $("health-center-unavailable-section"),
   unavailable: $("health-center-unavailable"),
+  view: $("view-health-center"),
+  titleScope: $("health-center-title-scope"),
+  context: $("health-center-context"),
+  contextName: $("health-center-context-name"),
+  contextMeta: $("health-center-context-meta"),
+  loadingText: $("health-center-loading-text"),
+  all: $("health-center-all"),
+  allNote: $("health-center-all-note"),
 };
+
+// All Active Instances: the counts that add up across instances.
+const ALL_COUNTS = [
+  ["namespaces", (id) => IrisApi.getNamespaces(id)],
+  ["databases", (id) => IrisApi.getDatabases(id)],
+  ["processes", (id) => IrisApi.getProcesses(id)],
+  ["web-apps", (id) => IrisApi.getWebApps(id)],
+  ["tasks", (id) => IrisApi.getTasks(id)],
+];
+
+// Bumped on every load, so a slower response for an earlier context is ignored.
+let loadToken = 0;
+let contextKey = null;
 
 const STATUS_BADGES = {
   healthy: "status-badge--ok",
@@ -524,23 +546,95 @@ function renderReport(report, infoResult, monitorResponse) {
   dom.unavailableSection.hidden = unavailable.length === 0;
 }
 
+function keyOf(ctx) {
+  return ctx.mode === "all" ? `all:${ctx.activeInstances.map((item) => item.id).join(",")}` : ctx.instanceId;
+}
+
+function describe(instance) {
+  return instance.connection ? `${instance.name} (${instance.connection})` : instance.name;
+}
+
+function renderContext(ctx, info) {
+  const all = ctx.mode === "all";
+  dom.titleScope.textContent = all ? "(All Active Instances)" : `· ${ctx.instance ? ctx.instance.name : ctx.instanceId}`;
+  dom.context.hidden = all;
+  if (all) return;
+  dom.contextName.textContent = ctx.instance ? ctx.instance.name : ctx.instanceId;
+  const meta = [ctx.instance && ctx.instance.connection];
+  if (info && info.result) meta.push(info.result.serverVersion, `API v${info.result.apiVersion}`);
+  dom.contextMeta.textContent = meta.filter(Boolean).join(" · ");
+}
+
+// Errors for an instance other than the Primary, without raw backend text.
+function instanceError(ctx, error) {
+  const where = ctx.instance ? describe(ctx.instance) : ctx.instanceId;
+  const status = error instanceof ApiError ? error.status : undefined;
+  if (status === 409) return `${where} is inactive. Activate it on the Instances screen, or choose another instance in the header.`;
+  if (status === 404) return `${where} is no longer registered. Choose another instance in the header.`;
+  if (status === null) return "Could not reach the Command Center backend.";
+  return `Could not run the health check on ${where}. The instance may be unreachable or may have rejected its stored credentials.`;
+}
+
+async function loadAllActive(ctx, token) {
+  const instances = ctx.activeInstances;
+  const results = await Promise.all(instances.map((instance) => Promise.allSettled(
+    ALL_COUNTS.map(([, load]) => load(instance.primary ? undefined : instance.id)),
+  )));
+  if (token !== loadToken) return;
+
+  const listOf = (result) => (result.status === "fulfilled" && Array.isArray(result.value?.result) ? result.value.result : null);
+  ALL_COUNTS.forEach(([key], k) => {
+    const lists = results.map((perInstance) => listOf(perInstance[k])).filter(Boolean);
+    $(`health-center-all-${key}`).textContent = lists.length ? String(lists.flat().length) : "Unavailable";
+    $(`health-center-all-${key}-meta`).textContent = lists.length === instances.length
+      ? `Across ${instances.length} instance${instances.length === 1 ? "" : "s"}`
+      : `Across ${lists.length} of ${instances.length} instances`;
+  });
+
+  const included = instances.filter((_, i) => results[i].some((result) => listOf(result)));
+  const missing = instances.filter((instance) => !included.includes(instance));
+  let note = included.length
+    ? `Showing combined counts from ${included.length} active instance${included.length === 1 ? "" : "s"}: ${included.map(describe).join(", ")}.`
+    : "No active instance could be read.";
+  if (missing.length) note += ` Not included (could not be read): ${missing.map(describe).join(", ")}.`;
+  dom.allNote.textContent = note;
+  dom.all.hidden = false;
+}
+
 export async function loadHealthCenter() {
+  const ctx = getInstanceContext();
+  const token = ++loadToken;
+  contextKey = keyOf(ctx);
+  const primary = ctx.mode === "instance" && Boolean(ctx.instance && ctx.instance.primary);
+  renderContext(ctx, null);
+  dom.loadingText.textContent = ctx.mode === "all"
+    ? "Counting across the active instances…"
+    : `Checking ${ctx.instance ? ctx.instance.name : "IRIS"} health…`;
   dom.loading.hidden = false;
   dom.content.hidden = true;
+  dom.all.hidden = true;
   dom.error.hidden = true;
+  dom.generated.textContent = "";
   dom.refresh.disabled = true;
 
   try {
+    if (ctx.mode === "all") {
+      await loadAllActive(ctx, token);
+      return;
+    }
+    const id = primary ? undefined : ctx.instanceId;
     const [reportResult, infoResult, monitorResult, processesResult] = await Promise.allSettled([
-      IrisApi.getHealthReport(),
-      IrisApi.getInfo(),
-      IrisApi.getMonitorDashboard(),
-      IrisApi.getProcesses(),
+      IrisApi.getHealthReport(id),
+      IrisApi.getInfo(id),
+      IrisApi.getMonitorDashboard(id),
+      IrisApi.getProcesses(id),
     ]);
+    if (token !== loadToken) return;
     if (reportResult.status === "rejected") throw reportResult.reason;
 
     const info = infoResult.status === "fulfilled" ? infoResult.value : null;
     const monitor = monitorResult.status === "fulfilled" ? monitorResult.value : null;
+    renderContext(getInstanceContext(), info);
     renderReport(reportResult.value, info, monitor);
     renderCurrentActivity(
       monitor,
@@ -549,14 +643,38 @@ export async function loadHealthCenter() {
     );
     dom.content.hidden = false;
   } catch (error) {
-    dom.errorText.textContent = error.message || "Could not load the Health Center report.";
+    if (token !== loadToken) return;
+    dom.errorText.textContent = primary
+      ? error.message || "Could not load the Health Center report."
+      : instanceError(ctx, error);
     dom.error.hidden = false;
   } finally {
-    dom.loading.hidden = true;
-    dom.refresh.disabled = false;
+    if (token === loadToken) {
+      dom.loading.hidden = true;
+      dom.refresh.disabled = false;
+    }
   }
 }
 
 export function initHealthCenterControls() {
   dom.refresh.addEventListener("click", loadHealthCenter);
+
+  // A new instance in the header selector: reload if the page is open,
+  // otherwise just drop the old report (the page reloads when it's opened).
+  contextKey = keyOf(getInstanceContext());
+  onInstanceContextChange((ctx) => {
+    if (keyOf(ctx) === contextKey) return;
+    if (!dom.view.hidden) {
+      loadHealthCenter();
+    } else {
+      contextKey = keyOf(ctx);
+      loadToken += 1;  // a load still running is ignored
+      dom.loading.hidden = true;
+      dom.refresh.disabled = false;
+      dom.content.hidden = true;
+      dom.all.hidden = true;
+      dom.error.hidden = true;
+      renderContext(ctx, null);
+    }
+  });
 }

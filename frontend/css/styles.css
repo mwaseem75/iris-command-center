@@ -7243,3 +7243,503 @@ html.detail-workspace-open {
     grid-column: 2;
   }
 }
+
+/* --- Instances page: table with row actions, and Add/Edit and
+   confirmation dialogs (shared .ns-drawer modals, narrower). --- */
+
+.banner--info {
+  background: var(--color-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  color: var(--color-text);
+}
+
+.inst-primary-note,
+.inst-confirm-banner,
+.inst-check__banner {
+  align-items: flex-start;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.inst-primary-note__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #0b1220;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.inst-primary-note__title,
+.inst-confirm-banner__title,
+.inst-check__title {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.inst-confirm-banner__icon {
+  font-size: 20px;
+}
+
+.inst-table-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.inst-table .data-table__cell {
+  vertical-align: middle;
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.inst-table .inst-actions-cell {
+  max-width: none;
+  overflow: visible;
+}
+
+.inst-name {
+  display: block;
+  font-weight: 700;
+}
+
+.inst-primary-chip {
+  margin-top: 4px;
+}
+
+.inst-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inst-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inst-state__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-faint);
+}
+
+.inst-state[data-active="true"] .inst-state__dot {
+  background: var(--color-success);
+}
+
+.inst-last-check__detail {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.inst-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn--sm {
+  gap: 6px;
+  padding: 5px 11px;
+  font-size: 12.5px;
+}
+
+.btn--danger {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  color: #fff;
+}
+
+.btn--danger:hover {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  filter: brightness(1.08);
+}
+
+.btn--danger:disabled {
+  filter: none;
+}
+
+.btn--danger-outline {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 50%, transparent);
+}
+
+.btn--danger-outline:hover {
+  border-color: var(--color-error);
+  background: var(--color-error-soft);
+}
+
+.btn--accent-outline {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.ns-drawer.inst-dialog {
+  width: min(600px, calc(100vw - 48px));
+}
+
+.inst-dialog .info-list {
+  margin-bottom: 12px;
+}
+
+.inst-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.inst-form-grid__full {
+  grid-column: 1 / -1;
+}
+
+.inst-form-grid input:disabled {
+  opacity: 0.7;
+}
+
+.inst-required {
+  color: var(--color-error);
+}
+
+.inst-password {
+  position: relative;
+  display: flex;
+}
+
+.inst-password input {
+  flex: 1;
+  min-width: 0;
+  padding-right: 42px;
+}
+
+.inst-password__toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.inst-password__toggle[aria-pressed="true"] {
+  color: var(--color-accent);
+}
+
+.inst-check__banner {
+  margin-bottom: 10px;
+}
+
+.inst-dialog__actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+@media (max-width: 600px) {
+  .ns-drawer.inst-dialog {
+    width: calc(100vw - 24px);
+  }
+
+  .inst-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Global instance selector (header): the current instance with its
+   host:port, and a dropdown of instances plus "All Active Instances".
+   Behaviour in js/instance-context.js. --- */
+
+.instance-selector {
+  position: relative;
+  margin: 0 auto 0 28px;
+}
+
+/* With the selector in the header, the brand and selector keep their width
+   and the long IRIS version text gives way (it already truncates). */
+.app-header > .brand,
+.instance-selector {
+  flex-shrink: 0;
+}
+
+.app-header > .header-status,
+.header-status__version {
+  min-width: 0;
+}
+
+.instance-selector__button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 260px;
+  max-width: 340px;
+  padding: 7px 0 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-base), background-color var(--transition-base);
+}
+
+.instance-selector__button:hover,
+.instance-selector__button[aria-expanded="true"] {
+  border-color: var(--color-accent);
+}
+
+.instance-selector__button:focus-visible,
+.instance-selector__option:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.instance-selector__icon {
+  flex-shrink: 0;
+  width: 22px;
+  color: var(--color-accent);
+  font-size: 18px;
+  text-align: center;
+}
+
+.instance-selector__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.instance-selector__name {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instance-selector__meta {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instance-selector__caret {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 16px;
+}
+
+.instance-selector__list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max(100%, 340px);
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-md), 0 16px 40px rgba(0, 0, 0, 0.3);
+}
+
+.instance-selector__list[hidden] {
+  display: none;
+}
+
+.instance-selector__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.instance-selector__option:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.instance-selector__option[aria-selected="true"] {
+  background: var(--color-accent-soft);
+}
+
+.instance-selector__option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.instance-selector__check {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.instance-selector__divider {
+  margin: 4px 6px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+@media (max-width: 900px) {
+  .instance-selector {
+    margin-left: 12px;
+  }
+
+  .instance-selector__button {
+    min-width: 0;
+  }
+
+  .instance-selector__meta {
+    display: none;
+  }
+}
+
+/* --- Dashboard: instance context (global selector). The title names the
+   context; while switching, the old figures are dimmed until the new ones
+   arrive. --- */
+
+.dash-scope {
+  font-size: 0.62em;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.dash-context {
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.dash-context__note {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--color-text-faint);
+}
+
+.dash-fleet-note {
+  align-items: flex-start;
+  margin-top: 14px;
+  font-weight: 400;
+}
+
+.stat-grid[data-scope="other"] .stat-card__link {
+  display: none;
+}
+
+.stat-grid[data-scope="other"] .stat-card--interactive {
+  cursor: default;
+}
+
+#view-dashboard .stat-grid[data-scope="other"] .dash-kpi.stat-card--interactive::after {
+  display: none;
+}
+
+.dashboard--switching .stat-grid,
+.dashboard--switching .dash-grid {
+  opacity: 0.4;
+  transition: opacity var(--transition-base);
+}
+
+/* All Active Instances: five count cards (no alerts card) fill the row, and
+   their "Across N instances" line isn't cut off. */
+@media (min-width: 1401px) {
+  #view-dashboard .stat-grid[data-mode="all"] {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+#view-dashboard .stat-grid [data-scope-meta] {
+  white-space: normal;
+}
+
+/* --- Health Center: instance context banner and the All Active Instances
+   counts (global selector). --- */
+
+.health-center__context {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+}
+
+.health-center__context-icon {
+  color: var(--color-accent);
+  font-size: 22px;
+}
+
+.health-center__context-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.health-center__context-meta {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.health-center__all-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.health-center__all-note {
+  align-items: flex-start;
+  margin-top: 14px;
+  font-weight: 400;
+}
+
+/* --- Instance context (global selector): changes run on the Primary only,
+   so their controls are hidden while another instance is selected; pages
+   that can't show the selection say so instead (js/app.js). --- */
+
+body[data-instance-scope="other"] [data-primary-only],
+body:not([data-instance-scope="other"]) [data-primary-only-note] {
+  display: none !important;
+}
+
+.context-notice {
+  align-items: flex-start;
+  font-weight: 400;
+}
+
+.view[data-context-blocked] > :not(.view__header) {
+  display: none !important;
+}

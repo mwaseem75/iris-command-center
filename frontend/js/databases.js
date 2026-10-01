@@ -29,6 +29,7 @@
 // doesn't include a name either.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar, topCategories } from "./viz.js";
 
@@ -481,7 +482,7 @@ async function handleViewInfoClick() {
   dom.drawerInfoLoading.hidden = false;
 
   try {
-    const response = await IrisApi.getDatabaseInfo(currentDrawerDirectory);
+    const response = await IrisApi.getDatabaseInfo(currentDrawerDirectory, selectedInstanceId());
     const info = response && response.result;
     if (!info) {
       throw new ApiError("IRIS did not return the expected storage info.");
@@ -576,7 +577,7 @@ async function handleRunIntegrityCheckClick() {
   dom.drawerIntegrityLoading.hidden = false;
 
   try {
-    const task = await IrisApi.checkDatabaseIntegrity(currentDrawerDirectory);
+    const task = await IrisApi.checkDatabaseIntegrity(currentDrawerDirectory, selectedInstanceId());
     if (!task || typeof task !== "object") {
       throw new ApiError("IRIS did not return the expected integrity-check result.");
     }
@@ -1096,7 +1097,7 @@ function renderDatabases(databases) {
  */
 async function loadNamespacesForUsage() {
   try {
-    const response = await IrisApi.getNamespaces();
+    const response = await IrisApi.getNamespaces(selectedInstanceId());
     allNamespaces = response && Array.isArray(response.result) ? response.result : null;
   } catch {
     allNamespaces = null;
@@ -1114,7 +1115,7 @@ export async function loadDatabases() {
 
   let response;
   try {
-    response = await IrisApi.getDatabases();
+    response = await IrisApi.getDatabases(selectedInstanceId());
   } catch (err) {
     // ApiError messages are already safe to show (see api.js).
     const message =
@@ -1210,6 +1211,7 @@ function whyThisFix(issue) {
 }
 
 async function loadIssues() {
+  if (selectedInstanceId()) return;  // issue resolution is Primary-only (the panel is hidden)
   let issues;
   try {
     const response = await IrisApi.getIssues();

@@ -6,6 +6,7 @@
 // shown as IRIS returns it.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 
 const PLACEHOLDER = "—"; // shown for empty values
@@ -150,7 +151,7 @@ export async function loadJournal() {
 
   let response;
   try {
-    response = await IrisApi.getJournalSettings();
+    response = await IrisApi.getJournalSettings(selectedInstanceId());
   } catch (err) {
     // ApiError messages are already safe to show (see api.js).
     const message =

@@ -10,6 +10,7 @@
 // so none is shown.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
 
@@ -213,11 +214,13 @@ export async function loadSystemInfo() {
   setLoading(true);
   setErrorBanner(null);
   setConnectionState("checking", "Checking connection…", "");
-  const identityReads = Promise.all([settled(IrisApi.getPythonDiagnostics()), settled(IrisApi.getMonitorDashboard())]);
+  // Embedded Python runs through the Primary's own connection, so other instances have no host values here.
+  const python = selectedInstanceId() ? Promise.reject(new Error("Primary only")) : IrisApi.getPythonDiagnostics();
+  const identityReads = Promise.all([settled(python), settled(IrisApi.getMonitorDashboard(selectedInstanceId()))]);
 
   let response;
   try {
-    response = await IrisApi.getInfo();
+    response = await IrisApi.getInfo(selectedInstanceId());
   } catch (err) {
     // ApiError messages are already safe to show (see api.js).
     const message =

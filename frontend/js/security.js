@@ -10,6 +10,7 @@
 // fields are X.509 aliases and link to the Certificates drawer.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
 
 const PLACEHOLDER = "—";
@@ -336,7 +337,7 @@ async function renderClientDrawer(clientId, isCurrent) {
   const listed = overview && Array.isArray(overview.ServerClients) ? overview.ServerClients.find((c) => c.ClientId === clientId) : null;
   ui.setDrawerHeader("OAuth Client", (listed && listed.Name) || clientId, null);
   ui.drawerHint.textContent = "Read-only. Allowlisted fields only — the client secret is never requested.";
-  const c = await fetchResult(() => IrisApi.getSecurityOAuthServerClient(clientId), isCurrent);
+  const c = await fetchResult(() => IrisApi.getSecurityOAuthServerClient(clientId, selectedInstanceId()), isCurrent);
   if (!c) return;
   ui.drawerBody.replaceChildren(
     ui.makeSection("Client", ui.makeInfoList([
@@ -356,7 +357,7 @@ async function renderClientDrawer(clientId, isCurrent) {
 async function renderDefinitionDrawer(serverId, isCurrent) {
   ui.setDrawerHeader("Server Definition", serverId, null);
   ui.drawerHint.textContent = "Read-only. An external authorization server this instance uses as a client.";
-  const d = await fetchResult(() => IrisApi.getSecurityOAuthServerDefinition(serverId), isCurrent);
+  const d = await fetchResult(() => IrisApi.getSecurityOAuthServerDefinition(serverId, selectedInstanceId()), isCurrent);
   if (!d) return;
   const listed = overview && Array.isArray(overview.ServerDefinitions) ? overview.ServerDefinitions.find((x) => x.ID === serverId) : null;
   const configs = listed && Array.isArray(listed.ClientConfigurations) ? listed.ClientConfigurations : null;
@@ -393,7 +394,7 @@ async function renderDefinitionDrawer(serverId, isCurrent) {
 async function renderConfigDrawer(applicationName, isCurrent) {
   ui.setDrawerHeader("Client Configuration", applicationName, null);
   ui.drawerHint.textContent = "Read-only. Allowlisted fields only — the client secret and password are never requested.";
-  const c = await fetchResult(() => IrisApi.getSecurityOAuthClientConfiguration(applicationName), isCurrent);
+  const c = await fetchResult(() => IrisApi.getSecurityOAuthClientConfiguration(applicationName, selectedInstanceId()), isCurrent);
   if (!c) return;
   if (typeof c.Enabled === "boolean") {
     ui.setDrawerHeader("Client Configuration", applicationName, c.Enabled ? ["Enabled", "status-badge--ok"] : ["Disabled", "status-badge--neutral"]);
@@ -417,7 +418,7 @@ async function renderConfigDrawer(applicationName, isCurrent) {
 async function renderResourceServerDrawer(name, isCurrent) {
   ui.setDrawerHeader("Resource Server", name, null);
   ui.drawerHint.textContent = "Read-only. Allowlisted fields only — no client secret is requested.";
-  const r = await fetchResult(() => IrisApi.getSecurityOAuthResourceServer(name), isCurrent);
+  const r = await fetchResult(() => IrisApi.getSecurityOAuthResourceServer(name, selectedInstanceId()), isCurrent);
   if (!r) return;
   if (typeof r.Enabled === "boolean") {
     ui.setDrawerHeader("Resource Server", name, r.Enabled ? ["Enabled", "status-badge--ok"] : ["Disabled", "status-badge--neutral"]);
@@ -465,7 +466,7 @@ export async function loadSecurity() {
 
   let response = null;
   try {
-    response = await IrisApi.getSecurityOAuthOverview();
+    response = await IrisApi.getSecurityOAuthOverview(selectedInstanceId());
   } catch (err) {
     if (seq !== loadSeq) return;
     overview = null;

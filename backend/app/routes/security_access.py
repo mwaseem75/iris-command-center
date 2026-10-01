@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
-from app.dependencies import get_iris_client
+from app.dependencies import get_read_client
 from app.iris_client.client import IRISClient
 from app.iris_client.exceptions import IRISResponseError
 from app.models.iris import (
@@ -94,14 +94,14 @@ async def _get(client: IRISClient, path: str, params: dict[str, Any] | None, not
 
 
 @router.get("/users", response_model=IRISEnvelope[list[SecurityUserEntry]])
-async def get_users(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[list[SecurityUserEntry]]:
+async def get_users(client: IRISClient = Depends(get_read_client)) -> IRISEnvelope[list[SecurityUserEntry]]:
     raw = await _get(client, "/v2/security/users", None, "IRIS reports no users")
     return IRISEnvelope[list[SecurityUserEntry]].model_validate(raw)
 
 
 @router.get("/users/detail", response_model=IRISEnvelope[SecurityUserDetail])
 async def get_user_detail(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[SecurityUserDetail]:
     """One user's account, roles and password flags. Personal fields are removed
     and their names listed in `WithheldFields`.
@@ -117,7 +117,7 @@ async def get_user_detail(
 
 
 @router.get("/roles", response_model=IRISEnvelope[list[SecurityRoleEntry]])
-async def get_roles(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[list[SecurityRoleEntry]]:
+async def get_roles(client: IRISClient = Depends(get_read_client)) -> IRISEnvelope[list[SecurityRoleEntry]]:
     """IRIS's role list as returned (without %SQLTuneTable; see /roles/access-map)."""
     raw = await _get(client, "/v2/security/roles", None, "IRIS reports no roles")
     return IRISEnvelope[list[SecurityRoleEntry]].model_validate(raw)
@@ -125,7 +125,7 @@ async def get_roles(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelo
 
 @router.get("/roles/detail", response_model=IRISEnvelope[SecurityRoleDetail])
 async def get_role_detail(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[SecurityRoleDetail]:
     raw = await _get(client, "/v2/security/role", {"name": name}, "IRIS reports no role with this name")
     return IRISEnvelope[SecurityRoleDetail].model_validate(raw)
@@ -133,7 +133,7 @@ async def get_role_detail(
 
 @router.get("/roles/owners", response_model=IRISEnvelope[list[RoleOwnerEntry]])
 async def get_role_owners(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[list[RoleOwnerEntry]]:
     """Users and roles holding a role, including "User (escalation)" rows."""
     raw = await _get(
@@ -144,7 +144,7 @@ async def get_role_owners(
 
 @router.get("/roles/access-map", response_model=IRISEnvelope[list[RoleAccessEntry]])
 async def get_role_access_map(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[RoleAccessEntry]]:
     """Every role's granted roles and resource permissions in one response.
 
@@ -205,7 +205,7 @@ async def get_role_access_map(
 
 @router.get("/resources", response_model=IRISEnvelope[list[SecurityResourceEntry]])
 async def get_resources(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[SecurityResourceEntry]]:
     raw = await _get(client, "/v2/security/resources", None, "IRIS reports no resources")
     return IRISEnvelope[list[SecurityResourceEntry]].model_validate(raw)
@@ -213,7 +213,7 @@ async def get_resources(
 
 @router.get("/resources/detail", response_model=IRISEnvelope[SecurityResourceDetail])
 async def get_resource_detail(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[SecurityResourceDetail]:
     raw = await _get(
         client, "/v2/security/resource", {"name": name}, "IRIS reports no resource with this name"
@@ -226,7 +226,7 @@ async def get_resource_detail(
 
 @router.get("/services", response_model=IRISEnvelope[list[SecurityServiceEntry]])
 async def get_services(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[SecurityServiceEntry]]:
     raw = await _get(client, "/v2/security/services", None, "IRIS reports no services")
     return IRISEnvelope[list[SecurityServiceEntry]].model_validate(raw)
@@ -234,14 +234,14 @@ async def get_services(
 
 @router.get("/services/detail", response_model=IRISEnvelope[SecurityServiceDetail])
 async def get_service_detail(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[SecurityServiceDetail]:
     raw = await _get(client, "/v2/security/service", {"name": name}, "IRIS reports no service with this name")
     return IRISEnvelope[SecurityServiceDetail].model_validate(raw)
 
 
 @router.get("/web-auth", response_model=IRISEnvelope[WebAuthSettings])
-async def get_web_auth(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[WebAuthSettings]:
+async def get_web_auth(client: IRISClient = Depends(get_read_client)) -> IRISEnvelope[WebAuthSettings]:
     """System-wide authentication settings, with SMTPUsername and TwoFactorFrom
     removed (their names are listed in `WithheldFields`).
     """
@@ -257,7 +257,7 @@ async def get_web_auth(client: IRISClient = Depends(get_iris_client)) -> IRISEnv
 
 @router.get("/superservers", response_model=IRISEnvelope[list[SuperserverEntry]])
 async def get_superservers(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[SuperserverEntry]]:
     """Every superserver merged with its detail (by Port + BindAddress). A failed
     detail call gives Detail=None and a warning.
@@ -299,7 +299,7 @@ async def get_superservers(
 
 @router.get("/class-access", response_model=IRISEnvelope[list[ClassAccessEntry]])
 async def get_class_access(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[ClassAccessEntry]]:
     """Which % classes each web application is allowed to use."""
     raw = await _get(client, "/v2/web-app/pct-accesses", None, "IRIS reports no class-access entries")
@@ -311,7 +311,7 @@ async def get_class_access(
 
 @router.get("/wallet/overview", response_model=IRISEnvelope[list[WalletCollectionOverview]])
 async def get_wallet_overview(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[WalletCollectionOverview]]:
     """Wallet collections with their secrets' names and types. If a collection's
     secret list fails, Secrets is None and a warning is added.
@@ -350,7 +350,7 @@ async def get_wallet_overview(
 
 @router.get("/wallet/collections/detail", response_model=IRISEnvelope[WalletCollectionDetail])
 async def get_wallet_collection_detail(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[WalletCollectionDetail]:
     """One collection's edit/use resources. Unknown names return 404."""
     raw = await _get(
@@ -361,7 +361,7 @@ async def get_wallet_collection_detail(
 
 @router.get("/wallet/secrets", response_model=IRISEnvelope[list[WalletSecretEntry]])
 async def get_wallet_secrets(
-    collection: str, client: IRISClient = Depends(get_iris_client)
+    collection: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[list[WalletSecretEntry]]:
     """Names and types of the secrets in one collection (no values)."""
     raw = await _get(
@@ -378,7 +378,7 @@ async def get_wallet_secrets(
 
 @router.get("/x509/overview", response_model=IRISEnvelope[list[X509CredentialOverview]])
 async def get_x509_overview(
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
 ) -> IRISEnvelope[list[X509CredentialOverview]]:
     """Every X.509 credential with its certificate details (subject, issuer,
     serial, validity). A failed certificate call gives None and a warning.
@@ -414,7 +414,7 @@ async def get_x509_overview(
 
 @router.get("/x509/credentials/detail", response_model=IRISEnvelope[X509CredentialDetail])
 async def get_x509_credential_detail(
-    alias: str, client: IRISClient = Depends(get_iris_client)
+    alias: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[X509CredentialDetail]:
     """One credential's owners, peer names and CA file. Unknown aliases return 404."""
     raw = await _get(
@@ -425,7 +425,7 @@ async def get_x509_credential_detail(
 
 @router.get("/x509/credentials/certificate", response_model=IRISEnvelope[X509CertificateInfo])
 async def get_x509_certificate(
-    alias: str, client: IRISClient = Depends(get_iris_client)
+    alias: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[X509CertificateInfo]:
     """Certificate details for one credential (no key material)."""
     raw = await _get(
@@ -445,7 +445,7 @@ _OAUTH_CONCURRENCY = 4
 
 
 @router.get("/oauth/overview", response_model=IRISEnvelope[OAuth2Overview])
-async def get_oauth_overview(client: IRISClient = Depends(get_iris_client)) -> IRISEnvelope[OAuth2Overview]:
+async def get_oauth_overview(client: IRISClient = Depends(get_read_client)) -> IRISEnvelope[OAuth2Overview]:
     """All OAuth 2.0 data in one response: server config, clients, server
     definitions (with their client configs), resource servers and mappings.
 
@@ -539,7 +539,7 @@ async def get_oauth_overview(client: IRISClient = Depends(get_iris_client)) -> I
 
 @router.get("/oauth/server-clients/detail", response_model=IRISEnvelope[OAuth2ServerClientDetail])
 async def get_oauth_server_client_detail(
-    clientId: str, client: IRISClient = Depends(get_iris_client)
+    clientId: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[OAuth2ServerClientDetail]:
     """A client registered with this authorization server (no client secret)."""
     raw = await _get(
@@ -550,7 +550,7 @@ async def get_oauth_server_client_detail(
 
 @router.get("/oauth/server-definitions/detail", response_model=IRISEnvelope[OAuth2ServerDefinitionDetail])
 async def get_oauth_server_definition_detail(
-    serverId: str, client: IRISClient = Depends(get_iris_client)
+    serverId: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[OAuth2ServerDefinitionDetail]:
     raw = await _get(
         client,
@@ -563,7 +563,7 @@ async def get_oauth_server_definition_detail(
 
 @router.get("/oauth/client-configurations/detail", response_model=IRISEnvelope[OAuth2ClientConfigDetail])
 async def get_oauth_client_configuration_detail(
-    applicationName: str, client: IRISClient = Depends(get_iris_client)
+    applicationName: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[OAuth2ClientConfigDetail]:
     """A client configuration (no client secret or password)."""
     raw = await _get(
@@ -577,7 +577,7 @@ async def get_oauth_client_configuration_detail(
 
 @router.get("/oauth/resource-servers/detail", response_model=IRISEnvelope[OAuth2ResourceServerDetail])
 async def get_oauth_resource_server_detail(
-    name: str, client: IRISClient = Depends(get_iris_client)
+    name: str, client: IRISClient = Depends(get_read_client)
 ) -> IRISEnvelope[OAuth2ResourceServerDetail]:
     raw = await _get(
         client,

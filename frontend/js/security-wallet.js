@@ -9,6 +9,7 @@
 // is reopened.
 
 import { IrisApi, ApiError } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
 
 const PLACEHOLDER = "—";
@@ -222,8 +223,8 @@ async function renderCollectionDrawer(name, isCurrent) {
   ui.drawerHint.textContent = "Read-only. Secret names and types only — values are never requested.";
 
   const [detailResult, secretsResult] = await Promise.allSettled([
-    IrisApi.getSecurityWalletCollectionDetail(name),
-    IrisApi.getSecurityWalletSecrets(name),
+    IrisApi.getSecurityWalletCollectionDetail(name, selectedInstanceId()),
+    IrisApi.getSecurityWalletSecrets(name, selectedInstanceId()),
   ]);
   if (!isCurrent()) return;
   if (detailResult.status === "rejected") throw detailResult.reason;
@@ -293,7 +294,7 @@ async function loadSecurityWallet() {
   let response = null;
   let failed = false;
   try {
-    response = await IrisApi.getSecurityWalletOverview();
+    response = await IrisApi.getSecurityWalletOverview(selectedInstanceId());
   } catch {
     failed = true;
   }

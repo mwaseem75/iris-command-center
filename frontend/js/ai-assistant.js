@@ -10,6 +10,7 @@
 // All DOM is built with createElement/textContent, no innerHTML.
 
 import { ApiError, IrisApi } from "./api.js";
+import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 
 const PLACEHOLDER = "—";
@@ -361,7 +362,7 @@ function answerMutation(text) {
 // --- read-only intents ---
 
 async function answerSystem() {
-  const info = result(await IrisApi.getInfo());
+  const info = result(await IrisApi.getInfo(selectedInstanceId()));
   const { release, build } = parseVersion(info.serverVersion);
   const privileges = Object.values(info.privileges || {});
   const granted = privileges.filter((p) => p && p.use).length;
@@ -396,7 +397,7 @@ const HEALTH_INDICATORS = [
 ];
 
 async function answerHealth() {
-  const monitor = result(await IrisApi.getMonitorDashboard());
+  const monitor = result(await IrisApi.getMonitorDashboard(selectedInstanceId()));
   const rows = HEALTH_INDICATORS.map(([label, section, field]) => {
     const value = monitor && monitor[section] ? monitor[section][field] : null;
     return [label, value, typeof value === "string" && value.trim().toLowerCase() === "normal"];
@@ -417,7 +418,7 @@ async function answerHealth() {
 }
 
 async function answerNamespaces() {
-  const info = result(await IrisApi.getInfo());
+  const info = result(await IrisApi.getInfo(selectedInstanceId()));
   const names = (info.namespaces || []).map((n) => (n && n.name) || PLACEHOLDER);
   return {
     text: `There ${names.length === 1 ? "is" : "are"} ${names.length} namespace${names.length === 1 ? "" : "s"} visible to this session.`,
@@ -427,7 +428,7 @@ async function answerNamespaces() {
 }
 
 async function answerProcesses(text) {
-  const processes = asList(await IrisApi.getProcesses());
+  const processes = asList(await IrisApi.getProcesses(selectedInstanceId()));
   const byNamespace = countBy(processes, (p) => p.Nspace || "(none)");
   const byState = countBy(processes, (p) => p.State || "Unknown");
   const actions = [openButton("Open Processes", "processes")];
@@ -471,7 +472,7 @@ async function answerProcesses(text) {
 }
 
 async function answerDatabases(text) {
-  const [dbResult, storageResult] = await Promise.allSettled([IrisApi.getDatabases(), IrisApi.getDatabaseStorage()]);
+  const [dbResult, storageResult] = await Promise.allSettled([IrisApi.getDatabases(selectedInstanceId()), IrisApi.getDatabaseStorage(selectedInstanceId())]);
   if (dbResult.status !== "fulfilled") throw dbResult.reason;
   const databases = asList(dbResult.value);
   const storage = storageResult.status === "fulfilled" ? asList(storageResult.value) : [];
@@ -502,7 +503,7 @@ async function answerDatabases(text) {
 }
 
 async function answerWebApps(text) {
-  const apps = asList(await IrisApi.getWebApps());
+  const apps = asList(await IrisApi.getWebApps(selectedInstanceId()));
   const enabled = apps.filter((a) => a.Enabled === true).length;
   const onlyDisabled = /\bdisabled\b/.test(text);
   const shown = onlyDisabled ? apps.filter((a) => a.Enabled === false) : apps;
@@ -525,7 +526,7 @@ async function answerWebApps(text) {
 }
 
 async function answerTasks(text) {
-  const tasks = asList(await IrisApi.getTaskOverview());
+  const tasks = asList(await IrisApi.getTaskOverview(selectedInstanceId()));
   const onlySuspended = /\bsuspended\b/.test(text);
   const shown = onlySuspended ? tasks.filter((t) => t.State === "Suspended") : tasks;
   const byState = countBy(tasks, (t) => t.State || "Unknown");
@@ -548,7 +549,7 @@ async function answerTasks(text) {
 }
 
 async function answerPrivileges() {
-  const info = result(await IrisApi.getInfo());
+  const info = result(await IrisApi.getInfo(selectedInstanceId()));
   const entries = Object.entries(info.privileges || {}).sort(([a], [b]) => a.localeCompare(b));
   const granted = entries.filter(([, flag]) => flag && flag.use).map(([name]) => name);
   const missing = entries.filter(([, flag]) => !(flag && flag.use)).map(([name]) => name);
@@ -595,7 +596,7 @@ async function answerTraces(text) {
 }
 
 async function answerJournal() {
-  const settings = result(await IrisApi.getJournalSettings());
+  const settings = result(await IrisApi.getJournalSettings(selectedInstanceId()));
   const fields = [
     ["Purge archived journals", settings.PurgeArchived === true ? "Yes" : settings.PurgeArchived === false ? "No" : PLACEHOLDER],
     ["Current directory", settings.CurrentDirectory],
@@ -617,6 +618,7 @@ async function answerJournal() {
 // Host values from Embedded Python inside IRIS
 // (app/embedded_python/diagnostics.py). Missing fields are null.
 async function answerPython() {
+  if (selectedInstanceId()) return { text: "Embedded Python diagnostics are available for the Primary instance only." };
   const d = await IrisApi.getPythonDiagnostics();
   const load = Array.isArray(d.load_average) ? d.load_average.map((v) => v.toFixed(2)) : null;
   const memory = d.memory || {};
@@ -761,7 +763,11 @@ async function answer(message) {
     throw error;
   }
   if (classification && classification.intent === "resolution_request") {
-    const reasoning = await IrisApi.askCopilot(message);
+    // Copilot changes are planned, authorized and run on the Primary only.
+    if (selectedInstanceId()) {
+      return { text: "Changes run on the Primary instance only. Switch to Primary in the header to plan this change." };
+    }
+    const reasoning = await IrisApi.askCopilot(message, selectedInstanceId());
     const planning = await IrisApi.planCopilotOperation(message, reasoning);
     if (planning && planning.plan) {
       return {
@@ -774,7 +780,7 @@ async function answer(message) {
   if (isMutationRequest(text)) return answerMutation(text);
 
   if (classification && ["issue_investigation", "health_status", "read_only_query"].includes(classification.intent)) {
-    const response = await IrisApi.askCopilot(message);
+    const response = await IrisApi.askCopilot(message, selectedInstanceId());
     if (response && response.intent === classification.intent && typeof response.answer === "string" && response.answer) {
       const parts = [response.answer];
       if (Array.isArray(response.observations)) {
@@ -799,7 +805,7 @@ async function answer(message) {
   // intents, then retain its legacy read-only endpoint as the final fallback.
   const intent = INTENTS.find(([pattern]) => pattern.test(text));
   if (intent) return intent[1](text);
-  const response = await IrisApi.queryAssistant(message);
+  const response = await IrisApi.queryAssistant(message, selectedInstanceId());
   return {
     text:
       response && typeof response.reply === "string" && response.reply
@@ -868,12 +874,12 @@ export async function loadAssistantContext() {
   dom.refreshButton.disabled = true;
   dom.refreshButton.classList.add("btn--spinning");
   const [info, databases, storage, processes, webApps, tasks] = await Promise.allSettled([
-    IrisApi.getInfo(),
-    IrisApi.getDatabases(),
-    IrisApi.getDatabaseStorage(),
-    IrisApi.getProcesses(),
-    IrisApi.getWebApps(),
-    IrisApi.getTaskOverview(),
+    IrisApi.getInfo(selectedInstanceId()),
+    IrisApi.getDatabases(selectedInstanceId()),
+    IrisApi.getDatabaseStorage(selectedInstanceId()),
+    IrisApi.getProcesses(selectedInstanceId()),
+    IrisApi.getWebApps(selectedInstanceId()),
+    IrisApi.getTaskOverview(selectedInstanceId()),
   ]);
   const ok = (r) => r.status === "fulfilled";
 

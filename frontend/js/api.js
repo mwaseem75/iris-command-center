@@ -263,6 +263,63 @@ async function postIssueRule(path, body) {
   return data;
 }
 
+/**
+ * IRIS instances: POST /api/iris/instances/test, POST /api/iris/instances,
+ * PUT/DELETE /api/iris/instances/{id} and POST .../check, .../activate,
+ * .../deactivate. A 4xx/5xx is thrown as an ApiError carrying the backend's
+ * own message (field names and validation messages only, never the values
+ * sent, so a password can't come back in an error).
+ */
+async function sendInstanceRequest(method, path, body) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    setHeaderConnectionStatus("error", "Could not reach the Command Center backend");
+    throw new ApiError("Could not reach the Command Center backend.", { path });
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = data && data.detail;
+    const message = typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail
+          .map((item) => {
+            if (!item || !item.msg) return "";
+            const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "";
+            return field ? `${field}: ${item.msg}` : item.msg;
+          })
+          .filter(Boolean)
+          .join(" ")
+        : "";
+    throw new ApiError(message || `Backend returned HTTP ${response.status} for ${path}.`, {
+      status: response.status,
+      path,
+    });
+  }
+  setHeaderConnectionStatus("connected", "Connected to backend");
+  return data;
+}
+
+/**
+ * Instance-scoped reads: `instance` is a registered instance id and the
+ * backend resolves its connection and credentials. Omitted (or the Primary's
+ * id) reads the Primary, as before.
+ */
+function withInstance(path, instance) {
+  if (!instance) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}instance=${encodeURIComponent(instance)}`;
+}
+
+function instancePath(id) {
+  return `/api/iris/instances/${encodeURIComponent(id)}`;
+}
+
 async function postDemoRehearsal(confirmed, scenario = "standard") {
   const path = "/api/iris/demo/rehearsal";
   let response;
@@ -314,97 +371,100 @@ async function postDatabaseOperation(path, fields, confirmed, dryRun) {
 }
 
 export const IrisApi = {
-  getInfo: () => fetchIris("/api/iris/info"),
-  getHealthReport: () => fetchIris("/api/iris/health"),
-  getNamespaces: () => fetchIris("/api/iris/namespaces"),
-  getDatabases: () => fetchIris("/api/iris/databases"),
+  // IRIS reads take an optional instance id (see withInstance()); changes
+  // always go to the Primary.
+  getInfo: (instance) => fetchIris(withInstance("/api/iris/info", instance)),
+  getHealthReport: (instance) => fetchIris(withInstance("/api/iris/health", instance)),
+  getNamespaces: (instance) => fetchIris(withInstance("/api/iris/namespaces", instance)),
+  getDatabases: (instance) => fetchIris(withInstance("/api/iris/databases", instance)),
   // Storage info for one database (IRIS runs it as an async task; the
   // backend waits for it). `directory` is sent as the `dir` parameter.
-  getDatabaseInfo: (directory) =>
-    fetchIris(`/api/iris/databases/info?dir=${encodeURIComponent(directory)}`),
+  getDatabaseInfo: (directory, instance) =>
+    fetchIris(withInstance(`/api/iris/databases/info?dir=${encodeURIComponent(directory)}`, instance)),
   // Integrity check for one database (also an async task). Unlike
   // getDatabaseInfo(), this returns IRIS's raw task envelope (State,
   // TaskName, Console, FailureReason, Result, Time*), since we've never seen
   // a real Result to unwrap.
-  checkDatabaseIntegrity: (directory) =>
-    fetchIris(`/api/iris/databases/integrity-check?dir=${encodeURIComponent(directory)}`),
-  getProcesses: () => fetchIris("/api/iris/processes"),
-  getWebApps: () => fetchIris("/api/iris/web-apps"),
+  checkDatabaseIntegrity: (directory, instance) =>
+    fetchIris(withInstance(`/api/iris/databases/integrity-check?dir=${encodeURIComponent(directory)}`, instance)),
+  getProcesses: (instance) => fetchIris(withInstance("/api/iris/processes", instance)),
+  getWebApps: (instance) => fetchIris(withInstance("/api/iris/web-apps", instance)),
   // Full config of one web app. `name` (e.g. "/api/admin") is a query
   // parameter because names contain slashes.
-  getWebAppDetail: (name) =>
-    fetchIris(`/api/iris/web-apps/detail?name=${encodeURIComponent(name)}`),
+  getWebAppDetail: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/web-apps/detail?name=${encodeURIComponent(name)}`, instance)),
   // REST route map for a REST web app (from IRIS's /api/mgmnt). 404 means
   // there isn't one (not a REST app, or IRIS couldn't build it).
-  getWebAppRestEndpoints: (name) =>
-    fetchIris(`/api/iris/web-apps/rest-endpoints?name=${encodeURIComponent(name)}`),
+  getWebAppRestEndpoints: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/web-apps/rest-endpoints?name=${encodeURIComponent(name)}`, instance)),
   // Active web sessions. The backend removes the session IDs.
-  getWebSessions: () => fetchIris("/api/iris/web-sessions"),
-  getTasks: () => fetchIris("/api/iris/tasks"),
+  getWebSessions: (instance) => fetchIris(withInstance("/api/iris/web-sessions", instance)),
+  getTasks: (instance) => fetchIris(withInstance("/api/iris/tasks", instance)),
   // IRIS system dashboard: performance, health, alerts, licensing.
-  getMonitorDashboard: () => fetchIris("/api/iris/monitor/dashboard"),
+  getMonitorDashboard: (instance) => fetchIris(withInstance("/api/iris/monitor/dashboard", instance)),
   // Size of every local database in one call.
-  getDatabaseStorage: () => fetchIris("/api/iris/databases/storage"),
+  getDatabaseStorage: (instance) => fetchIris(withInstance("/api/iris/databases/storage", instance)),
   // Every task with its /v2/task/info and a derived State. The list's
   // Suspended flag is left out because it's unreliable.
-  getTaskOverview: () => fetchIris("/api/iris/tasks/overview"),
+  getTaskOverview: (instance) => fetchIris(withInstance("/api/iris/tasks/overview", instance)),
   // One task's full config, with sensitive Settings redacted by the backend.
-  getTaskDetail: (id) => fetchIris(`/api/iris/tasks/detail?id=${encodeURIComponent(id)}`),
-  getTaskManager: () => fetchIris("/api/iris/tasks/manager"),
+  getTaskDetail: (id, instance) => fetchIris(withInstance(`/api/iris/tasks/detail?id=${encodeURIComponent(id)}`, instance)),
+  getTaskManager: (instance) => fetchIris(withInstance("/api/iris/tasks/manager", instance)),
   // Identity & Access. The backend removes personal fields from user details;
   // nothing here returns a password, hash or secret.
-  getSecurityUsers: () => fetchIris("/api/iris/security/users"),
-  getSecurityUserDetail: (name) =>
-    fetchIris(`/api/iris/security/users/detail?name=${encodeURIComponent(name)}`),
-  getSecurityRoles: () => fetchIris("/api/iris/security/roles"),
-  getSecurityRoleDetail: (name) =>
-    fetchIris(`/api/iris/security/roles/detail?name=${encodeURIComponent(name)}`),
-  getSecurityRoleOwners: (name) =>
-    fetchIris(`/api/iris/security/roles/owners?name=${encodeURIComponent(name)}`),
-  getSecurityRoleAccessMap: () => fetchIris("/api/iris/security/roles/access-map"),
-  getSecurityResources: () => fetchIris("/api/iris/security/resources"),
-  getSecurityResourceDetail: (name) =>
-    fetchIris(`/api/iris/security/resources/detail?name=${encodeURIComponent(name)}`),
+  getSecurityUsers: (instance) => fetchIris(withInstance("/api/iris/security/users", instance)),
+  getSecurityUserDetail: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/users/detail?name=${encodeURIComponent(name)}`, instance)),
+  getSecurityRoles: (instance) => fetchIris(withInstance("/api/iris/security/roles", instance)),
+  getSecurityRoleDetail: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/roles/detail?name=${encodeURIComponent(name)}`, instance)),
+  getSecurityRoleOwners: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/roles/owners?name=${encodeURIComponent(name)}`, instance)),
+  getSecurityRoleAccessMap: (instance) => fetchIris(withInstance("/api/iris/security/roles/access-map", instance)),
+  getSecurityResources: (instance) => fetchIris(withInstance("/api/iris/security/resources", instance)),
+  getSecurityResourceDetail: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/resources/detail?name=${encodeURIComponent(name)}`, instance)),
   // Authentication. web-auth comes without SMTPUsername.
-  getSecurityServices: () => fetchIris("/api/iris/security/services"),
-  getSecurityServiceDetail: (name) =>
-    fetchIris(`/api/iris/security/services/detail?name=${encodeURIComponent(name)}`),
-  getSecurityWebAuth: () => fetchIris("/api/iris/security/web-auth"),
-  getSecuritySuperservers: () => fetchIris("/api/iris/security/superservers"),
-  getSecurityClassAccess: () => fetchIris("/api/iris/security/class-access"),
+  getSecurityServices: (instance) => fetchIris(withInstance("/api/iris/security/services", instance)),
+  getSecurityServiceDetail: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/services/detail?name=${encodeURIComponent(name)}`, instance)),
+  getSecurityWebAuth: (instance) => fetchIris(withInstance("/api/iris/security/web-auth", instance)),
+  getSecuritySuperservers: (instance) => fetchIris(withInstance("/api/iris/security/superservers", instance)),
+  getSecurityClassAccess: (instance) => fetchIris(withInstance("/api/iris/security/class-access", instance)),
   // Wallet metadata: collections and their secrets' names and types, no values.
-  getSecurityWalletOverview: () => fetchIris("/api/iris/security/wallet/overview"),
-  getSecurityWalletCollectionDetail: (name) =>
-    fetchIris(`/api/iris/security/wallet/collections/detail?name=${encodeURIComponent(name)}`),
-  getSecurityWalletSecrets: (collection) =>
-    fetchIris(`/api/iris/security/wallet/secrets?collection=${encodeURIComponent(collection)}`),
+  getSecurityWalletOverview: (instance) => fetchIris(withInstance("/api/iris/security/wallet/overview", instance)),
+  getSecurityWalletCollectionDetail: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/wallet/collections/detail?name=${encodeURIComponent(name)}`, instance)),
+  getSecurityWalletSecrets: (collection, instance) =>
+    fetchIris(withInstance(`/api/iris/security/wallet/secrets?collection=${encodeURIComponent(collection)}`, instance)),
   // X.509 credential and certificate metadata, no keys or key passwords.
-  getSecurityX509Overview: () => fetchIris("/api/iris/security/x509/overview"),
-  getSecurityX509CredentialDetail: (alias) =>
-    fetchIris(`/api/iris/security/x509/credentials/detail?alias=${encodeURIComponent(alias)}`),
-  getSecurityX509Certificate: (alias) =>
-    fetchIris(`/api/iris/security/x509/credentials/certificate?alias=${encodeURIComponent(alias)}`),
+  getSecurityX509Overview: (instance) => fetchIris(withInstance("/api/iris/security/x509/overview", instance)),
+  getSecurityX509CredentialDetail: (alias, instance) =>
+    fetchIris(withInstance(`/api/iris/security/x509/credentials/detail?alias=${encodeURIComponent(alias)}`, instance)),
+  getSecurityX509Certificate: (alias, instance) =>
+    fetchIris(withInstance(`/api/iris/security/x509/credentials/certificate?alias=${encodeURIComponent(alias)}`, instance)),
   // OAuth 2.0: one overview plus details, with safe fields only (no secrets
   // or tokens).
-  getSecurityOAuthOverview: () => fetchIris("/api/iris/security/oauth/overview"),
-  getSecurityOAuthServerClient: (clientId) =>
-    fetchIris(`/api/iris/security/oauth/server-clients/detail?clientId=${encodeURIComponent(clientId)}`),
-  getSecurityOAuthServerDefinition: (serverId) =>
-    fetchIris(`/api/iris/security/oauth/server-definitions/detail?serverId=${encodeURIComponent(serverId)}`),
-  getSecurityOAuthClientConfiguration: (applicationName) =>
-    fetchIris(
+  getSecurityOAuthOverview: (instance) => fetchIris(withInstance("/api/iris/security/oauth/overview", instance)),
+  getSecurityOAuthServerClient: (clientId, instance) =>
+    fetchIris(withInstance(`/api/iris/security/oauth/server-clients/detail?clientId=${encodeURIComponent(clientId)}`, instance)),
+  getSecurityOAuthServerDefinition: (serverId, instance) =>
+    fetchIris(withInstance(`/api/iris/security/oauth/server-definitions/detail?serverId=${encodeURIComponent(serverId)}`, instance)),
+  getSecurityOAuthClientConfiguration: (applicationName, instance) =>
+    fetchIris(withInstance(
       `/api/iris/security/oauth/client-configurations/detail?applicationName=${encodeURIComponent(applicationName)}`,
-    ),
-  getSecurityOAuthResourceServer: (name) =>
-    fetchIris(`/api/iris/security/oauth/resource-servers/detail?name=${encodeURIComponent(name)}`),
-  getExtLangServers: () => fetchIris("/api/iris/ext-lang-servers"),
-  getFsAccessPurposes: () => fetchIris("/api/iris/fs-access-purposes"),
-  getWalletCollections: () => fetchIris("/api/iris/wallet/collections"),
-  getAuditEnabled: () => fetchIris("/api/iris/security/audit/enabled"),
+      instance,
+    )),
+  getSecurityOAuthResourceServer: (name, instance) =>
+    fetchIris(withInstance(`/api/iris/security/oauth/resource-servers/detail?name=${encodeURIComponent(name)}`, instance)),
+  getExtLangServers: (instance) => fetchIris(withInstance("/api/iris/ext-lang-servers", instance)),
+  getFsAccessPurposes: (instance) => fetchIris(withInstance("/api/iris/fs-access-purposes", instance)),
+  getWalletCollections: (instance) => fetchIris(withInstance("/api/iris/wallet/collections", instance)),
+  getAuditEnabled: (instance) => fetchIris(withInstance("/api/iris/security/audit/enabled", instance)),
   // `filters` holds the optional query parameters (beginDateTime,
   // endDateTime, eventTypes, usernames, ascending, jsonSearch, ...). Empty
   // values are left out, so IRIS returns everything by default.
-  getAuditRecords: (filters = {}) => {
+  getAuditRecords: (filters = {}, instance) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) {
       if (value !== undefined && value !== null && value !== "") {
@@ -412,9 +472,9 @@ export const IrisApi = {
       }
     }
     const queryString = params.toString();
-    return fetchIris(`/api/iris/security/audit/records${queryString ? `?${queryString}` : ""}`);
+    return fetchIris(withInstance(`/api/iris/security/audit/records${queryString ? `?${queryString}` : ""}`, instance));
   },
-  getJournalSettings: () => fetchIris("/api/iris/journal/settings"),
+  getJournalSettings: (instance) => fetchIris(withInstance("/api/iris/journal/settings", instance)),
   getOperations: () => fetchIris("/api/iris/operations"),
   // Our own PythonDiagnostics shape (not an IRISEnvelope): host values from
   // Embedded Python inside IRIS. Missing values are null and listed in
@@ -430,12 +490,12 @@ export const IrisApi = {
   // ranked by IRIS Vector Search. 503 when ENABLE_KNOWLEDGE_SEARCH is off.
   searchKnowledge: (query) => fetchIris(`/api/iris/knowledge/search?q=${encodeURIComponent(query)}`),
   // Returns our own { reply, intent } shape, not an IRISEnvelope.
-  queryAssistant: (message) =>
-    fetchIris(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`),
+  queryAssistant: (message, instance) =>
+    fetchIris(withInstance(`/api/iris/assistant/query?message=${encodeURIComponent(message)}`, instance)),
   classifyCopilotRequest: (message) =>
     postCopilot("/api/iris/copilot/classify", { message }),
-  askCopilot: (message) =>
-    postCopilot("/api/iris/copilot/ask", { message }),
+  askCopilot: (message, instance) =>
+    postCopilot(withInstance("/api/iris/copilot/ask", instance), { message }),
   planCopilotOperation: (message, reasoning) =>
     postCopilot("/api/iris/copilot/plan", {
       message,
@@ -481,6 +541,24 @@ export const IrisApi = {
   // Our own capability registry (no IRIS call); `available` says whether
   // the route exists.
   getCapabilities: () => fetchIris("/api/iris/capabilities"),
+  // IRIS instances. Reads return InstanceView ({ instances: [...] } for the
+  // list), never a password. testInstanceConnection returns an InstanceCheck
+  // and stores nothing; checkInstance stores the result as last_check. The
+  // changes return an OperationResult; pass dryRun=true for a preview.
+  getInstances: () => fetchIris("/api/iris/instances"),
+  testInstanceConnection: (fields) => sendInstanceRequest("POST", "/api/iris/instances/test", fields),
+  createInstance: (fields, confirmed, dryRun = false) =>
+    sendInstanceRequest("POST", "/api/iris/instances", { ...fields, confirmed, dry_run: dryRun }),
+  updateInstance: (id, fields, confirmed, dryRun = false) =>
+    sendInstanceRequest("PUT", instancePath(id), { ...fields, confirmed, dry_run: dryRun }),
+  checkInstance: (id) => sendInstanceRequest("POST", `${instancePath(id)}/check`),
+  setInstanceActive: (id, active, confirmed, dryRun = false) =>
+    sendInstanceRequest("POST", `${instancePath(id)}/${active ? "activate" : "deactivate"}`, {
+      confirmed,
+      dry_run: dryRun,
+    }),
+  deleteInstance: (id, confirmed, dryRun = false) =>
+    sendInstanceRequest("DELETE", instancePath(id), { confirmed, dry_run: dryRun }),
 };
 
 export { ApiError, API_BASE_URL };

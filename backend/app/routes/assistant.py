@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.assistant.intents import Intent, classify_intent
 from app.assistant.journal_operation import handle_journal_operation_message
 from app.assistant.responses import (
+    PRIMARY_ONLY_REPLY,
     UNKNOWN_REPLY,
     UNREACHABLE_REPLY,
     format_database_status,
@@ -23,7 +24,7 @@ from app.assistant.responses import (
     format_task_info,
     format_web_app_status,
 )
-from app.dependencies import get_iris_client
+from app.dependencies import get_iris_client, get_read_client
 from app.iris_client.client import IRISClient
 from app.models.schemas import AssistantQueryResponse
 from app.routes.iris import get_databases, get_info, get_processes, get_tasks, get_web_apps
@@ -34,7 +35,8 @@ router = APIRouter(prefix="/api/iris", tags=["assistant"])
 @router.get("/assistant/query", response_model=AssistantQueryResponse)
 async def query_assistant(
     message: str = Query(..., min_length=1, max_length=500),
-    client: IRISClient = Depends(get_iris_client),
+    client: IRISClient = Depends(get_read_client),
+    primary: IRISClient = Depends(get_iris_client),
 ) -> AssistantQueryResponse:
     intent = classify_intent(message)
 
@@ -58,7 +60,11 @@ async def query_assistant(
             envelope = await get_tasks(client)
             reply = format_task_info(envelope.result)
         elif intent is Intent.JOURNAL_OPERATION:
-            reply = await handle_journal_operation_message(message, client)
+            reply = (
+                await handle_journal_operation_message(message, primary)
+                if client is primary
+                else PRIMARY_ONLY_REPLY
+            )
         else:
             reply = UNKNOWN_REPLY
     except HTTPException:
