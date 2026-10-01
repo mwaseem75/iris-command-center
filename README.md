@@ -51,7 +51,7 @@ inside a deterministic, server-side safety boundary:
 
 ### The safety architecture
 
-```mermaid
+```
 flowchart LR
     U[User Request] --> I[Deterministic Intent]
     I --> C[Capability Catalog]
@@ -61,7 +61,7 @@ flowchart LR
     A --> X[Controlled Execution]
     X --> V[Verification]
     V --> T[Structured Trace]
-
+```
     
 ### Why this matters
 
