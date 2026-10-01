@@ -1148,8 +1148,8 @@ def test_issue_resolver_presents_the_rehearsal_lifecycle() -> None:
     check(code.count("IrisApi.runDemoRehearsal(") == 1
           and "IrisApi.runDemoRehearsal(true, DEMO_STEPS[step].scenario)" in code,
           "the page runs only the existing IPM Issue Resolution Rehearsal steps, from one place")
-    check("if (rehearsalRunning || !dom.rehearsalAck.checked) return;" in code,
-          "the rehearsal only runs after the acknowledgement checkbox")
+    check("if (rehearsalRunning || !dom.rehearsalAck.checked || !viewedInstance().primary) return;" in code,
+          "the rehearsal only runs after the acknowledgement checkbox, and only with the Primary selected")
     check(re.findall(r"\brunRehearsal\(\)", code).count("runRehearsal()") == 2,
           "runRehearsal() is defined once and called only from the Confirm & Run button")
     for label in ("Create", "Detect", "Explain", "Resolve", "Verify", "Restore", "Observe"):
@@ -1231,9 +1231,9 @@ def test_issue_resolver_demo_issue_has_separate_create_and_resolve_steps() -> No
     check('showRehearsalConfirm(true, "create")' in code and 'showRehearsalConfirm(true, "resolve")' in code,
           "each button only opens the confirmation for its own step")
     check("if (!DEMO_STEPS[step]) return;" in code, "nothing runs without a confirmed, known step")
-    check("dom.demoResolve.disabled = rehearsalRunning || !issueActive;" in code
-          and "dom.rehearsalStart.disabled = rehearsalRunning || issueActive;" in code,
-          "Resolve is only enabled while the IPM issue is active, Create only while it isn't")
+    check("dom.demoResolve.disabled = rehearsalRunning || !issueActive || !primary;" in code
+          and "dom.rehearsalStart.disabled = rehearsalRunning || issueActive || !primary;" in code,
+          "Resolve is only enabled while the IPM issue is active, Create only while it isn't (both on the Primary only)")
     check('issue.kind === DISMOUNTED && String(issue.database).toUpperCase() === "IPM"' in code,
           "the active demo issue is read from the live issue list")
     check('"issue.confirm_dismounted"' in code and '"issue.fix"' in code and '"issue.verify"' in code,
@@ -1428,8 +1428,9 @@ def test_capabilities_view_uses_only_expected_endpoint() -> None:
     code_only = re.sub(r"//.*", "", capabilities_js)
     code_only = re.sub(r"/\*[\s\S]*?\*/", "", code_only)
     check(
-        code_only.count("IrisApi.") == 1,
-        "capabilities.js calls an IrisApi method exactly once (filtering never re-fetches)",
+        code_only.count("IrisApi.") == 2
+        and "Promise.allSettled([IrisApi.getCapabilities(), IrisApi.getInstances()])" in code_only,
+        "capabilities.js fetches its list and the instance registry once per load (filtering never re-fetches)",
     )
 
 
@@ -1908,8 +1909,9 @@ def test_issue_resolver_layout_separates_active_catalog_and_rules() -> None:
         check(f'id="issue-resolver-kpi-{kpi}"' in text, f"the {kpi} count is shown")
     check("resolutions[issue.kind]?.resolvable === true" in code and "isDetectionOnly(resolutions[issue.kind])" in code,
           "Resolvable and Detection-only counts come from the catalog entries")
-    check('id="issue-resolver-updated"' in text and "dom.updated.textContent = new Date().toLocaleString();" in code,
-          "Active Issues shows when it was last updated")
+    check('id="issue-resolver-updated"' in text
+          and "dom.updated.textContent = `${new Date().toLocaleString()} · ${viewed.name}`;" in code,
+          "Active Issues shows when it was last updated, and for which instance")
     check('id="issue-resolver-refresh-button"' in text, "the refresh button is kept")
 
     # Resolvable vs Detection-only is obvious on cards, catalog rows and rule rows.
@@ -2369,8 +2371,8 @@ def test_instances_page_uses_instance_routes_and_confirmed_operations() -> None:
     nav = re.search(r'<button class="nav-item"[^>]*data-view="instances"[^>]*>', html)
     check(nav is not None and "disabled" not in nav.group(0), "the Instances nav item exists and is enabled")
     check('<section class="view" id="view-instances" data-view="instances"' in html, "the Instances view exists")
-    check("initInstancesControls();" in app_js and "instances: () => loadInstances()," in app_js,
-          "app.js wires the page and reloads it each time it is opened")
+    check("initInstancesControls();" in app_js and "instances: () => loadInstances({ checkSystem: true })," in app_js,
+          "app.js wires the page and reloads it (checking the Primary and Docker-managed instance) each time it is opened")
 
     used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
     check(used == ["checkInstance", "createInstance", "deleteInstance", "getInstances", "setInstanceActive",
@@ -2394,8 +2396,9 @@ def test_instances_page_uses_instance_routes_and_confirmed_operations() -> None:
     # The Primary is protected in the UI (the backend also refuses).
     check("if (instance.primary) {" in js and "disabled: true, title: reason" in js,
           "the Primary's Edit and Delete are disabled and it has no Deactivate")
-    check('!instance.primary) openForm("edit"' in js and "!instance.primary) openConfirm(action" in js,
-          "row actions never open a change dialog for the Primary")
+    check('!instance.primary && !instance.docker_managed) openForm("edit"' in js
+          and '!instance.primary && !(action === "delete" && instance.docker_managed)) {' in js,
+          "row actions never open a change dialog for the Primary, nor Edit/Delete for the Docker-managed instance")
 
     # Passwords: only read from the field to send, never displayed, stored or logged.
     check("console." not in js, "instances.js doesn't log")
@@ -2431,14 +2434,15 @@ def test_instance_selector_is_in_page_headers_and_context_only() -> None:
     check(selector_views is not None and selector_views.group(1) == '"dashboard", "health-center"',
           "the selector is placed on the instance pages plus the Dashboard and Health Center")
     instance_views = re.search(r"const INSTANCE_VIEWS = new Set\(\[(.*?)\]\);", app_js, re.S)
-    for name in ("fleet", "issue-resolver", "operations"):
-        check(instance_views is not None and f'"{name}"' not in instance_views.group(1),
-              f"{name} gets no instance selector")
+    check(instance_views is not None and '"fleet"' not in instance_views.group(1), "fleet gets no instance selector")
+    for name in ("issue-resolver", "operations", "observability", "capabilities"):
+        check(instance_views is not None and f'"{name}"' in instance_views.group(1), f"{name} gets the instance selector")
     check("const shown = SELECTOR_VIEWS.has(view);" in app_js and "placeInstanceSelector(shown ?" in app_js,
           "app.js moves it into the open page's header")
     check("if (shown) refreshInstanceContext();" in app_js, "opening an instance page checks the instances again")
-    check('id="context-notice-primary"' in html and "selectInstanceContext(PRIMARY_ID)" in app_js,
-          "the Primary-only pages offer an explicit switch to Primary instead of a selector")
+    check('const VIEWS_WITH_PRIMARY_ONLY_ACTIONS = new Set(["issue-resolver", "operations"]);' in app_js
+          and "context-notice-primary" not in html and "PRIMARY_ONLY_VIEWS" not in app_js,
+          "Issue Resolver and Operations read the selected instance; their changes are marked Primary only (no page is blocked)")
     check("updateInstanceContextList(instances);" in instances_js, "the Instances screen refreshes the selector after it reloads")
 
     used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
@@ -2460,10 +2464,18 @@ def test_instance_selector_is_in_page_headers_and_context_only() -> None:
     # Command Center's own data don't.
     for name in ("dashboard", "health-center", "system", "namespaces", "processes", "databases", "web-apps", "tasks",
                  "security", "security-access", "security-auth", "security-wallet", "security-x509", "journal",
-                 "investigation", "extensions", "ai-assistant"):
+                 "investigation", "extensions", "ai-assistant", "issue-resolver", "operations", "observability",
+                 "capabilities"):
         check("instance-context" in (FRONTEND_DIR / "js" / f"{name}.js").read_text(encoding="utf-8"),
               f"{name}.js reads the selected instance")
-    for name in ("issue-resolver", "operations", "message-log", "observability", "capabilities", "demo-activity"):
+    issue_js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
+    operations_js = (FRONTEND_DIR / "js" / "operations.js").read_text(encoding="utf-8")
+    check("IrisApi.getIssues(selectedInstanceId())" in issue_js, "Issue Resolver checks the selected instance for issues")
+    check("IrisApi.getJournalSettings(selectedInstanceId())" in operations_js
+          and "IrisApi.executeJournalPurgeArchived(target, true, issueType)" in operations_js
+          and '["Runs on", "Primary instance only"]' in operations_js,
+          "Operations reads the selected instance and runs its change on the Primary only, which every card says")
+    for name in ("message-log", "demo-activity"):
         check("instance-context" not in (FRONTEND_DIR / "js" / f"{name}.js").read_text(encoding="utf-8"),
               f"{name}.js stays on the Primary / Command Center data")
 

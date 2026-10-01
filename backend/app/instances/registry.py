@@ -13,6 +13,7 @@ both unchanged. IDs are generated once and never change.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -198,6 +199,11 @@ class IRISInstanceWriter:
     = JSON, over the Native API in iris_namespace (same connection pattern as
     IRISIssueRuleWriter). Blocking: call from a thread. Never raises; save and
     delete return whether IRIS was updated.
+
+    The connection is opened once and kept. If it has gone (e.g. IRIS was
+    restarted after the backend started: EPIPE / timeout on the old socket),
+    a save or delete drops it, reconnects and tries once more; both are
+    idempotent writes of one global node.
     """
 
     _GLOBAL = "CommandCenterInstance"
@@ -221,23 +227,42 @@ class IRISInstanceWriter:
         )
         self._iris = iris.createIRIS(self._connection)
 
+    def _reset(self) -> None:
+        """Drop the connection so the next call reconnects."""
+        connection, self._connection, self._iris = self._connection, None, None
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - already failing; just discard it
+                pass
+
+    def _write(self, write: Callable[[Any], None]) -> None:
+        """Run `write(iris)`; on a failure, reconnect and try once more (raises if that fails too)."""
+        try:
+            self._ensure_connected()
+            write(self._iris)
+        except Exception:  # noqa: BLE001 - e.g. a connection IRIS has since closed
+            self._reset()
+            self._ensure_connected()
+            write(self._iris)
+
     def save_sync(self, instance: InstanceDefinition) -> bool:
         if instance.primary:
             return False  # the Primary always comes from the environment
         try:
-            self._ensure_connected()
-            self._iris.set(instance.model_dump_json(), self._GLOBAL, "instance", instance.id)
+            self._write(lambda iris: iris.set(instance.model_dump_json(), self._GLOBAL, "instance", instance.id))
             return True
         except Exception:  # noqa: BLE001 - reported to the caller as not saved
+            self._reset()
             logger.warning("Could not save instance %s to IRIS (^%s).", instance.id, self._GLOBAL, exc_info=True)
             return False
 
     def delete_sync(self, instance_id: str) -> bool:
         try:
-            self._ensure_connected()
-            self._iris.kill(self._GLOBAL, "instance", instance_id)
+            self._write(lambda iris: iris.kill(self._GLOBAL, "instance", instance_id))
             return True
         except Exception:  # noqa: BLE001
+            self._reset()
             logger.warning("Could not delete instance %s from IRIS (^%s).", instance_id, self._GLOBAL, exc_info=True)
             return False
 
@@ -257,6 +282,7 @@ class IRISInstanceWriter:
                     logger.warning("Skipping unreadable instance ^%s(\"instance\",%r).", self._GLOBAL, key)
                 key = self._iris.nextSubscript(False, self._GLOBAL, "instance", key)
         except Exception:  # noqa: BLE001 - startup must never fail on this
+            self._reset()  # a later save reconnects
             logger.warning("Could not load instances from IRIS (^%s).", self._GLOBAL, exc_info=True)
         return instances
 

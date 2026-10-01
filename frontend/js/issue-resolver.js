@@ -10,8 +10,16 @@
 // "issue_resolve"), each only after an explicit acknowledgement and Confirm,
 // and shows their real step results as one lifecycle:
 // Create -> Detect -> Explain -> Resolve -> Verify -> Restore -> Observe.
+//
+// Instance-aware (instance selector): the issues are checked on the selected
+// instance (GET /api/iris/issues?instance=<id>; the Primary without it). Every
+// change runs on the Primary only, so with another instance selected the
+// Resolve actions, custom rule changes and the Demo Issue are shown disabled
+// and marked Primary only, and resolution history (which lists those fixes)
+// isn't shown.
 
 import { ApiError, IrisApi } from "./api.js";
+import { getInstanceContext, selectedInstanceId } from "./instance-context.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
 
@@ -72,6 +80,8 @@ const dom = {
   rulesBody: document.getElementById("issue-resolver-rules-body"),
   rulesEmpty: document.getElementById("issue-resolver-rules-empty"),
   rehearsalStart: document.getElementById("issue-resolver-rehearsal-start"),
+  rehearsalPrimaryNote: document.getElementById("issue-resolver-rehearsal-primary-note"),
+  rulesPrimaryNote: document.getElementById("issue-resolver-rules-primary-note"),
   demoResolve: document.getElementById("issue-resolver-demo-resolve"),
   rehearsalWarning: document.getElementById("issue-resolver-rehearsal-warning"),
   rehearsalAckText: document.getElementById("issue-resolver-rehearsal-ack-text"),
@@ -328,6 +338,20 @@ function resourceOf(issue) {
   return RESOURCES[issue?.kind] || UNKNOWN_RESOURCE;
 }
 
+// The instance the page shows. Changes only run on the Primary.
+function viewedInstance() {
+  const instance = getInstanceContext().instance;
+  return { primary: !instance || instance.primary, name: instance ? instance.name : "Primary" };
+}
+
+const PRIMARY_ONLY_FIX = "Resolve on Primary only";
+const PRIMARY_ONLY_FIX_TITLE = "Fixes run on the Primary instance only. Select Primary to resolve this issue there.";
+
+// A resolvable issue on another instance can't be fixed from here.
+function fixBlocked(resolution) {
+  return !isDetectionOnly(resolution) && !viewedInstance().primary;
+}
+
 // The app.js callback that opens the page where this issue is resolved.
 function resolveHandler(issue) {
   const resolution = resolutions[issue?.kind];
@@ -447,6 +471,11 @@ function renderIssueCard(issue, index) {
     const action = el("button", "ir-issue__action",
       isDetectionOnly(resolution) ? investigateAction(resolution) : res.action);
     action.type = "button";
+    if (fixBlocked(resolution)) {
+      action.disabled = true;
+      action.textContent = PRIMARY_ONLY_FIX;
+      action.title = PRIMARY_ONLY_FIX_TITLE;
+    }
     plan.append(action);
   }
 
@@ -464,6 +493,7 @@ function renderIssueCard(issue, index) {
 function runCardAction(event) {
   const button = event.target.closest(".ir-issue__action");
   if (!button) return false;
+  if (button.disabled) return true;
   const card = button.closest(".ir-issue");
   const issue = activeIssues[Number(card?.dataset.index)];
   const open = resolveHandler(issue);
@@ -761,6 +791,9 @@ function openDrawer(index) {
     : res.hint;
   dom.openDatabasesButton.textContent = detectionOnly ? investigateAction(resolution) : res.action;
   dom.openDatabasesButton.hidden = !resolveHandler(issue);
+  dom.openDatabasesButton.disabled = fixBlocked(resolution);
+  dom.openDatabasesButton.title = fixBlocked(resolution) ? PRIMARY_ONLY_FIX_TITLE : "";
+  if (fixBlocked(resolution)) dom.openDatabasesButton.textContent = PRIMARY_ONLY_FIX;
   const severity = resolution ? resolution.severity : null;
   dom.drawerSeverity.className = `status-badge ${SEVERITY_BADGES[severity] || "status-badge--neutral"}`;
   dom.drawerSeverity.textContent = severity ? capitalize(severity) : "Unknown";
@@ -814,7 +847,13 @@ function openDrawer(index) {
   }
 
   showDrawer();
-  void loadIssueResolutionHistory(issue, historyRequest);
+  const viewed = viewedInstance();
+  if (viewed.primary) {
+    void loadIssueResolutionHistory(issue, historyRequest);
+  } else {
+    dom.drawerBody.append(section("Resolution History", el("p", "empty-state",
+      `Resolution history lists fixes, which run on the Primary instance only, so it isn't shown for ${viewed.name}.`)));
+  }
 }
 
 // Opens the (shared, centered) detail workspace.
@@ -1189,9 +1228,13 @@ function renderRehearsal() {
   dom.rehearsalRunning.hidden = !rehearsalRunning;
   // Create while there's no active demo issue; Resolve only while there is one.
   const issueActive = demoIssueActive();
-  dom.rehearsalStart.disabled = rehearsalRunning || issueActive;
-  dom.rehearsalStart.title = issueActive ? "The IPM demo issue is already active. Resolve it first." : "";
-  dom.demoResolve.disabled = rehearsalRunning || !issueActive;
+  const { primary } = viewedInstance();
+  dom.rehearsalStart.disabled = rehearsalRunning || issueActive || !primary;
+  dom.rehearsalStart.title = !primary ? "The Demo Issue runs on the Primary instance only."
+    : issueActive ? "The IPM demo issue is already active. Resolve it first." : "";
+  dom.demoResolve.disabled = rehearsalRunning || !issueActive || !primary;
+  dom.rehearsalPrimaryNote.hidden = primary;
+  if (!primary && !rehearsalRunning) dom.rehearsalConfirm.hidden = true;
   dom.rehearsalSummary.hidden = rehearsalRunning || !result;
   dom.rehearsalResults.hidden = rehearsalRunning || !result;
   if (rehearsalRunning || !result) return;
@@ -1273,7 +1316,7 @@ async function readFixTrace(result) {
 // Only called from the Confirm button, after the checkbox, for the step the
 // confirmation box was opened for.
 async function runRehearsal() {
-  if (rehearsalRunning || !dom.rehearsalAck.checked) return;
+  if (rehearsalRunning || !dom.rehearsalAck.checked || !viewedInstance().primary) return;
   const step = pendingStep;
   if (!DEMO_STEPS[step]) return;
   showRehearsalConfirm(false);
@@ -1308,12 +1351,13 @@ async function runRehearsal() {
 export async function loadIssueResolver() {
   setLoading(true);
   setErrorBanner(null);
+  const viewed = viewedInstance();
   try {
-    const response = await IrisApi.getIssues();
+    const response = await IrisApi.getIssues(selectedInstanceId());
     activeIssues = Array.isArray(response?.issues) ? response.issues : [];
     resolutions = response?.resolutions && typeof response.resolutions === "object" ? response.resolutions : {};
     issueCorrelations = Array.isArray(response?.correlations) ? response.correlations : [];
-    dom.updated.textContent = new Date().toLocaleString();
+    dom.updated.textContent = `${new Date().toLocaleString()} · ${viewed.name}`;
     const unavailable = Array.isArray(response?.issue_checks_unavailable) ? response.issue_checks_unavailable : [];
     if (unavailable.length) {
       const names = unavailable.map((kind) => resolutions[kind]?.title || kind).join(", ");
@@ -1323,7 +1367,9 @@ export async function loadIssueResolver() {
     activeIssues = [];
     resolutions = {};
     issueCorrelations = [];
-    setErrorBanner("Could not check for issues right now. The Command Center backend may be unreachable.");
+    setErrorBanner(viewed.primary
+      ? "Could not check for issues right now. The Command Center backend may be unreachable."
+      : `Could not check ${viewed.name} for issues right now. The instance may be unreachable; no other instance's issues are shown.`);
   }
   closeDrawer();
   renderKpis();
@@ -1386,7 +1432,11 @@ async function loadRules() {
 }
 
 function renderRules() {
-  dom.rulesAdd.disabled = !ruleOptions || customRules.length >= (ruleOptions.max_rules || 0);
+  const { primary } = viewedInstance();
+  dom.rulesAdd.disabled = !primary || !ruleOptions || customRules.length >= (ruleOptions.max_rules || 0);
+  dom.rulesPrimaryNote.hidden = primary;
+  if (!primary && !dom.ruleForm.hidden) showRuleForm(false);  // no rule changes for another instance
+  if (!primary) pendingDeleteRule = null;
   dom.rulesStorage.textContent = !ruleOptions ? "" : `${customRules.length} of ${ruleOptions.max_rules} rules. ` + (
     ruleOptions.persisted_to_iris
       ? "Rules are saved in IRIS (^CommandCenterIssueRule) and survive a backend restart."
@@ -1420,6 +1470,8 @@ function renderRules() {
       const remove = el("button", "btn ir-danger-btn", "Delete");
       remove.type = "button";
       remove.dataset.action = "delete";
+      remove.disabled = !primary;
+      if (!primary) remove.title = "Rules can be deleted with the Primary instance selected.";
       remove.setAttribute("aria-label", `Delete rule ${rule.name}`);
       actions.append(remove);
     }
@@ -1449,6 +1501,7 @@ function showRuleForm(show) {
 // Only reached from the form's submit; the backend validates everything again.
 async function submitRule(event) {
   event.preventDefault();
+  if (!viewedInstance().primary) return;
   if (dom.ruleValue.value.trim() === "" || !Number.isFinite(Number(dom.ruleValue.value))) {
     setRulesError("Value must be a number.");
     return;

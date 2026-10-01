@@ -13,6 +13,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PRIMARY_INSTANCE_ID = "primary"
 
+# Hosts of IRIS instances that Docker Compose manages: docker-compose.yml's
+# iris-2 service (its data volume and password), registered here at
+# http://iris-2:52773. Like the Primary, such an instance can't be edited or
+# deleted here; Check and activate/deactivate still work.
+DOCKER_MANAGED_HOSTS = frozenset({"iris-2"})
+
+
+def is_docker_managed(instance: "InstanceDefinition") -> bool:
+    return not instance.primary and urlsplit(instance.base_url).hostname in DOCKER_MANAGED_HOSTS
+
 
 def normalize_base_url(value: str) -> str:
     """An instance URL: http(s) with a host, no credentials, query or fragment."""
@@ -93,6 +103,7 @@ class InstanceView(BaseModel):
     active: bool
     primary: bool
     has_credential: bool
+    docker_managed: bool = False  # see DOCKER_MANAGED_HOSTS
     created_at: datetime
     updated_at: datetime
     last_check: InstanceCheck | None = None
@@ -102,4 +113,5 @@ class InstanceView(BaseModel):
         return cls(
             **instance.model_dump(exclude={"credential_ref"}),
             has_credential=instance.primary or instance.credential_ref is not None,
+            docker_managed=is_docker_managed(instance),
         )

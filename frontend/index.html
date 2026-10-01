@@ -174,7 +174,6 @@
         <div class="banner banner--info context-notice" id="context-notice" hidden role="status">
           <span class="banner__icon inst-primary-note__icon" aria-hidden="true">i</span>
           <span id="context-notice-text"></span>
-          <button class="btn btn--sm context-notice__action" type="button" id="context-notice-primary" hidden>Switch to Primary</button>
         </div>
         <!-- Fleet Overview: one monitoring section per active instance, each
              read on its own (js/fleet.js). Nothing is combined. Read-only. -->
@@ -2669,6 +2668,7 @@
                   <button class="btn" type="button" id="operations-set-true-button">Set to Yes</button>
                   <button class="btn" type="button" id="operations-set-false-button">Set to No</button>
                 </div>
+                <p class="primary-only-note" id="operations-execute-primary-note" hidden></p>
               </div>
 
               <div id="operations-execute-confirm" hidden>
@@ -2912,6 +2912,7 @@
               <button class="btn btn--primary" type="button" id="issue-resolver-rules-add">+ Add Rule</button>
             </header>
             <p class="info-card__hint" id="issue-resolver-rules-storage"></p>
+            <p class="primary-only-note" id="issue-resolver-rules-primary-note" hidden>Primary only: rules are Command Center&rsquo;s own (saved with the Primary) and are evaluated on the selected instance here. Select Primary to add or delete a rule.</p>
             <div class="banner banner--error" id="issue-resolver-rules-error" hidden role="alert">
               <span class="banner__icon" aria-hidden="true">&#9888;</span>
               <span id="issue-resolver-rules-error-text"></span>
@@ -3005,6 +3006,7 @@
                 </button>
               </div>
             </div>
+            <p class="primary-only-note" id="issue-resolver-rehearsal-primary-note" hidden>Primary only: the Demo Issue is created and resolved on the Primary instance. Select Primary to run it.</p>
 
             <div class="ir-rehearsal__confirm" id="issue-resolver-rehearsal-confirm" hidden>
               <div class="banner banner--warning" role="alert">
@@ -3585,7 +3587,7 @@
           <div class="view__header">
             <div>
               <h2 class="view__title" id="capabilities-title">API Capability Explorer</h2>
-              <p class="view__subtitle">Which IRIS SysAdmin REST API capabilities this Command Center has verified and wired up &mdash; see docs/api-capability-matrix.md for full detail.</p>
+              <p class="view__subtitle">Which IRIS SysAdmin REST API capabilities this Command Center has verified and wired up, and which ones the selected instance&rsquo;s last compatibility check found &mdash; see docs/api-capability-matrix.md for full detail.</p>
             </div>
             <button class="btn btn--primary" type="button" id="capabilities-refresh-button">
               <span class="btn__icon" aria-hidden="true">&#8635;</span>
@@ -3608,6 +3610,16 @@
             <p class="info-panel__meta" id="capabilities-count"></p>
           </div>
 
+          <!-- The selected instance's last compatibility check (js/capabilities.js). -->
+          <section class="info-card info-card--wide cap-instance" aria-labelledby="capabilities-instance-title">
+            <div class="cap-instance__head">
+              <h3 class="info-card__title" id="capabilities-instance-title">On the Selected Instance</h3>
+              <button class="btn btn--sm" type="button" id="capabilities-open-instances" title="Run a compatibility check on the Instances screen">Instances &rarr;</button>
+            </div>
+            <p class="info-card__hint" id="capabilities-instance-summary"></p>
+            <dl class="info-list cap-instance__facts" id="capabilities-instance-facts"></dl>
+          </section>
+
           <section class="info-card info-card--wide" aria-labelledby="capabilities-filters-title">
             <h3 class="info-card__title" id="capabilities-filters-title">Filters</h3>
             <form class="filter-form" id="capabilities-filter-form">
@@ -3629,6 +3641,15 @@
                   <option value="" selected>All</option>
                   <option value="true">Available in Command Center</option>
                   <option value="false">Not available in Command Center</option>
+                </select>
+              </div>
+              <div class="filter-field">
+                <label for="capabilities-filter-instance">On Selected Instance</label>
+                <select id="capabilities-filter-instance">
+                  <option value="" selected>All</option>
+                  <option value="answered">Answered</option>
+                  <option value="missing">Missing</option>
+                  <option value="not_checked">Not checked</option>
                 </select>
               </div>
             </form>
@@ -3659,6 +3680,7 @@
                   <th scope="col">Required Privilege</th>
                   <th scope="col">Verification</th>
                   <th scope="col">Available</th>
+                  <th scope="col" id="capabilities-instance-column">On Selected Instance</th>
                   <th scope="col">Notes</th>
                 </tr>
               </thead>

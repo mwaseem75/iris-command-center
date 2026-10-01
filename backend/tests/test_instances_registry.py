@@ -416,3 +416,99 @@ def test_writer_never_raises_when_iris_is_unavailable(monkeypatch: pytest.Monkey
     assert writer.save_sync(_definition("iris-aaaa", "http://iris-2:52773")) is False
     assert writer.delete_sync("iris-aaaa") is False
     assert writer.load_all_sync() == []
+
+
+# --- IRISInstanceWriter: a connection IRIS has closed (e.g. IRIS restarted) ---
+
+
+class _FakeIrisModule:
+    """Stands in for the `iris` Native API module: numbered connections, one
+    global store, and connections that can "die" like after an IRIS restart."""
+
+    def __init__(self) -> None:
+        self.globals: dict[tuple, str] = {}
+        self.connections: list[dict] = []
+        self.down = False  # IRIS not accepting connections
+
+    def connect(self, *args):
+        if self.down:
+            raise RuntimeError("<COMMUNICATION LINK ERROR> Failed to connect")
+        connection = {"dead": False, "closed": False}
+        self.connections.append(connection)
+
+        class Connection:
+            def close(self_inner):
+                connection["closed"] = True
+
+        handle = Connection()
+        handle.state = connection
+        return handle
+
+    def createIRIS(self, handle):  # noqa: N802 - Native API name
+        module, state = self, handle.state
+
+        class Native:
+            def _check(self_inner):
+                if state["dead"] or state["closed"]:
+                    raise RuntimeError("<COMMUNICATION LINK ERROR> Failed to send message; Error code: 32 EPIPE")
+
+            def set(self_inner, value, *subscripts):
+                self_inner._check()
+                module.globals[subscripts] = value
+
+            def kill(self_inner, *subscripts):
+                self_inner._check()
+                module.globals.pop(subscripts, None)
+
+            def nextSubscript(self_inner, reverse, *subscripts):  # noqa: N802
+                self_inner._check()
+                return ""
+
+        return Native()
+
+
+@pytest.fixture
+def fake_iris(monkeypatch) -> _FakeIrisModule:
+    import sys
+
+    module = _FakeIrisModule()
+    monkeypatch.setitem(sys.modules, "iris", module)
+    return module
+
+
+def _ovh_definition(instance_id: str = "iris-b88b4c354a7e") -> InstanceDefinition:
+    registry = InstanceRegistry(primary_from_settings(_settings()))
+    return registry.add(name="OVH", base_url="https://ovh.example:52773", username="ops",
+                        credential_ref=f"CommandCenter.{instance_id}", instance_id=instance_id)
+
+
+def test_a_save_after_iris_dropped_the_connection_reconnects_and_persists(fake_iris) -> None:
+    from app.instances.registry import IRISInstanceWriter
+
+    writer = IRISInstanceWriter(_settings())
+    writer.load_all_sync()                 # startup opens the kept connection
+    fake_iris.connections[0]["dead"] = True   # IRIS restarted: that socket is gone (EPIPE)
+
+    instance = _ovh_definition()
+    assert writer.save_sync(instance) is True
+    assert fake_iris.globals[("CommandCenterInstance", "instance", instance.id)] == instance.model_dump_json()
+    assert len(fake_iris.connections) == 2 and fake_iris.connections[0]["closed"]  # the dead one is dropped
+    # The new connection is kept for the next write.
+    assert writer.delete_sync(instance.id) is True
+    assert len(fake_iris.connections) == 2
+    assert ("CommandCenterInstance", "instance", instance.id) not in fake_iris.globals
+
+
+def test_a_save_while_iris_is_still_down_fails_but_the_next_one_reconnects(fake_iris) -> None:
+    from app.instances.registry import IRISInstanceWriter
+
+    writer = IRISInstanceWriter(_settings())
+    writer.load_all_sync()
+    fake_iris.connections[0]["dead"] = True
+    fake_iris.down = True
+    assert writer.save_sync(_ovh_definition()) is False   # reported, not silently "saved"
+
+    fake_iris.down = False                               # IRIS is back: no permanently stale connection
+    instance = _ovh_definition()
+    assert writer.save_sync(instance) is True
+    assert ("CommandCenterInstance", "instance", instance.id) in fake_iris.globals

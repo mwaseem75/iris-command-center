@@ -13,6 +13,7 @@ from datetime import datetime
 from app.authorization.operations import get_operation
 from app.authorization.service import authorize
 from app.execution.handler import OperationHandler
+from app.instances.models import PRIMARY_INSTANCE_ID
 from app.execution.models import (
     ExecutionContext,
     HandlerExecutionResult,
@@ -78,10 +79,18 @@ def _lifecycle_evidence(
 
 
 class OperationExecutor:
-    """Handlers are passed in explicitly, which keeps this easy to test with fakes."""
+    """Handlers are passed in explicitly, which keeps this easy to test with fakes.
 
-    def __init__(self, handlers: dict[str, OperationHandler] | None = None):
+    `instance_id` is the IRIS instance its handlers act on, recorded on every
+    trace. Changes only run on the Primary (their routes use its client), so
+    that's the default; instance-registry changes pass None.
+    """
+
+    def __init__(
+        self, handlers: dict[str, OperationHandler] | None = None, instance_id: str | None = PRIMARY_INSTANCE_ID
+    ):
         self._handlers: dict[str, OperationHandler] = dict(handlers or {})
+        self._instance_id = instance_id
 
     def register_handler(self, operation_name: str, handler: OperationHandler) -> None:
         self._handlers[operation_name] = handler
@@ -92,7 +101,7 @@ class OperationExecutor:
         resolution_context = trace_context(
             request.resolution_issue_type, request.operation_name, request.parameters
         )
-        recorder = TraceRecorder(request.operation_name, resolution=resolution_context)
+        recorder = TraceRecorder(request.operation_name, resolution=resolution_context, instance_id=self._instance_id)
         result = await self._execute(request, context, recorder, resolution_context)
         # Informational link to this run's trace; nothing reads it to decide.
         return result.model_copy(update={"trace_id": recorder.trace_id})

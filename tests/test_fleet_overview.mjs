@@ -202,9 +202,11 @@ test("each instance has its own section with only its own values; nothing is com
 
   // No Primary value in IRIS-2's section, and the other way round.
   assert.ok(!iris2.includes("121U") && !iris2.includes("★") && !primary.includes("221U") && !primary.includes("Troubled"));
-  // No fleet totals anywhere (7 + 14 processes, 100 + 200 refs/s).
-  const page = sections().map(text).join(" ");
-  assert.ok(!/\b21\b/.test(page) && !page.includes("300 /s"));
+  // No fleet totals anywhere (7 + 14 processes, 100 + 200 refs/s): every card
+  // value is one instance's own.
+  const values = sections().flatMap((node) => [...walk(node)].filter((n) => n.className === "fleet-tile__value"))
+    .map((n) => n.textContent);
+  assert.deepEqual(values, ["7", "100 /s", "4", "10%", "14", "200 /s", "8", "20%"]);
 });
 
 test("the four metric cards draw only that instance's own readings", async () => {

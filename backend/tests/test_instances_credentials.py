@@ -363,3 +363,111 @@ async def test_password_never_appears_in_logs_or_reprs(caplog: pytest.LogCapture
 
     for text in (caplog.text, repr(store), repr(registry.list()), repr(persister.saved)):
         assert CANARY not in text and NEW_CANARY not in text
+
+
+# --- a Wallet read on a connection IRIS has closed (e.g. IRIS restarted) ---
+
+
+def test_a_read_after_iris_dropped_the_connection_reconnects_once(monkeypatch) -> None:
+    import sys
+
+    ref = credential_ref_for("iris-0123456789ab")
+    dead = _FakeNative(error=RuntimeError("<COMMUNICATION LINK ERROR> Failed to send message; Error code: 32 EPIPE"))
+    fresh = _FakeNative({ref: json.dumps({"password": CANARY})})
+    connects = []
+
+    class _Module:
+        @staticmethod
+        def connect(*args):
+            connects.append(args[0])
+            return object()
+
+        @staticmethod
+        def createIRIS(connection):  # noqa: N802 - Native API name
+            return fresh
+
+    monkeypatch.setitem(sys.modules, "iris", _Module)
+    store, _ = _store(dead)   # the kept connection is the dead one
+
+    assert store.read_sync(ref).get_secret_value() == CANARY
+    assert len(connects) == 1 and fresh.calls == [("%Wallet.KeyValue", "GetSecretValue", ref)]
+
+
+def test_a_read_that_still_fails_after_reconnecting_is_generic(monkeypatch) -> None:
+    import sys
+
+    error = RuntimeError(f"<COMMUNICATION LINK ERROR> {CANARY}")
+
+    class _Module:
+        @staticmethod
+        def connect(*args):
+            return object()
+
+        @staticmethod
+        def createIRIS(connection):  # noqa: N802
+            return _FakeNative(error=error)
+
+    monkeypatch.setitem(sys.modules, "iris", _Module)
+    store, _ = _store(_FakeNative(error=error))
+
+    with pytest.raises(CredentialStoreError) as raised:
+        store.read_sync("CommandCenter.iris-0123456789ab")
+    assert CANARY not in str(raised.value)
+    assert raised.value.__cause__ is None and raised.value.__suppress_context__
+    assert store._iris is None   # dropped, so the next read reconnects
+
+
+def test_concurrent_reads_and_close_never_use_or_close_the_connection_mid_read(monkeypatch) -> None:
+    # Reads come from worker threads (asyncio.to_thread) and close() from
+    # shutdown: one at a time on the shared Native API connection.
+    import sys
+    import threading
+    import time
+
+    ref = credential_ref_for("iris-0123456789ab")
+    guard = threading.Lock()
+    state = {"reading": 0, "most": 0, "closed_mid_read": False}
+
+    class _Connection:
+        closed = False
+
+        def close(self):
+            with guard:
+                state["closed_mid_read"] = state["closed_mid_read"] or state["reading"] > 0
+            self.closed = True
+
+    class _Native:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def classMethodValue(self, *args):  # noqa: N802 - Native API name
+            with guard:
+                state["reading"] += 1
+                state["most"] = max(state["most"], state["reading"])
+            time.sleep(0.02)
+            with guard:
+                state["reading"] -= 1
+            if self.connection.closed:
+                raise RuntimeError("<COMMUNICATION LINK ERROR> closed")
+            return json.dumps({"password": CANARY})
+
+    class _Module:
+        connect = staticmethod(lambda *args: _Connection())
+        createIRIS = staticmethod(lambda connection: _Native(connection))  # noqa: N815
+
+    monkeypatch.setitem(sys.modules, "iris", _Module)
+    store = WalletCredentialStore(AsyncMock(), _settings())
+    results: list[str] = []
+
+    def read():
+        results.append(store.read_sync(ref).get_secret_value())
+
+    threads = [threading.Thread(target=read) for _ in range(6)] + [threading.Thread(target=store.close)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert results == [CANARY] * 6
+    assert state["most"] == 1, "two reads used the connection at once"
+    assert not state["closed_mid_read"], "the connection was closed during a read"

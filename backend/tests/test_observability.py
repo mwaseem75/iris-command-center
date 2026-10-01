@@ -2,6 +2,7 @@
 GET /api/iris/observability/traces. Uses a fake IRIS client.
 """
 
+import json
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -233,3 +234,39 @@ def test_traces_route_returns_recorded_traces(
 def test_traces_route_never_uses_a_mutating_http_method(client: TestClient) -> None:
     response = client.post("/api/iris/observability/traces")
     assert response.status_code == 405
+
+
+# --- instance identity on traces ---
+
+
+@pytest.mark.asyncio
+async def test_a_change_records_the_primary_as_its_instance() -> None:
+    client = AsyncMock()
+    client.get.side_effect = [_journal_settings_body(False), _journal_settings_body(True)]
+    client.put.return_value = _journal_settings_body(True)
+    executor = OperationExecutor({_OPERATION_NAME: JournalUpdatePurgeArchivedHandler(client)})
+    await executor.execute(_request(purge_archived=True), _context(privileges=frozenset({"Manage"}), confirmed=True))
+    assert list_traces()[0].instance_id == "primary"
+
+
+@pytest.mark.asyncio
+async def test_an_executor_without_an_instance_records_none() -> None:
+    # Instance-registry changes (routes/instances.py) pass instance_id=None.
+    executor = OperationExecutor({}, instance_id=None)
+    await executor.execute(_request(), _context(privileges=frozenset({"Manage"}), confirmed=True))
+    assert list_traces()[0].instance_id is None
+
+
+def test_a_trace_saved_before_instance_identity_loads_without_one() -> None:
+    # Persisted traces are ExecutionTrace JSON; older ones have no instance_id.
+    old = ExecutionTrace(operation_name=_OPERATION_NAME).model_dump(mode="json")
+    del old["instance_id"]
+    loaded = ExecutionTrace.model_validate_json(json.dumps(old))
+    assert loaded.instance_id is None
+
+
+def test_traces_route_includes_the_instance(client: TestClient) -> None:
+    record_trace(ExecutionTrace(operation_name=_OPERATION_NAME, instance_id="primary"))
+    record_trace(ExecutionTrace(operation_name=_OPERATION_NAME))
+    traces = client.get("/api/iris/observability/traces").json()["traces"]
+    assert [trace["instance_id"] for trace in traces] == [None, "primary"]

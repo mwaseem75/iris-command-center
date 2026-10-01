@@ -488,7 +488,7 @@ export const IrisApi = {
   // The newest entries of IRIS's messages.log (read-only, no parameters).
   getMessagesLog: () => fetchIris("/api/iris/messages-log"),
   // { issues: [...] } from our own issue check.
-  getIssues: () => fetchIris("/api/iris/issues"),
+  getIssues: (instance) => fetchIris(withInstance("/api/iris/issues", instance)),
   getIssueResolutionHistory: (issueId) =>
     fetchIris(`/api/iris/issues/${encodeURIComponent(issueId)}/history`),
   // { query, results: [{ source, title, body, score }] }: stored documents

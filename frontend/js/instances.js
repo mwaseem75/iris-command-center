@@ -242,6 +242,12 @@ function renderNameCell(instance) {
     chip.className = "status-badge status-badge--accent inst-primary-chip";
     chip.textContent = "Primary";
     wrapper.append(chip);
+  } else if (instance.docker_managed) {
+    const chip = document.createElement("span");
+    chip.className = "status-badge status-badge--neutral inst-primary-chip";
+    chip.textContent = "Docker-managed";
+    chip.title = "Managed by Docker Compose (the iris-2 service)";
+    wrapper.append(chip);
   }
   return wrapper;
 }
@@ -288,12 +294,17 @@ function renderActionsCell(instance) {
     );
     return actions;
   }
+  // The Docker-managed instance (the iris-2 service) can be checked and
+  // (de)activated, but not edited or deleted; the backend refuses both too.
+  const managed = instance.docker_managed
+    ? { disabled: true, title: "Managed by Docker Compose (the iris-2 service): it can't be edited or deleted here." }
+    : null;
   actions.append(
     instance.active
       ? makeActionButton("Deactivate", "❚❚", "deactivate", instance)
       : makeActionButton("Activate", "▶", "activate", instance, { variant: "btn--accent-outline" }),
-    makeActionButton("Edit", "✎", "edit", instance),
-    makeActionButton("Delete", "🗑︎", "delete", instance, { variant: "btn--danger-outline" }),
+    makeActionButton("Edit", "✎", "edit", instance, managed || {}),
+    makeActionButton("Delete", "🗑︎", "delete", instance, managed || { variant: "btn--danger-outline" }),
   );
   return actions;
 }
@@ -319,7 +330,25 @@ function renderTable() {
   dom.empty.hidden = instances.length > 0;
 }
 
-export async function loadInstances() {
+// The Primary and the Docker-managed instance: when the screen opens, run the
+// existing compatibility check (POST .../check) so their status is current,
+// then show the results. User-defined instances are checked on request only.
+let systemCheckRunning = false;
+
+async function checkSystemInstances() {
+  const targets = instances.filter((instance) => instance.primary || instance.docker_managed);
+  if (systemCheckRunning || targets.length === 0) return;
+  systemCheckRunning = true;
+  try {
+    await Promise.allSettled(targets.map((instance) => IrisApi.checkInstance(instance.id)));
+  } finally {
+    systemCheckRunning = false;
+  }
+  loadInstances();
+}
+
+/** With checkSystem (the screen being opened), also checks the Primary and the Docker-managed instance. */
+export async function loadInstances({ checkSystem = false } = {}) {
   if (isLoading) {
     reloadQueued = true;
     return;
@@ -332,6 +361,7 @@ export async function loadInstances() {
     renderTable();
     // Keep the header's instance selector in step (e.g. after (de)activate or delete).
     updateInstanceContextList(instances);
+    if (checkSystem) checkSystemInstances();
   } catch (err) {
     setErrorBanner(`Could not load instances. ${errorMessage(err, "An unexpected error occurred.")}`);
   } finally {
@@ -424,8 +454,41 @@ function setFormBusy(busy, text = "") {
   updateFormSubmitEnabled(busy);
 }
 
+// Add: enabled after a compatible test and the confirmation. Edit: Update
+// Instance stays clickable (a disabled button silently ignores clicks); a
+// click runs the dry run and asks for the confirmation first (handleSubmitClick).
 function updateFormSubmitEnabled(busy = false) {
-  formDom.submitButton.disabled = busy || !formState || formState.done || !formState.tested || !formDom.ackCheckbox.checked;
+  const ready = formState && (formState.mode === "edit" || (formState.tested && formDom.ackCheckbox.checked));
+  formDom.submitButton.disabled = busy || !formState || formState.done || !ready;
+}
+
+// Tell the user what's left before the update is sent, by the checkbox.
+function askForConfirmation() {
+  if (!formDom.testResult.querySelector(".inst-confirm-hint")) {
+    const hint = document.createElement("p");
+    hint.className = "ns-hint inst-confirm-hint";
+    hint.textContent = "Tick the confirmation below, then click Update Instance again to apply this change.";
+    formDom.testResult.append(hint);
+  }
+  formDom.testResult.hidden = false;
+  formDom.ackCheckbox.focus();
+}
+
+async function handleSubmitClick() {
+  if (!formState || formState.done) return;
+  if (formState.mode === "edit") {
+    if (!formState.tested) {
+      // The same dry run as Test Connection; nothing is changed yet.
+      await handleFormTest({ preventDefault() {} });
+      if (formState && formState.tested) askForConfirmation();
+      return;
+    }
+    if (!formDom.ackCheckbox.checked) {
+      askForConfirmation();
+      return;
+    }
+  }
+  await submitForm();
 }
 
 function showFormError(message) {
@@ -534,11 +597,9 @@ async function handleFormTest(event) {
     showFormError(`Required: ${missing.join(", ")}.`);
     return;
   }
+  // Edit: the backend's dry run validates the update, including one that
+  // changes nothing (it re-checks the connection only when that changes).
   const changes = mode === "edit" ? editChanges(fields) : null;
-  if (changes && Object.keys(changes).length === 0) {
-    showFormError("Nothing has changed.");
-    return;
-  }
 
   setFormBusy(true, mode === "add" ? "Testing connection…" : "Checking the update with the backend (dry run)…");
   try {
@@ -773,8 +834,10 @@ export function initInstancesControls() {
     if (!instance) return;
     const { action } = button.dataset;
     if (action === "check") openCheck(instance);
-    else if (action === "edit" && !instance.primary) openForm("edit", instance);
-    else if (CONFIRM_ACTIONS[action] && !instance.primary) openConfirm(action, instance);
+    else if (action === "edit" && !instance.primary && !instance.docker_managed) openForm("edit", instance);
+    else if (CONFIRM_ACTIONS[action] && !instance.primary && !(action === "delete" && instance.docker_managed)) {
+      openConfirm(action, instance);
+    }
   });
 
   formDom.form.addEventListener("submit", handleFormTest);
@@ -783,7 +846,7 @@ export function initInstancesControls() {
   });
   formDom.ackCheckbox.addEventListener("change", () => updateFormSubmitEnabled());
   formDom.submitButton.addEventListener("click", () => {
-    submitForm();
+    handleSubmitClick();
   });
   formDom.passwordToggle.addEventListener("click", () => {
     setPasswordVisible(formDom.password.type === "password");

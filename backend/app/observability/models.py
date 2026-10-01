@@ -76,4 +76,8 @@ class ExecutionTrace(BaseModel):
     verification_result: str | None = None
     resolution: ResolutionContext | None = None  # None for normal operations
     lifecycle: ResolutionLifecycleEvidence | None = None
+    # The IRIS instance the operation ran against ("primary": changes only run
+    # there). None when not recorded: traces from before this field, and
+    # instance-registry changes, which don't act on an IRIS instance's data.
+    instance_id: str | None = None
     spans: list[Span] = Field(default_factory=list)

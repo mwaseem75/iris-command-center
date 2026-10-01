@@ -5859,6 +5859,12 @@ html.detail-workspace-open {
   white-space: nowrap;
 }
 
+/* A trace with no recorded instance: neutral, not attributed. */
+.obs-trace__tag--muted {
+  color: var(--color-text-muted);
+  background: var(--color-surface-hover);
+}
+
 .obs-resolution {
   display: grid;
   gap: 6px;
@@ -7706,8 +7712,8 @@ html.detail-workspace-open {
 }
 
 /* --- Instance context (instance selector): changes run on the Primary only,
-   so their controls are hidden while another instance is selected; pages
-   that can't show the selection say so instead (js/app.js). --- */
+   so their controls are hidden while another instance is selected, or (Issue
+   Resolver, Operations) shown disabled with a "Primary only" note. --- */
 
 body[data-instance-scope="other"] [data-primary-only],
 body:not([data-instance-scope="other"]) [data-primary-only-note] {
@@ -7719,13 +7725,11 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
   font-weight: 400;
 }
 
-.context-notice__action {
-  flex: none;
-  margin-left: auto;
-}
-
-.view[data-context-blocked] > :not(.view__header) {
-  display: none !important;
+/* Why a change is disabled for the selected instance. */
+.primary-only-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--color-warning);
 }
 
 /* --- Fleet Overview ("All Active Instances"): one monitoring section per
@@ -8200,4 +8204,27 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
     border-left: 0;
     padding-left: 0;
   }
+}
+
+/* --- API Explorer: the selected instance's last compatibility check. --- */
+
+.cap-instance {
+  margin-bottom: 18px;
+}
+
+.cap-instance__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cap-instance__head .info-card__title {
+  margin-bottom: 0;
+}
+
+.cap-instance__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  column-gap: 24px;
 }

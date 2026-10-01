@@ -23,8 +23,10 @@ class _SpanTimer:
 
 
 class TraceRecorder:
-    def __init__(self, operation_name: str, resolution: ResolutionContext | None = None):
-        self._trace = ExecutionTrace(operation_name=operation_name, resolution=resolution)
+    def __init__(
+        self, operation_name: str, resolution: ResolutionContext | None = None, instance_id: str | None = None
+    ):
+        self._trace = ExecutionTrace(operation_name=operation_name, resolution=resolution, instance_id=instance_id)
         self._perf_start = time.perf_counter()
 
     def timer(self) -> _SpanTimer:

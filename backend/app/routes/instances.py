@@ -92,7 +92,8 @@ async def _run(
     confirmed: bool,
     dry_run: bool,
 ) -> OperationResult:
-    executor = OperationExecutor({operation_name: handler})
+    # Registry changes don't act on an IRIS instance's data: no instance on the trace.
+    executor = OperationExecutor({operation_name: handler}, instance_id=None)
     return await executor.execute(
         OperationRequest(operation_name=operation_name, parameters=parameters),
         ExecutionContext(available_privileges=privileges, confirmation_received=confirmed, dry_run=dry_run),

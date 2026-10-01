@@ -19,8 +19,15 @@
 // Investigation is linked by time only ("Investigate audit records" uses
 // the trace's start/end). Dashboard and Demo Activity call focusTrace() to
 // open a trace here.
+//
+// Instance-aware (instance selector): each trace records the IRIS instance
+// its operation ran against (instance_id). The page lists the selected
+// instance's traces, plus traces with no recorded instance (recorded before
+// traces had one, or instance-registry changes), which are marked "Instance
+// not recorded" and never attributed to an instance.
 
 import { IrisApi, ApiError } from "./api.js";
+import { getInstanceContext } from "./instance-context.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
 const STAGE_ORDER = ["authorization", "confirmation", "execution", "verification"];
@@ -232,6 +239,17 @@ function renderSummary(traces) {
 
 // --- trace explorer (left) ---
 
+// The selected instance's traces, and those with no recorded instance.
+function matchesInstance(trace, instanceId) {
+  return trace.instance_id === null || trace.instance_id === undefined || trace.instance_id === instanceId;
+}
+
+function instanceLabel(trace) {
+  if (trace.instance_id === null || trace.instance_id === undefined) return "Not recorded";
+  const entry = getInstanceContext().instances.find((instance) => instance.id === trace.instance_id);
+  return entry ? entry.name : trace.instance_id;
+}
+
 function matchesTimeWindow(trace, begin, end) {
   if (!begin && !end) return true;
   const start = new Date(trace.start_time);
@@ -302,6 +320,11 @@ function buildTraceItem(trace) {
     tag.title = `Resolving: ${textOrPlaceholder(resolution.issue_title)}`;
     button.append(tag);
   }
+  if (trace.instance_id === null || trace.instance_id === undefined) {
+    const tag = el("span", "obs-trace__tag obs-trace__tag--muted", "Instance not recorded");
+    tag.title = "Recorded before traces had an instance, or an instance-registry change; not attributed to any instance.";
+    button.append(tag);
+  }
   button.addEventListener("click", () => selectTrace(trace.trace_id));
   item.append(button);
   return item;
@@ -309,18 +332,25 @@ function buildTraceItem(trace) {
 
 function renderList() {
   dom.traceList.replaceChildren();
-  const filtered = visibleTraces.length !== allTraces.length;
-  dom.countLabel.textContent = allTraces.length
+  const ctx = getInstanceContext();
+  const name = ctx.instance ? ctx.instance.name : "Primary";
+  const scoped = allTraces.filter((trace) => matchesInstance(trace, ctx.instanceId));
+  const unrecorded = scoped.filter((trace) => trace.instance_id === null || trace.instance_id === undefined).length;
+  const filtered = visibleTraces.length !== scoped.length;
+  const extra = unrecorded ? ` (${unrecorded} with no recorded instance)` : "";
+  dom.countLabel.textContent = scoped.length
     ? filtered
-      ? `Showing ${visibleTraces.length} of ${allTraces.length} traces · times in UTC`
-      : `${allTraces.length} trace${allTraces.length === 1 ? "" : "s"} · newest first · times in UTC`
+      ? `Showing ${visibleTraces.length} of ${scoped.length} traces for ${name}${extra} · times in UTC`
+      : `${scoped.length} trace${scoped.length === 1 ? "" : "s"} for ${name}${extra} · newest first · times in UTC`
     : "Select a trace to view its execution details.";
 
   dom.empty.hidden = visibleTraces.length > 0;
   if (visibleTraces.length === 0) {
-    dom.emptyText.textContent = allTraces.length
+    dom.emptyText.textContent = scoped.length
       ? "No traces match the current time range or search."
-      : "No operation attempts have been recorded yet.";
+      : allTraces.length
+        ? `No operation attempts have been recorded for ${name}.`
+        : "No operation attempts have been recorded yet.";
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -598,6 +628,7 @@ function renderDetail() {
 
   const meta = el("dl", "obs-meta");
   meta.append(
+    buildMetaItem("Instance", instanceLabel(trace)),
     buildMetaItem("Duration", formatDuration(trace.duration_ms), { mono: true }),
     buildMetaItem("Started (UTC)", formatUtcIso(trace.start_time), { mono: true, title: textOrPlaceholder(trace.start_time) }),
     buildMetaItem("Trace ID", buildTraceIdValue(trace.trace_id), { mono: true, title: textOrPlaceholder(trace.trace_id) }),
@@ -635,7 +666,9 @@ function applyFilters() {
   const begin = parseFilterInput(dom.filterBegin.value);
   const end = parseFilterInput(dom.filterEnd.value);
   const query = dom.search.value.trim().toLowerCase();
-  visibleTraces = allTraces.filter((trace) => matchesTimeWindow(trace, begin, end) && matchesSearch(trace, query));
+  const instanceId = getInstanceContext().instanceId;
+  visibleTraces = allTraces.filter((trace) => matchesInstance(trace, instanceId)
+    && matchesTimeWindow(trace, begin, end) && matchesSearch(trace, query));
 
   // Keep the selection if it's still visible; otherwise pick the newest
   // visible trace.

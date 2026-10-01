@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -66,6 +67,9 @@ class WalletCredentialStore:
         self._collection_ready = False
         self._iris: Any = None
         self._connection: Any = None
+        # One Native API connection, used from worker threads: reads, the
+        # reconnect and closing it happen under this lock (like diagnostics.py).
+        self._lock = threading.Lock()
 
     def __repr__(self) -> str:
         return f"WalletCredentialStore(collection={WALLET_COLLECTION!r})"
@@ -106,14 +110,23 @@ class WalletCredentialStore:
         return any(isinstance(s, dict) and s.get("Name") == ref for s in listing.get("result") or [])
 
     def read_sync(self, ref: str) -> SecretStr:
-        """Blocking (Native API): call from a thread."""
+        """Blocking (Native API): call from a thread. If the kept connection has
+        gone (e.g. IRIS restarted), it reconnects and reads once more. One read
+        at a time: no thread uses or closes the connection while another reads."""
         _check_ref(ref)
-        try:
-            self._ensure_connected()
-            raw = self._iris.classMethodValue("%Wallet.KeyValue", "GetSecretValue", ref)
-            password = _password_from(raw)
-        except Exception:  # noqa: BLE001 - the value must never reach a message
-            raise CredentialStoreError("The credential could not be read from the IRIS Wallet.") from None
+        with self._lock:
+            try:
+                try:
+                    self._ensure_connected()
+                    raw = self._iris.classMethodValue("%Wallet.KeyValue", "GetSecretValue", ref)
+                except Exception:  # noqa: BLE001 - e.g. a connection IRIS has since closed
+                    self._reset()
+                    self._ensure_connected()
+                    raw = self._iris.classMethodValue("%Wallet.KeyValue", "GetSecretValue", ref)
+                password = _password_from(raw)
+            except Exception:  # noqa: BLE001 - the value must never reach a message
+                self._reset()
+                raise CredentialStoreError("The credential could not be read from the IRIS Wallet.") from None
         return SecretStr(password)
 
     async def _ensure_collection(self) -> None:
@@ -143,14 +156,19 @@ class WalletCredentialStore:
         )
         self._iris = iris.createIRIS(self._connection)
 
-    def close(self) -> None:
-        if self._connection is not None:
+    def _reset(self) -> None:
+        """Drop the connection so the next read reconnects. Call with the lock held."""
+        connection, self._connection, self._iris = self._connection, None, None
+        if connection is not None:
             try:
-                self._connection.close()
+                connection.close()
             except Exception:  # noqa: BLE001
                 pass
-        self._connection = None
-        self._iris = None
+
+    def close(self) -> None:
+        """Close the connection (at shutdown), never in the middle of a read."""
+        with self._lock:
+            self._reset()
 
 
 def _password_from(raw: Any) -> str:

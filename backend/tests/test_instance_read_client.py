@@ -27,6 +27,7 @@ DASHBOARD_ROUTES = [
     "/api/iris/monitor/dashboard", "/api/iris/processes", "/api/iris/web-apps", "/api/iris/tasks",
     "/api/iris/tasks/overview",
     "/api/iris/health",  # Health Center (Phase 4B step 3)
+    "/api/iris/issues",  # Issue Resolver: detection only; its fixes stay on the Primary
 ]
 
 
@@ -152,7 +153,7 @@ def test_instance_parameter_is_bounded(client, env) -> None:
 # Changes, the Copilot's plan/authorize/execute, and data read through the
 # Primary's own connection or kept by Command Center are never instance-scoped.
 PRIMARY_ONLY = [
-    "/api/iris/issues", "/api/iris/python/diagnostics", "/api/iris/messages-log", "/api/iris/copilot/plan",
+    "/api/iris/python/diagnostics", "/api/iris/messages-log", "/api/iris/copilot/plan",
     "/api/iris/copilot/authorize", "/api/iris/copilot/execute", "/api/iris/observability/traces",
     "/api/iris/operations", "/api/iris/knowledge/search",
 ]
@@ -355,4 +356,19 @@ def test_health_report_checks_the_selected_instance(client, env) -> None:
     response = client.get(f"/api/iris/health?instance={env.second.id}")
     assert (response.status_code, response.json()["detail"]) == (409, "The instance is inactive.")
     assert client.get("/api/iris/health?instance=iris-ffffffffffff").status_code == 404
+    env.primary_client.get.assert_not_awaited()
+
+
+def test_issues_for_the_selected_instance_never_come_from_the_primary(client, env) -> None:
+    unreachable = AsyncMock()
+    unreachable.get.side_effect = IRISConnectionError("connection refused to http://iris-2:52773")
+    env.pool.clients[env.second.id] = unreachable
+    response = client.get(f"/api/iris/issues?instance={env.second.id}")
+    # Each check that can't read IRIS is reported unavailable; the Primary is never read instead.
+    assert unreachable.get.await_count >= 1
+    env.primary_client.get.assert_not_awaited()
+    if response.status_code == 200:
+        assert response.json()["issue_checks_unavailable"]
+    env.registry.set_active(env.second.id, False)
+    assert client.get(f"/api/iris/issues?instance={env.second.id}").status_code == 409
     env.primary_client.get.assert_not_awaited()

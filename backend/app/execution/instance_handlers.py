@@ -44,6 +44,7 @@ from app.instances.models import (
     InstanceCheckStatus,
     InstanceDefinition,
     InstanceView,
+    is_docker_managed,
     normalize_base_url,
 )
 from app.instances.registry import InstancePersistenceError, InstanceRegistry, InstanceRegistryError
@@ -92,6 +93,8 @@ class _InstanceHandler(OperationHandler):
             return _failure(f"No instance with id {instance_id!r}.")
         if instance.primary:
             return _failure("The Primary instance comes from the environment and can't be changed.")
+        if is_docker_managed(instance):
+            return _failure(f"{instance.name} is managed by Docker Compose (the iris-2 service) and can't be changed here.")
         return instance
 
 

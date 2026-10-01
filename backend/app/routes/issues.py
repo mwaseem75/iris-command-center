@@ -63,7 +63,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Discriminator, Field, Tag, ValidationError
 
-from app.dependencies import get_iris_client
+from app.dependencies import get_read_client
 from app.execution.database_dismount_handler import _SYSTEM_DATABASES
 from app.execution.web_app_set_enabled_handler import _PROTECTED_APPS, _normalize
 from app.iris_client.client import IRISClient
@@ -651,7 +651,9 @@ async def evaluate_custom_rules(client: IRISClient) -> tuple[list[CustomRuleIssu
 
 
 @router.get("/issues", response_model=IssuesResponse)
-async def list_issues(client: IRISClient = Depends(get_iris_client)) -> IssuesResponse:
+async def list_issues(client: IRISClient = Depends(get_read_client)) -> IssuesResponse:
+    # ?instance=<id> checks that instance (get_read_client; the Primary without
+    # it). Custom rules are Command Center's own and are evaluated on it too.
     # Database issues first (the part the Issue Resolution Rehearsal also
     # uses), then the web-app and journal checks.
     response = await get_issues(client)

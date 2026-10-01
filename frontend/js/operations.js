@@ -10,8 +10,14 @@
 // info and the current PurgeArchived value, and sends what the user picked
 // (PurgeArchived + confirmed). Nothing runs on its own; the POST only comes
 // from the Confirm & Execute button.
+//
+// Instance-aware (instance selector): the current PurgeArchived value is read
+// from the selected instance (GET /api/iris/journal/settings?instance=<id>).
+// Every operation runs on the Primary only, which each card says; with another
+// instance selected the change can't be started here (disabled, with a note).
 
 import { IrisApi, ApiError } from "./api.js";
+import { getInstanceContext, selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 
 const PLACEHOLDER = "—";  // shown for empty values
@@ -35,6 +41,7 @@ const dom = {
   executeResolution: document.getElementById("operations-execute-resolution"),
   executeResolutionText: document.getElementById("operations-execute-resolution-text"),
   executeChoose: document.getElementById("operations-execute-choose"),
+  executePrimaryNote: document.getElementById("operations-execute-primary-note"),
   setTrueButton: document.getElementById("operations-set-true-button"),
   setFalseButton: document.getElementById("operations-set-false-button"),
   executeConfirm: document.getElementById("operations-execute-confirm"),
@@ -248,6 +255,12 @@ function makeEl(tag, className, text) {
   return node;
 }
 
+// The instance the page shows. Operations only run on the Primary.
+function viewedInstance() {
+  const instance = getInstanceContext().instance;
+  return { primary: !instance || instance.primary, name: instance ? instance.name : "Primary" };
+}
+
 function makeActionCard(action, operation) {
   const card = makeEl("article", "ops-card");
   card.dataset.operation = action.name;
@@ -261,6 +274,7 @@ function makeActionCard(action, operation) {
   for (const [label, value] of [
     ["Category", action.group],
     ["Required privilege", formatPrivileges(operation.required_privileges)],
+    ["Runs on", "Primary instance only"],
   ]) {
     const row = makeEl("div", "ops-card__fact");
     row.append(makeEl("dt", "", label), makeEl("dd", "", value));
@@ -452,6 +466,14 @@ function showChooseStage() {
   dom.executeChoose.hidden = false;
   dom.executeConfirm.hidden = true;
   dom.executeResult.hidden = true;
+  // The change runs on the Primary only: not offered for another instance.
+  const viewed = viewedInstance();
+  dom.setTrueButton.disabled = !viewed.primary;
+  dom.setFalseButton.disabled = !viewed.primary;
+  dom.executePrimaryNote.hidden = viewed.primary;
+  dom.executePrimaryNote.textContent = viewed.primary ? "" :
+    `Primary only: this change runs on the Primary instance. The value above is ${viewed.name}'s; ` +
+    "select Primary to change the Primary's setting.";
 }
 
 /**
@@ -461,18 +483,19 @@ function showChooseStage() {
  */
 async function refreshCurrentValueDisplay() {
   dom.executeCurrentList.replaceChildren();
+  const label = `Current PurgeArchived Value (${viewedInstance().name})`;
   try {
-    const response = await IrisApi.getJournalSettings();
+    const response = await IrisApi.getJournalSettings(selectedInstanceId());
     const value =
       response && response.result && typeof response.result.PurgeArchived === "boolean"
         ? response.result.PurgeArchived
         : null;
     currentPurgeArchived = value;
-    addInfoRow(dom.executeCurrentList, "Current PurgeArchived Value", formatBoolean(value));
+    addInfoRow(dom.executeCurrentList, label, formatBoolean(value));
   } catch {
-    // Keep it low-key, like the other pages' errors.
+    // Keep it low-key, like the other pages' errors (never another instance's value).
     currentPurgeArchived = null;
-    addInfoRow(dom.executeCurrentList, "Current PurgeArchived Value", "Could not load");
+    addInfoRow(dom.executeCurrentList, label, "Could not load");
   }
 }
 
@@ -501,6 +524,7 @@ function journalPrivilegesText() {
 // Picking a value only moves on to the confirm step; nothing is sent. In
 // the Issue Resolver flow it runs the Check (dry run) first.
 function chooseTarget(target) {
+  if (!viewedInstance().primary) return;  // runs on the Primary only
   if (isResolutionChange(target)) {
     checkResolutionChange(target);
     return;
@@ -600,6 +624,7 @@ function renderExecutionResult(result) {
     );
   }
 
+  addInfoRow(dom.resultList, "Ran On", "Primary instance", { mono: false });
   addInfoRow(dom.resultList, "Recorded At", new Date().toLocaleString());
 
   dom.executeConfirm.hidden = true;
@@ -612,7 +637,7 @@ function renderExecutionResult(result) {
  * a value and clicking Confirm.
  */
 async function executeConfirmed() {
-  if (pendingTarget === null) return;
+  if (pendingTarget === null || !viewedInstance().primary) return;
   const target = pendingTarget;
   // The Issue Resolver flow only executes what a successful Check validated,
   // after the checkbox.

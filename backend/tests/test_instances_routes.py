@@ -23,7 +23,8 @@ from tests.test_instances_registry import _FakePersister, _settings
 
 CANARY = "Pw-ROUTES-CANARY-4b2e-not-real!"
 NEW_CANARY = "Pw-ROUTES-NEW-CANARY-8d1f-not-real!"
-URL = "http://iris-2:52773"
+# A user-defined instance (iris-2 itself is the Docker-managed one; see DOCKER_MANAGED_HOSTS).
+URL = "http://iris-remote:52773"
 
 
 def _check(status: InstanceCheckStatus = InstanceCheckStatus.COMPATIBLE, **values) -> InstanceCheck:
@@ -502,3 +503,40 @@ def test_validation_errors_never_echo_the_password(client, env, method, path, bo
     assert any(error["loc"] == loc and error["msg"] and error["type"] for error in errors), errors
     assert len(env.registry.list()) == 1 and env.store.saves == []
     assert trace_store.list_traces() == []  # rejected before the executor
+
+
+# --- the Docker-managed iris-2 instance (docker-compose.yml's iris-2 service) ---
+
+DOCKER_URL = "http://iris-2:52773"
+
+
+def test_the_docker_managed_instance_is_marked_and_cannot_be_edited_or_deleted(client, env) -> None:
+    _create(client, name="IRIS-2", base_url=DOCKER_URL)
+    _create(client, name="OVH", base_url="https://ovh.example:52773")
+    by_name = {i["name"]: i for i in client.get("/api/iris/instances").json()["instances"]}
+    assert (by_name["IRIS-2"]["docker_managed"], by_name["OVH"]["docker_managed"],
+            by_name["Primary"]["docker_managed"]) == (True, False, False)
+    docker_id, ovh_id = by_name["IRIS-2"]["id"], by_name["OVH"]["id"]
+    saves, deletes = list(env.store.saves), list(env.store.deletes)
+
+    for dry_run in (True, False):
+        for body in (_update(client, docker_id, name="Renamed", dry_run=dry_run), _delete(client, docker_id, dry_run=dry_run)):
+            # A refused dry run is reported as status dry_run with a failed handler result.
+            assert body["status"] == ("dry_run" if dry_run else "execution_failed"), body
+            assert body["handler_result"]["outcome"] == "failure"
+            assert "managed by Docker Compose" in body["handler_result"]["detail"]
+    assert env.registry.get(docker_id).name == "IRIS-2"
+    assert (env.store.saves, env.store.deletes) == (saves, deletes)
+    assert docker_id not in env.persister.deleted
+
+    # Check and activate/deactivate still work for it.
+    assert client.post(f"/api/iris/instances/{docker_id}/check").status_code == 200
+    body = client.post(f"/api/iris/instances/{docker_id}/deactivate", json={"confirmed": True}).json()
+    assert body["status"] == "success", body
+    body = client.post(f"/api/iris/instances/{docker_id}/activate", json={"confirmed": True}).json()
+    assert body["status"] == "success", body
+
+    # A user-defined instance is still fully editable and deletable.
+    assert _update(client, ovh_id, name="OVH renamed")["status"] == "success"
+    assert _delete(client, ovh_id)["status"] == "success"
+    assert env.registry.get(ovh_id) is None
