@@ -72,6 +72,7 @@ def test_expected_files_exist_and_are_non_empty() -> None:
         FRONTEND_DIR / "js" / "detail-workspace.js",
         FRONTEND_DIR / "js" / "instances.js",
         FRONTEND_DIR / "js" / "instance-context.js",
+        FRONTEND_DIR / "js" / "fleet.js",
     ]
     for path in expected:
         check(path.is_file(), f"{path.relative_to(REPO_ROOT)} exists")
@@ -128,7 +129,8 @@ def test_sidebar_navigation_order() -> None:
     items = re.findall(r'<button class="nav-item[^"]*"[^>]*data-view="([^"]+)"[^>]*>.*?<span>([^<]+)</span>',
                        nav.group(0) if nav else "", re.S)
     expected = [
-        ("dashboard", "Dashboard"), ("issue-resolver", "Issue Resolver"), ("system", "System"),
+        ("fleet", "Fleet Overview"), ("dashboard", "Dashboard"), ("health-center", "Health Center"),
+        ("issue-resolver", "Issue Resolver"), ("system", "System"),
         ("namespaces", "Namespaces"), ("databases", "Databases"), ("processes", "Processes"),
         ("web-apps", "Web Apps"), ("tasks", "Tasks"), ("security", "Security"), ("journal", "Journal"),
         ("operations", "Operations"), ("observability", "Observability"), ("investigation", "Investigation"),
@@ -2450,6 +2452,26 @@ def test_global_instance_selector_is_in_the_header_and_context_only() -> None:
               f"{name}.js stays on the Primary / Command Center data")
 
 
+def test_fleet_overview_is_read_only_and_reads_each_instance() -> None:
+    print("Checking the Fleet Overview: nav, view, read-only instance-scoped reads...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "fleet.js").read_text(encoding="utf-8")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    check('data-view="fleet"' in html and '<section class="view" id="view-fleet" data-view="fleet"' in html,
+          "the Fleet Overview nav item and view exist")
+    check("fleet: () => loadFleet()," in app_js and "initFleetControls();" in app_js, "app.js wires the Fleet Overview")
+    used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
+    check(used == ["getDatabaseStorage", "getDatabases", "getHealthReport", "getInfo", "getInstances",
+                   "getMonitorDashboard", "getNamespaces", "getProcesses", "getTasks", "getWebApps"],
+          f"fleet.js only reads ({used})")
+    check("fetch(" not in js and "innerHTML" not in js, "fleet.js goes through IrisApi and renders with textContent")
+    check("const id = instance.primary ? undefined : instance.id;" in js and '"all"' not in js.split("loadInstance")[1][:400],
+          "each instance is read with its own id (the Primary without ?instance=), never ?instance=all")
+    check("activeInstances().map((instance) => loadInstance(instance, token))" in js,
+          "only active instances are read, each on its own")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -2512,6 +2534,7 @@ def main() -> None:
         test_no_mutating_http_method_anywhere_in_frontend_js,
         test_instances_page_uses_instance_routes_and_confirmed_operations,
         test_global_instance_selector_is_in_the_header_and_context_only,
+        test_fleet_overview_is_read_only_and_reads_each_instance,
     ]
     for test in tests:
         print(f"\n{test.__name__}")

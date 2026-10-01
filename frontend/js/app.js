@@ -40,6 +40,7 @@ import {
 import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 import { loadMessageLog, initMessageLogControls } from "./message-log.js";
 import { loadInstances, initInstancesControls } from "./instances.js";
+import { loadFleet, initFleetControls } from "./fleet.js";
 
 // Pages that show the selected instance's IRIS data. With All Active
 // Instances selected they ask for one instance instead: only the Dashboard and
@@ -55,6 +56,7 @@ const PRIMARY_ONLY_VIEWS = { "issue-resolver": "Issue Resolver", operations: "Op
 
 // What each page loads when it's opened (and again when the instance changes).
 const LOADERS = {
+  fleet: () => loadFleet(),
   dashboard: () => onDashboardShown(),
   system: () => loadSystemInfo(),
   namespaces: () => loadNamespaces(),
@@ -191,6 +193,7 @@ function init() {
   initCapabilitiesControls();
   initMessageLogControls();
   initInstancesControls();
+  initFleetControls();
   initHealthCenterControls();
   initIssueResolverControls({
     onOpenDatabases: () => navigateTo("databases"),
@@ -219,7 +222,8 @@ function init() {
   // A different instance in the header selector: close any open detail
   // panel and reload the open page once its current load (for the old
   // instance) has finished, so the last data shown is the new instance's.
-  // The Dashboard and Health Center follow the selector themselves.
+  // The Dashboard and Health Center follow the selector themselves, and the
+  // Fleet Overview always shows every active instance.
   let lastKey = contextKey(getInstanceContext());
   applyInstanceScope(currentView);
   onInstanceContextChange((ctx) => {
@@ -233,7 +237,7 @@ function init() {
       el.hidden = true;
     });
     const view = currentView;
-    if (applyInstanceScope(view) || view === "dashboard" || view === "health-center" || !LOADERS[view]) return;
+    if (applyInstanceScope(view) || ["dashboard", "health-center", "fleet"].includes(view) || !LOADERS[view]) return;
     currentLoad = currentLoad.then(() => (currentView === view ? LOADERS[view]() : null)).catch(() => {});
   });
 
