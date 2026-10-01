@@ -8,15 +8,17 @@
 // to the Primary.
 // - /info: the IRIS version;
 // - /monitor/dashboard: uptime, database and journal status, alerts, global
-//   references/s, web sessions, license use and the performance counters;
+//   references/s, web sessions and license use;
 // - /processes: the process count (the list the Processes page shows);
-// - /health: the health status and its number of findings.
+// - /health: the health status, and its findings, which are the instance's
+//   active issues (the same issue checks as the Issue Resolver's list);
+// - /namespaces, /databases, /web-apps, /tasks: the counts of the lists those
+//   pages show.
 // While the page is shown and the tab visible, /monitor/dashboard is read
 // again every REFRESH_INTERVAL_MS and everything every FULL_EVERY_TICKS
-// ticks; the Global References trend is drawn from those samples, like the
-// Dashboard's, so it's a live trend that starts when the page is opened (no
-// history is stored or fetched). The metric cards' mini charts use the same
-// samples, and the process counts from the full reads. A value an instance didn't return shows as "—", and an
+// ticks. The Global References and Web Sessions mini charts use those samples
+// and the Processes bars the process counts from the full reads (nothing
+// historical is stored or fetched). A value an instance didn't return shows as "—", and an
 // instance that answered nothing shows as unavailable while the others still
 // load.
 //
@@ -26,7 +28,7 @@
 // doesn't answer its check), the link says so in that section instead.
 
 import { IrisApi, ApiError } from "./api.js";
-import { makeSparkline, renderTrendChart } from "./dashboard.js";
+import { makeSparkline } from "./dashboard.js";
 import { refreshInstanceContext, selectInstanceContext } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { focusWebSessions } from "./web-apps.js";
@@ -46,8 +48,12 @@ const TARGETS = {
   health: ["health-center", "Health Center"],
   databases: ["databases", "Databases"],
   journal: ["journal", "Journal"],
+  issues: ["issue-resolver", "Issue Resolver"],
   processes: ["processes", "Processes"],
   performance: ["dashboard", "Dashboard (System Resource Usage)", "dashboard-resources-title"],
+  namespaces: ["namespaces", "Namespaces"],
+  webApps: ["web-apps", "Web Apps"],
+  tasks: ["tasks", "Tasks"],
   sessions: ["web-apps", "Web Apps (Web Sessions)", null, "web-sessions"],
   license: ["dashboard", "Dashboard (License)", "stat-license"],
 };
@@ -105,12 +111,6 @@ function formatNumber(value, digits = 0) {
     : PLACEHOLDER;
 }
 
-function formatCompact(value) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 1 })
-    : PLACEHOLDER;
-}
-
 function shortVersion(serverVersion) {
   if (typeof serverVersion !== "string") return PLACEHOLDER;
   const match = serverVersion.match(/\b(20\d\d\.\d+(?:\.\d+)?)\s*\(Build ([^)]+)\)/);
@@ -135,6 +135,10 @@ function summarize(instance) {
   // IRIS, so that answer alone doesn't make an instance reachable.
   const health = report && report.status !== "unavailable" ? report : null;
   const processes = resultOf(value("processes"));
+  const list = (key) => {
+    const result = resultOf(value(key));
+    return Array.isArray(result) ? result : null;
+  };
   const reachable = entry.round.some((key) =>
     entry.results[key].status === "fulfilled" && (key !== "health" || health !== null));
   const failure = entry.round.map((key) => entry.results[key]).find((settled) => settled.status === "rejected");
@@ -145,6 +149,10 @@ function summarize(instance) {
     monitor: resultOf(value("monitor")),
     processes: Array.isArray(processes) ? processes.length : null,
     health,
+    namespaces: list("namespaces"),
+    databases: list("databases"),
+    webApps: list("webApps"),
+    tasks: list("tasks"),
   };
 }
 
@@ -195,7 +203,9 @@ function renderHead(instance, s) {
   const names = el("div", "fleet-instance__names");
   const name = el("h3", "fleet-instance__name", instance.name);
   if (instance.primary) name.append(el("span", "fleet-instance__badge", "★ Primary"));
-  names.append(name, el("span", "fleet-instance__host", connectionOf(instance)));
+  const host = el("span", "fleet-instance__host", connectionOf(instance));
+  host.title = host.textContent;  // the full host when a long one is cut short
+  names.append(name, host);
   identity.append(icon, names);
 
   const usage = s.monitor?.SystemUsage;
@@ -218,12 +228,18 @@ function renderHead(instance, s) {
       title: `Database journal: ${usage?.DatabaseJournal || PLACEHOLDER} · Journal space: ${usage?.JournalSpace || PLACEHOLDER}.` }),
     fact(instance, "Alerts", formatNumber(alerts), {
       tone: typeof alerts === "number" ? (alerts > 0 ? "warning" : "ok") : null,
-      meta: s.health ? `Health: ${capitalize(s.health.status)} · ${findings} finding${findings === 1 ? "" : "s"}` : "No health report",
+      meta: s.health ? `Health: ${capitalize(s.health.status)}` : "No health report",
       target: "health",
       unavailable,
       title: "Serious alerts (IRIS System Dashboard) and the health checks.",
     }),
   );
+  facts.append(fact(instance, "Issues", formatNumber(findings), {
+    tone: findings === null ? null : findings > 0 ? "warning" : "ok",
+    target: "issues",
+    unavailable,
+    title: "Active issues found by the issue checks (the Issue Resolver's list).",
+  }));
   head.append(identity, facts, link(instance, "details", "View Details →", "btn btn--primary fleet-instance__details", unavailable));
   return head;
 }
@@ -305,49 +321,26 @@ function renderTiles(instance, s) {
   return tiles;
 }
 
-function panel(instance, title, target, body, caption) {
-  const node = el("section", "info-card fleet-panel");
-  const head = el("div", "fleet-panel__head");
-  head.append(el("h4", "fleet-panel__title", title), link(instance, target, "View →"));
-  node.append(head);
-  if (caption) node.append(el("p", "fleet-panel__caption", caption));
-  node.append(body);
+// A small count block: the size of the list a page shows, and one detail.
+function count(instance, label, items, target, detail) {
+  const node = link(instance, target, undefined, "fleet-count-block");
+  node.append(el("span", "fleet-count-block__label", label),
+    el("span", "fleet-count-block__value", formatNumber(items ? items.length : null)));
+  if (items && detail) node.append(el("span", "fleet-count-block__meta", detail(items)));
   return node;
 }
 
-function renderLower(instance, s) {
-  const trend = el("div", "dash-trend fleet-trend");
-  renderTrendChart(trend, samples.get(instance.id) || [], "Global references / s", (sample) => sample.globalRefsPerSecond);
-
-  const perf = s.monitor?.Performance;
-  const table = el("table", "data-table data-table--compact fleet-perf");
-  const thead = el("thead");
-  const headRow = el("tr");
-  headRow.append(el("th", undefined, "Metric"), el("th", undefined, "Value"));
-  thead.append(headRow);
-  const tbody = el("tbody");
-  const rows = [
-    ["Cache Efficiency", formatNumber(perf?.CacheEfficiency, 2), perf?.CacheEfficiency],
-    ["Global References Since Startup", formatCompact(perf?.GlobalRefs), perf?.GlobalRefs],
-    ["Disk Reads Since Startup", formatCompact(perf?.DiskReads), perf?.DiskReads],
-    ["Disk Writes Since Startup", formatCompact(perf?.DiskWrites), perf?.DiskWrites],
-  ];
-  for (const [metric, text, exact] of rows) {
-    const row = el("tr");
-    const cell = el("td", "data-table__cell", text);
-    if (typeof exact === "number") cell.title = exact.toLocaleString();
-    row.append(el("td", "data-table__cell", metric), cell);
-    tbody.append(row);
-  }
-  table.append(thead, tbody);
-
-  const lower = el("div", "fleet-instance__lower");
-  lower.append(
-    panel(instance, "Global References / Second (live)", "performance", trend,
-      "Current trend, sampled every 15 s while this page is open. Not historical data."),
-    panel(instance, "Performance Context", "performance", table),
+function renderCounts(instance, s) {
+  const counts = el("div", "fleet-instance__counts");
+  const howMany = (items, test, word) => `${items.filter(test).length} ${word}`;
+  counts.append(
+    count(instance, "Namespaces", s.namespaces, "namespaces"),
+    count(instance, "Databases", s.databases, "databases",
+      (items) => howMany(items, (db) => typeof db.Status === "string" && db.Status.startsWith("Mounted"), "mounted")),
+    count(instance, "Web Apps", s.webApps, "webApps", (items) => howMany(items, (app) => app.Enabled === true, "enabled")),
+    count(instance, "Tasks", s.tasks, "tasks", (items) => howMany(items, (task) => task.Suspended === true, "suspended")),
   );
-  return lower;
+  return counts;
 }
 
 function renderSection(instance) {
@@ -364,7 +357,7 @@ function renderSection(instance) {
   section.dataset.state = s.state;
   section.replaceChildren(renderHead(instance, s));
   if (s.state === "ok") {
-    section.append(renderTiles(instance, s), renderLower(instance, s));
+    section.append(renderTiles(instance, s), renderCounts(instance, s));
   } else if (s.state === "unavailable") {
     const notice = el("p", "fleet-instance__notice",
       `${instance.name} could not be read${s.error ? ` (${s.error})` : ""}. The other instances are not affected.`);
@@ -401,7 +394,8 @@ async function readInstance(instance, full, token) {
   const id = instance.primary ? undefined : instance.id;
   const calls = full
     ? { info: IrisApi.getInfo(id), processes: IrisApi.getProcesses(id), health: IrisApi.getHealthReport(id),
-      monitor: IrisApi.getMonitorDashboard(id) }
+      monitor: IrisApi.getMonitorDashboard(id), namespaces: IrisApi.getNamespaces(id), databases: IrisApi.getDatabases(id),
+      webApps: IrisApi.getWebApps(id), tasks: IrisApi.getTasks(id) }
     : { monitor: IrisApi.getMonitorDashboard(id) };
   const keys = Object.keys(calls);
   const settled = await Promise.allSettled(Object.values(calls));

@@ -703,9 +703,8 @@ function formatClock(time) {
 }
 
 // Trend chart for one series: y axis from zero, gridlines, sample times.
-// `series` is a list of samples ({ time, ... }), oldest first. Also used by
-// the Fleet Overview for each instance's own samples.
-export function renderTrendChart(container, series, label, pick) {
+// `series` is a list of samples ({ time, ... }), oldest first.
+function renderTrendChart(container, series, label, pick) {
   container.replaceChildren();
   const values = series.map(pick);
   const points = values.map((v, i) => [i, v]).filter(([, v]) => typeof v === "number" && Number.isFinite(v));

@@ -7791,15 +7791,15 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 .fleet-instances {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
 }
 
 .fleet-instance {
   --fleet-instance-color: var(--color-accent);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 20px 20px;
+  gap: 10px;
+  padding: 14px 20px;
   border: 1px solid var(--color-border);
   border-left: 4px solid var(--fleet-instance-color);
   border-radius: var(--radius);
@@ -7814,7 +7814,8 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 /* Header row: identity, the facts, View Details. */
 .fleet-instance__head {
   display: grid;
-  grid-template-columns: minmax(200px, auto) minmax(0, 1fr) auto;
+  /* A long host name is cut short rather than squeezing the facts. */
+  grid-template-columns: minmax(200px, max-content) minmax(0, 1fr) auto;
   align-items: center;
   gap: 20px;
 }
@@ -7830,8 +7831,8 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
   display: grid;
   place-items: center;
   flex: none;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
   color: var(--fleet-instance-color);
@@ -7867,15 +7868,20 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 }
 
 .fleet-instance__host {
+  max-width: 190px;
+  overflow: hidden;
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fleet-instance__facts {
   display: grid;
-  /* Alerts also carries the health summary, so it gets a little more room. */
-  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.35fr);
+  /* Status | Uptime | Database | Journal | Alerts | Issues; Alerts also carries
+     the health status, so it gets a little more room. */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.35fr) minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -7979,8 +7985,7 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
   background: var(--color-surface-raised);
 }
 
-.fleet-tile__top,
-.fleet-panel__head {
+.fleet-tile__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -8108,53 +8113,56 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
   cursor: not-allowed;
 }
 
-/* Trend and Performance Context panels. */
-.fleet-instance__lower {
+/* Row 3: small one-line count blocks. */
+.fleet-instance__counts {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.fleet-panel {
+.fleet-count-block {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  box-shadow: none;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
 }
 
-.fleet-panel__title {
-  margin: 0;
-  font-family: var(--font-display);
+.fleet-count-block:hover,
+.fleet-count-block:focus-visible {
+  background: var(--color-surface-hover);
+}
+
+.fleet-count-block:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.fleet-count-block__label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.fleet-count-block__value {
   font-size: 14px;
+  font-weight: 700;
 }
 
-.fleet-panel__caption {
-  margin: -4px 0 0;
-  font-size: 11.5px;
+.fleet-count-block__meta {
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 11px;
   color: var(--color-text-faint);
-}
-
-/* The panel title already names the series. */
-.fleet-trend .dash-trend__title {
-  visibility: hidden;
-}
-
-.fleet-trend .dash-trend__line {
-  stroke: var(--fleet-instance-color);
-}
-
-.fleet-trend .dash-trend__area {
-  fill: var(--fleet-instance-color);
-}
-
-.fleet-perf {
-  width: 100%;
-}
-
-.fleet-perf td:last-child,
-.fleet-perf th:last-child {
-  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fleet-note {
@@ -8180,12 +8188,9 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 }
 
 @media (max-width: 900px) {
-  .fleet-instance__tiles {
+  .fleet-instance__tiles,
+  .fleet-instance__counts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .fleet-instance__lower {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .fleet-header-actions {

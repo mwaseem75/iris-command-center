@@ -85,6 +85,13 @@ function answer(path, instance) {
       Alerts: { SeriousAlerts: n - 1, ApplicationErrors: 0 },
       Licensing: { LicenseLimit: 5, LicenseUse: 10 * n, LicenseUseHigh: 15 * n },
     });
+    // Row 3's counts: n + 1 namespaces, 3n databases (one dismounted), 5n web apps
+    // (n disabled), 4n tasks (n suspended).
+    case "/api/iris/namespaces": return envelope(Array.from({ length: n + 1 }, (_, i) => ({ Name: `NS${i}` })));
+    case "/api/iris/databases": return envelope(Array.from({ length: 3 * n }, (_, i) => ({ Name: `DB${i}`,
+      Status: i === 0 ? "Dismounted" : i % 2 ? "Mounted/RW" : "Mounted/R" })));
+    case "/api/iris/web-apps": return envelope(Array.from({ length: 5 * n }, (_, i) => ({ Name: `/app${i}`, Enabled: i >= n })));
+    case "/api/iris/tasks": return envelope(Array.from({ length: 4 * n }, (_, i) => ({ Id: i, Name: `T${i}`, Suspended: i < n })));
     default: return envelope([]);
   }
 }
@@ -141,6 +148,8 @@ before(async () => {
   // The page isn't shown, so loadFleet() doesn't start the 15 s refresh cycle
   // (the polling test shows it).
   element("view-fleet").hidden = true;
+  // The Web Apps page's filters (it renders the fake app list in one test).
+  for (const id of ["search", "kind", "status", "namespace", "auth"]) element(`web-apps-filter-${id}`).value = "";
   context = await import("../frontend/js/instance-context.js");
   const nav = await import("../frontend/js/nav.js");
   nav.initNavigation((view) => navigations.push(view));
@@ -163,11 +172,13 @@ const reads = () => requests.filter((r) => r.path !== "/api/iris/instances");
 const sections = () => element("fleet-instances").children;
 const section = (id) => sections().find((node) => node.dataset.instanceId === id);
 const links = (node) => [...walk(node)].filter((n) => n.dataset && n.dataset.fleetView);
-const trendSamples = (id) => {
-  const legend = [...walk(section(id))].find((n) => n.className === "dash-trend__legend");
-  return legend ? Number(legend.textContent.split(" ")[0]) : 0;
+// How many samples the instance's Web Sessions mini line is drawn from (0 until two).
+const sessionSamples = (id) => {
+  const line = [...walk(section(id))].find((n) => n.attributes && n.attributes.class === "dash-spark__line");
+  return line ? line.attributes.points.split(" ").length : 0;
 };
-const FULL_READS = ["/api/iris/health", "/api/iris/info", "/api/iris/monitor/dashboard", "/api/iris/processes"];
+const FULL_READS = ["/api/iris/databases", "/api/iris/health", "/api/iris/info", "/api/iris/monitor/dashboard",
+  "/api/iris/namespaces", "/api/iris/processes", "/api/iris/tasks", "/api/iris/web-apps"];
 
 test("Primary + IRIS-2: each instance is read on its own, only with GETs, never ?instance=all", async () => {
   await fleet.loadFleet();
@@ -189,16 +200,23 @@ test("each instance has its own section with only its own values; nothing is com
 
   const primary = text(section(PRIMARY));
   assert.match(primary, /^⬢ Primary ★ Primary iris:52773 Status Connected IRIS 2026\.2 \(121U\) Uptime 1d 1h 01m /);
-  assert.match(primary, /Database Normal Journal Normal Alerts 0 Health: Healthy · 0 findings/);
+  // Issues: the instance's active issues (its health report's findings, one per issue).
+  assert.match(primary, /Database Normal Journal Normal Alerts 0 Health: Healthy Issues 0 View Details →/);
   // Card context lines depend on earlier readings (module state), hence the alternatives.
-  assert.match(primary, /Processes View → 7 (first reading|no change since last read) Global References \/ sec View → 100 \/s (sampling every 15 s|range 100–100 \/s) Web Sessions View → 4 live · every 15 s License Usage View → 10% peak 15%/);
-  assert.match(primary, /Cache Efficiency 91 Global References Since Startup 1M Disk Reads Since Startup 1K Disk Writes Since Startup 500/);
+  assert.match(primary, /Processes View → 7 (first reading|no change since last read) Global References \/ sec View → 100 \/s (sampling every 15 s|range 100–100 \/s) Web Sessions View → 4 live · every 15 s License Usage View → 10% peak 15% /);
+  // Row 3: the counts of the lists those pages show.
+  assert.match(primary, /License Usage View → 10% peak 15% Namespaces 2 Databases 3 2 mounted Web Apps 5 4 enabled Tasks 4 1 suspended$/);
 
   const iris2 = text(section(IRIS2));
   assert.match(iris2, /^⬢ IRIS-2 iris-2:52773 Status Connected IRIS 2026\.2 \(221U\) Uptime 2d 1h 02m /);
-  assert.match(iris2, /Database Normal Journal Troubled Alerts 1 Health: Partial · 1 finding/);
-  assert.match(iris2, /Processes View → 14 (first reading|no change since last read) Global References \/ sec View → 200 \/s (sampling every 15 s|range 200–200 \/s) Web Sessions View → 8 live · every 15 s License Usage View → 20% peak 30%/);
-  assert.match(iris2, /Cache Efficiency 92 Global References Since Startup 2M Disk Reads Since Startup 2K Disk Writes Since Startup 1K/);
+  assert.match(iris2, /Database Normal Journal Troubled Alerts 1 Health: Partial Issues 1 View Details →/);
+  assert.match(iris2, /Processes View → 14 (first reading|no change since last read) Global References \/ sec View → 200 \/s (sampling every 15 s|range 200–200 \/s) Web Sessions View → 8 live · every 15 s License Usage View → 20% peak 30% /);
+  assert.match(iris2, /Namespaces 3 Databases 6 5 mounted Web Apps 10 8 enabled Tasks 8 2 suspended$/);
+  // The large Global References chart and Performance Context stay removed.
+  for (const card of [primary, iris2]) {
+    assert.doesNotMatch(card, /Global References \/ Second|Performance Context|Cache Efficiency|Since Startup/);
+  }
+  assert.ok(!sections().some((node) => [...walk(node)].some((n) => /fleet-trend|fleet-perf|fleet-panel|dash-trend/.test(String(n.className)))));
 
   // No Primary value in IRIS-2's section, and the other way round.
   assert.ok(!iris2.includes("121U") && !iris2.includes("★") && !primary.includes("221U") && !primary.includes("Troubled"));
@@ -251,12 +269,12 @@ test("one instance unavailable: only its section says so; the others load and no
   await fleet.loadFleet();
   const iris2 = section(IRIS2);
   assert.equal(iris2.dataset.state, "unavailable");
-  assert.match(text(iris2), /^⬢ IRIS-2 iris-2:52773 Status Unavailable — Uptime — Database — Journal — Alerts — No health report View Details → IRIS-2 could not be read \(HTTP 502\)\. The other instances are not affected\.$/);
+  assert.match(text(iris2), /^⬢ IRIS-2 iris-2:52773 Status Unavailable — Uptime — Database — Journal — Alerts — No health report Issues — View Details → IRIS-2 could not be read \(HTTP 502\)\. The other instances are not affected\.$/);
   assert.equal(section(PRIMARY).dataset.state, "ok");
   assert.match(text(section(PRIMARY)), /Processes View → 7 /);
   assert.equal(section(IRIS3).dataset.state, "ok");
   assert.match(text(section(IRIS3)), /Processes View → 21 /);
-  assert.equal(reads().filter((r) => r.instance === null).length, 4);  // the Primary's own four reads only
+  assert.equal(reads().filter((r) => r.instance === null).length, FULL_READS.length);  // the Primary's own reads only
   // Its links are disabled (it can't be opened), the others' aren't.
   assert.ok(links(iris2).length > 0 && links(iris2).every((n) => n.disabled === true));
   assert.ok(links(section(PRIMARY)).every((n) => n.disabled !== true));
@@ -313,12 +331,15 @@ test("View links select that instance and open the existing page for it", async 
     ["databases", undefined],
     ["journal", undefined],
     ["health-center", undefined],                 // Alerts / health
+    ["issue-resolver", undefined],                // Issues
     ["processes", undefined],
     ["dashboard", "dashboard-resources-title"],   // Global References / sec
     ["web-apps", undefined],                      // Web Sessions
     ["dashboard", "stat-license"],                // License Usage
-    ["dashboard", "dashboard-resources-title"],   // the trend panel
-    ["dashboard", "dashboard-resources-title"],   // Performance Context
+    ["namespaces", undefined],                    // Row 3 counts
+    ["databases", undefined],
+    ["web-apps", undefined],
+    ["tasks", undefined],
   ];
   const [click] = element("fleet-instances").listeners.click;
   for (const id of [IRIS2, PRIMARY]) {
@@ -362,17 +383,17 @@ test("Web Sessions: Web Apps shows its Web Sessions section once that instance's
   }
 });
 
-test("each instance keeps its own trend samples; a failed read adds none", async () => {
+test("each instance keeps its own samples; a failed read adds none", async () => {
   await fleet.loadFleet();
-  const before = [trendSamples(PRIMARY), trendSamples(IRIS2)];
+  await fleet.loadFleet();
+  const before = [sessionSamples(PRIMARY), sessionSamples(IRIS2)];
+  assert.ok(before.every((n) => n >= 2), "the Web Sessions line is drawn from two samples on");
   failing = new Set([IRIS2]);
   await fleet.loadFleet();
-  assert.equal(trendSamples(PRIMARY), before[0] + 1);
+  assert.equal(sessionSamples(PRIMARY), before[0] + 1);
   failing = new Set();
   await fleet.loadFleet();
-  assert.equal(trendSamples(IRIS2), before[1] + 1);  // only the two successful reads
-  assert.ok([...walk(section(IRIS2))].some((n) => n.className === "dash-trend__body"), "the chart is drawn from two samples on");
-  assert.match(text(section(IRIS2)), /Global References \/ Second \(live\) View → Current trend, sampled every 15 s while this page is open\. Not historical data\./);
+  assert.equal(sessionSamples(IRIS2), before[1] + 1);  // only the successful reads
 });
 
 test("while shown, every 15 s it re-reads only each instance's monitor; it stops when the page is left", async () => {

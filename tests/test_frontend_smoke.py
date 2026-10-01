@@ -2490,7 +2490,8 @@ def test_fleet_overview_is_read_only_and_reads_each_instance() -> None:
           "the Fleet Overview nav item and view exist")
     check("fleet: () => loadFleet()," in app_js and "initFleetControls();" in app_js, "app.js wires the Fleet Overview")
     used = sorted(set(re.findall(r"IrisApi\.(\w+)", js)))
-    check(used == ["getHealthReport", "getInfo", "getInstances", "getMonitorDashboard", "getProcesses"],
+    check(used == ["getDatabases", "getHealthReport", "getInfo", "getInstances", "getMonitorDashboard", "getNamespaces",
+                   "getProcesses", "getTasks", "getWebApps"],
           f"fleet.js only reads ({used})")
     check("fetch(" not in js and "innerHTML" not in js, "fleet.js goes through IrisApi and renders with textContent")
     check("const id = instance.primary ? undefined : instance.id;" in js and '"all"' not in js.split("readInstance")[1][:500],
