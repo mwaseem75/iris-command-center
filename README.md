@@ -640,7 +640,6 @@ Alongside the standard rehearsal, Demo Activity offers **Create Demo Issue**: af
 ---
 ### 🧪 Testing & Verification
 
-<img width="1749"  alt="image" src="https://github.com/user-attachments/assets/87883946-9eca-4eb6-9db3-5693854c4357" />
 The project uses automated tests plus live IRIS verification to validate both the application logic and its behavior against a real InterSystems IRIS instance.
 The test suite covers:
 
