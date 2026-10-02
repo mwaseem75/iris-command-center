@@ -293,10 +293,28 @@ class IRISIssueRuleWriter:
         )
         self._iris = iris.createIRIS(self._connection)
 
-    def save_sync(self, rule: CustomIssueRule) -> bool:
+    def _reset(self) -> None:
+        """Drop the connection so the next call reconnects."""
+        connection, self._connection, self._iris = self._connection, None, None
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - already failing; just discard it
+                pass
+
+    def _write(self, write: Callable[[Any], None]) -> None:
+        """Run `write(iris)`; on a failure, reconnect and try once more (raises if that fails too)."""
         try:
             self._ensure_connected()
-            self._iris.set(rule.model_dump_json(), self._GLOBAL, "rule", rule.name)
+            write(self._iris)
+        except Exception:  # noqa: BLE001 - e.g. a connection IRIS has since closed
+            self._reset()
+            self._ensure_connected()
+            write(self._iris)
+
+    def save_sync(self, rule: CustomIssueRule) -> bool:
+        try:
+            self._write(lambda iris: iris.set(rule.model_dump_json(), self._GLOBAL, "rule", rule.name))
             return True
         except Exception:  # noqa: BLE001 - reported to the caller as not persisted
             logger.warning("Could not save custom issue rule %s to IRIS (^%s).", rule.name, self._GLOBAL, exc_info=True)
@@ -304,8 +322,7 @@ class IRISIssueRuleWriter:
 
     def delete_sync(self, name: str) -> bool:
         try:
-            self._ensure_connected()
-            self._iris.kill(self._GLOBAL, "rule", name)
+            self._write(lambda iris: iris.kill(self._GLOBAL, "rule", name))
             return True
         except Exception:  # noqa: BLE001
             logger.warning("Could not delete custom issue rule %s from IRIS (^%s).", name, self._GLOBAL, exc_info=True)

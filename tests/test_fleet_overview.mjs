@@ -58,6 +58,7 @@ let requests = [];
 let instances = [];
 let failing = new Set();
 let healthStillAnswers = false;  // like the backend: /health is 200 "unavailable" when IRIS is down
+let healthStatusWhenDown = "unavailable";  // ...or "partial", with every source unavailable
 let infoDown = new Set();        // instances whose /info fails (the selector's reachability check)
 
 function envelope(result) {
@@ -105,7 +106,7 @@ async function fakeFetch(url, init = {}) {
   }
   if (instance && failing.has(instance)) {
     if (healthStillAnswers && parsed.pathname === "/api/iris/health") {
-      return { ok: true, status: 200, json: async () => ({ status: "unavailable", findings: [] }) };
+      return { ok: true, status: 200, json: async () => ({ status: healthStatusWhenDown, findings: [] }) };
     }
     return { ok: false, status: 502, json: async () => ({ detail: "Could not connect to IRIS" }) };
   }
@@ -164,6 +165,7 @@ beforeEach(() => {
   navigations = [];
   failing = new Set();
   healthStillAnswers = false;
+  healthStatusWhenDown = "unavailable";
   infoDown = new Set();
   instances = registry();
 });
@@ -311,6 +313,20 @@ test("an instance whose only answer is a 200 'unavailable' health report is unav
   assert.equal(section(IRIS2).dataset.state, "unavailable");
   assert.match(text(section(IRIS2)), /Status Unavailable .* No health report /);
   assert.equal(section(PRIMARY).dataset.state, "ok");
+});
+
+test("a down instance whose health report still answers 200 'partial' is unavailable, not 0 issues", async () => {
+  failing = new Set([IRIS2]);
+  healthStillAnswers = true;
+  healthStatusWhenDown = "partial";
+  await fleet.loadFleet();
+  assert.equal(section(IRIS2).dataset.state, "unavailable");
+  assert.match(text(section(IRIS2)),
+    /^⬢ IRIS-2 iris-2:52773 Status Unavailable — .* Issues — View Details → IRIS-2 could not be read \(HTTP 502\)\. The other instances are not affected\.$/);
+  assert.doesNotMatch(text(section(IRIS2)), /Connected|Issues 0/);
+  // A reachable instance is unchanged.
+  assert.equal(section(PRIMARY).dataset.state, "ok");
+  assert.match(text(section(PRIMARY)), /Status Connected .* Issues 0 View Details →/);
 });
 
 test("inactive instances are never read or shown; the note says how many", async () => {

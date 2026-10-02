@@ -1,12 +1,10 @@
 """Keyword-based intent matching for the AI Assistant (no LLM).
 
 Maps a question to one of a fixed set of intents; anything else is UNKNOWN.
-JOURNAL_OPERATION is the only one that can lead to a change, and even then
-journal_operation.py runs it through the normal authorization and
-confirmation flow.
+JOURNAL_OPERATION (a PurgeArchived change request) is only answered with a
+pointer to the Copilot; nothing here changes IRIS.
 """
 
-import re
 from enum import Enum
 
 
@@ -51,33 +49,3 @@ def classify_intent(message: str) -> Intent:
         return Intent.SYSTEM_STATUS
 
     return Intent.UNKNOWN
-
-
-_CONFIRM_WORDS = ("confirm", "confirmed", "proceed")
-_TRUE_WORDS = ("true", "on", "enable", "enabled")
-_FALSE_WORDS = ("false", "off", "disable", "disabled")
-
-
-def _contains_word(text: str, word: str) -> bool:
-    return re.search(rf"\b{re.escape(word)}\b", text) is not None
-
-
-def parse_purge_archived_request(message: str) -> tuple[bool | None, bool]:
-    """Pull (target_value, is_confirmed) out of a PurgeArchived request.
-
-    target_value is None unless the message clearly asks for true or false.
-    is_confirmed is only True when the message says confirm/confirmed/proceed.
-    """
-    text = (message or "").strip().lower()
-
-    has_true = any(_contains_word(text, word) for word in _TRUE_WORDS)
-    has_false = any(_contains_word(text, word) for word in _FALSE_WORDS)
-    if has_true and not has_false:
-        target: bool | None = True
-    elif has_false and not has_true:
-        target = False
-    else:
-        target = None
-
-    confirmed = any(_contains_word(text, word) for word in _CONFIRM_WORDS)
-    return target, confirmed

@@ -46,6 +46,7 @@ def test_catalog_has_the_built_in_issue_types() -> None:
     assert list(ISSUE_CATALOG) == [
         "database_dismounted", "web_app_namespace_missing", "journal_purge_archived_off",
         "system_monitor_not_running", "task_manager_not_running", "database_full",
+        "audit_logging_disabled",
     ]
     assert get_issue_resolution("database_dismounted") is DATABASE_DISMOUNTED
 
@@ -113,7 +114,7 @@ def test_entry_matches_what_the_issues_route_reports(client: TestClient, mock_ir
                "JournalcspSession": False, "PurgeArchived": False, "CompressFiles": True, "wijdir": "", "targwijsz": 0}
     bodies = {"/v2/databases": databases, "/v2/database-dirs": dirs, "/v2/namespaces": [],
               "/v2/journal/settings": journal, "/v2/web-apps": [],  # read by the other issue checks
-              "/v2/task/manager": {"Status": "Running"},
+              "/v2/task/manager": {"Status": "Running"}, "/v2/security/audit/enabled": {"Enabled": True},
               "/v2/monitor/dashboard/main": _dashboard(), "/v2/processes": [_monitor_process()]}
     mock_iris_client.get.side_effect = lambda path, **_: {"status": OK, "console": [], "result": bodies[path]}
 

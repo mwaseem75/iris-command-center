@@ -370,3 +370,80 @@ async def test_lifespan_does_not_hydrate_when_persistence_is_disabled(_lifespan_
         assert store.list_traces() == []
 
     assert _FakeWriter.instances == []
+
+
+# --- reconnect once after IRIS dropped the kept connection ---
+
+
+class _FakeIrisModuleWithDeadConnections:
+    """The `iris` module: numbered connections; one can "die" (EPIPE after an IRIS restart)."""
+
+    def __init__(self) -> None:
+        self.values: dict[tuple, str] = {}
+        self.connections: list[dict] = []
+        self.down = False
+
+    def connect(self, *args: Any) -> Any:
+        if self.down:
+            raise RuntimeError("<COMMUNICATION LINK ERROR> Failed to connect")
+        state = {"dead": False, "closed": False}
+        self.connections.append(state)
+        return type("Connection", (), {"state": state, "close": lambda self: state.update(closed=True)})()
+
+    def createIRIS(self, handle: Any) -> Any:  # noqa: N802 - Native API name
+        module, state = self, handle.state
+
+        def check() -> None:
+            if state["dead"] or state["closed"]:
+                raise RuntimeError("<COMMUNICATION LINK ERROR> Error code: 32 EPIPE")
+
+        class Native:
+            def get(self, *keys: Any) -> str | None:
+                check()
+                return module.values.get(keys)
+
+            def set(self, value: str, *keys: Any) -> None:
+                check()
+                module.values[keys] = value
+
+            def kill(self, *keys: Any) -> None:
+                check()
+                module.values.pop(keys, None)
+
+        return Native()
+
+
+def _writer_on(monkeypatch: pytest.MonkeyPatch) -> tuple[IRISTraceWriter, _FakeIrisModuleWithDeadConnections]:
+    import sys
+
+    from app.config import Settings
+
+    module = _FakeIrisModuleWithDeadConnections()
+    monkeypatch.setitem(sys.modules, "iris", module)
+    writer = IRISTraceWriter(Settings(_env_file=None, iris_base_url="http://iris.invalid.test:52773",
+                                      iris_username="u", iris_password="test-password-not-real"))
+    return writer, module
+
+
+def test_persist_sync_reconnects_once_after_the_connection_died(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer, module = _writer_on(monkeypatch)
+    writer.persist_sync(_trace("first"))
+    module.connections[0]["dead"] = True  # IRIS restarted
+
+    writer.persist_sync(_trace("second"))
+
+    assert module.values[("CommandCenterTrace", "seq")] == "2"
+    assert "second" in module.values[("CommandCenterTrace", "trace", 2)]
+    assert len(module.connections) == 2 and module.connections[0]["closed"]
+
+
+def test_persist_sync_gives_up_after_one_retry_while_iris_is_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer, module = _writer_on(monkeypatch)
+    writer.persist_sync(_trace("first"))
+    module.connections[0]["dead"] = True
+    module.down = True
+
+    writer.persist_sync(_trace("lost"))  # must not raise
+
+    assert module.values[("CommandCenterTrace", "seq")] == "1"
+    assert len(module.connections) == 1

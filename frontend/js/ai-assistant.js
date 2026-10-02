@@ -821,7 +821,7 @@ function appendMessage(role, { text, card: cardNode, actions } = {}) {
   history.push({ role, text, time });
   const message = el("div", `chat__message chat__message--${role} ai-message`);
   const head = el("div", "ai-message__head");
-  head.append(el("span", "ai-message__who", role === "user" ? "You" : "IRIS Assistant"), el("span", "ai-message__time", fmtTime(time)));
+  head.append(el("span", "ai-message__who", role === "user" ? "You" : "AI Assistant"), el("span", "ai-message__time", fmtTime(time)));
   message.append(head, el("p", "chat__message-text", text));
   if (cardNode) message.append(cardNode);
   if (actions && actions.length) {

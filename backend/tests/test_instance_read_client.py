@@ -207,12 +207,12 @@ def test_assistant_reads_the_selected_instance(client, env) -> None:
     env.primary_client.get.assert_not_awaited()
 
 
-def test_assistant_change_requests_stay_on_the_primary(client, env) -> None:
-    from app.assistant.responses import PRIMARY_ONLY_REPLY
+def test_assistant_change_requests_change_nothing_on_any_instance(client, env) -> None:
+    from app.assistant.responses import JOURNAL_CHANGE_REPLY
 
     body = client.get("/api/iris/assistant/query",
                       params={"message": "confirm purge archived true", "instance": env.second.id}).json()
-    assert (body["intent"], body["reply"]) == ("journal_operation", PRIMARY_ONLY_REPLY)
+    assert (body["intent"], body["reply"]) == ("journal_operation", JOURNAL_CHANGE_REPLY)
     env.primary_client.get.assert_not_awaited()
     env.primary_client.put.assert_not_awaited()
     assert env.pool.clients[env.second.id].put.await_count == 0

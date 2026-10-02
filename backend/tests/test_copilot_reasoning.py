@@ -110,11 +110,19 @@ async def test_resolution_request_is_a_proposal_only() -> None:
     provider = DeterministicCopilotProvider()
 
     response = await CopilotReasoningService(provider).reason(
-        "Disable this database", CopilotIntent.RESOLUTION_REQUEST, _context()
+        "Disable purge archived", CopilotIntent.RESOLUTION_REQUEST, _context()
     )
 
-    assert response.proposed_action
+    assert response.proposed_action == "Set PurgeArchived to false"
     assert response.requires_confirmation is True
+    assert "no operation is executed" in response.answer
+
+    # Only catalog operations are proposed: there's no "disable database".
+    response = await CopilotReasoningService(provider).reason(
+        "Disable this database", CopilotIntent.RESOLUTION_REQUEST, _context()
+    )
+    assert response.proposed_action is None
+    assert response.requires_confirmation is False
     assert "no operation is executed" in response.answer
 
 

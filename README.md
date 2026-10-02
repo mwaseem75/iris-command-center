@@ -32,8 +32,9 @@ It combines live IRIS system information with controlled administrative workflow
 IRIS Ops Skill turns IRIS Command Center from an operational dashboard into a
 **safety-oriented AI operations capability for InterSystems IRIS**.
 
-It is not an unrestricted AI agent connected directly to IRIS. The Copilot operates
-inside a deterministic, server-side safety boundary:
+It is not an unrestricted AI agent connected directly to IRIS. The Copilot is
+deterministic and rule-based (no LLM or external AI service is involved), and it
+operates inside a server-side safety boundary:
 
 **Ask → Detect → Explain → Plan → Confirm → Authorize → Execute → Verify → Trace**
 
@@ -51,7 +52,7 @@ inside a deterministic, server-side safety boundary:
 
 ### The safety architecture
 
-```
+```mermaid
 flowchart LR
     U[User Request] --> I[Deterministic Intent]
     I --> C[Capability Catalog]
@@ -93,7 +94,7 @@ frameworks.
 | 🤖 **AI Assistant / IRIS Ops Skill** | Issue-aware AI operations over live IRIS data with a closed capability catalog, read-only Task Catalog, explicit confirmation, server-side authorization, structured execution traces, and machine-readable failure states |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
-| 🖥️ **Instances (Multi-IRIS)** | Register additional IRIS 2026.2+ instances, test their compatibility, and switch the read screens to any active instance with the global instance selector in the header |
+| 🖥️ **Instances (Multi-IRIS)** | Register additional IRIS 2026.2+ instances, test their compatibility, open any active instance with the instance selector in each page's header, and monitor all active instances in the Fleet Overview |
 | 🎬 **Demo Activity** | Demonstrate controlled operations and an intentional, reversible demo issue, with verification, restoration, and execution tracing |
 
 ---
@@ -354,7 +355,7 @@ Check the services:
 docker compose ps
 ```
 
-The stack starts the Primary IRIS (`iris`), the backend, and a second, independent IRIS instance (`iris-2`, same image, durable `%SYS` on the `iris-2-data` volume, host ports `52774` / `1974`). `iris-2` is not registered automatically: add it on the **Instances** screen with the URL `http://iris-2:52773`, user `_SYSTEM` and your `IRIS2_PASSWORD`.
+The stack starts the Primary IRIS (`iris`), the backend, and a second, independent IRIS instance (`iris-2`, same image, durable `%SYS` on the `iris-2-data` volume, host ports `52774` / `1974`). `iris-2` is not registered automatically: add it on the **Instances** screen with the URL `http://iris-2:52773`, user `_SYSTEM` and your `IRIS2_PASSWORD`. It is then shown as **Docker-managed**: it can be checked and (de)activated, but not edited or deleted (Command Center recognises it by its host name, `iris-2`).
 
 ### 4. Open Command Center
 
@@ -367,6 +368,8 @@ http://localhost:52773/iris-command-center/index.html
 ```text
 zpm "install iris-command-center"
 ```
+
+This installs the web console only, served at `/iris-command-center/index.html`. The console calls the FastAPI backend at `http://localhost:8000`, so the backend has to run separately (for example with `docker compose up`); its CORS settings allow the console from `http://localhost:52773` and `http://localhost:5500`.
 
 ### Endpoints
 
@@ -601,10 +604,10 @@ Command Center can work with more than one IRIS instance. The **Primary** comes 
 
 - **Instances screen** — add, edit, check, activate, deactivate and delete instances. Every change runs through the same authorization → confirmation → execution → verification → trace framework. An instance can be added only after a compatible connection test. Definitions are stored in IRIS (`^CommandCenterInstance`); passwords are stored in the IRIS Secure Wallet and are never returned by the API or shown in the browser.
 - **Compatibility** — an instance must be **InterSystems IRIS 2026.2 or later**: the check requires the System Administration API (`/api/admin`, API v2) and every endpoint Command Center uses. A reachable older server is reported as *"Incompatible — IRIS 2025.3 … Requires IRIS 2026.2 or later."*, distinct from *unreachable* and *auth failed*.
-- **Global instance selector** — the header selector chooses the Primary, another active instance, or **All Active Instances**. The choice is kept across page reloads; a saved instance that is gone or inactive falls back to the Primary.
-- **What follows the selection** — the Dashboard, Health Center, System, Namespaces, Databases, Processes, Web Apps, Tasks, Security, Journal, Investigation (audit records), Extensions and the AI Assistant's answers read the selected instance. The browser sends only the instance id (`?instance=<id>`); the backend resolves the connection and credentials. A selected instance never falls back silently to the Primary: if it can't be read, the page says so.
-- **All Active Instances** — the Dashboard and Health Center show combined counts (namespaces, databases, processes, web applications, tasks) with the instances included. Other pages ask for a specific instance.
-- **Primary only** — all changes run on the Primary: Issue Resolver and Operations, the change controls on the other pages (hidden while another instance is selected), and Copilot planning, authorization and execution. Embedded Python diagnostics and the message log use the Primary's own connection and are Primary-only too.
+- **Instance selector** — instance-aware pages have a selector in their page header (the Fleet Overview and the Instances screen don't). It offers the Primary and every active instance that currently answers a read-only reachability check (`GET /api/iris/info`). The choice is kept across page reloads; a saved instance that is gone, inactive or unreachable falls back to the Primary, and the page says so.
+- **What follows the selection** — the Dashboard, Health Center, System, Namespaces, Databases, Processes, Web Apps, Tasks, Security, Journal, Investigation (audit records), Extensions, Issue Resolver, Operations, Observability (that instance's traces), API Explorer (its recorded compatibility) and the AI Assistant's answers. The browser sends only the instance id (`?instance=<id>`); the backend resolves the connection and credentials. A page read for a selected instance never falls back to the Primary: if it can't be read, the page says so.
+- **Fleet Overview** — every active instance side by side, each read on its own; nothing is combined across instances (see the **Multi-IRIS Instances & Fleet Overview** section above).
+- **Primary only** — all changes run on the Primary. Issue Resolver and Operations show another instance's data with their actions disabled and marked Primary only; the change controls on the other pages are hidden while another instance is selected; Copilot planning, authorization and execution use the Primary. Embedded Python diagnostics and the message log use the Primary's own connection and are Primary-only too.
 
 ### 💾 Persisting traces in IRIS
 Command Center can persist its execution traces **inside the connected InterSystems IRIS instance**.
@@ -650,7 +653,7 @@ The test suite covers:
 - **Live IRIS verification** — selected workflows are exercised against a real IRIS 2026.2 instance to confirm that API responses, privileges, operations, and resulting system state match expectations.
 
 The test suite is designed to verify not only that an operation succeeds, but also that **unsafe or invalid operations are refused and that successful changes are verified against the resulting IRIS state**.
-Current backend test status: **1,499 automated tests — 1,490 passing, 9 known failures**. The 9 failures are pre-existing: they were not introduced by the IRIS Ops Skill work, and they fail the same way on the code before the multi-instance work: 4 are in earlier Copilot tests (test setup with an incomplete IRIS mock, and outdated expectations), and 5 are in Issue Catalog, Health Center and database-mount tests whose expectations predate later changes. The IRIS Ops Skill tests cover the capability catalog, planning, execution, task answers, traces and every structured failure code; the multi-instance tests cover the registry, Wallet credentials, the compatibility check, the instance routes and instance-scoped reads. Frontend tests: 31 Node tests (`node --test tests/*.mjs`) for the instance selector, Dashboard and Health Center all pass; the frontend smoke tests (`python tests/test_frontend_smoke.py`) pass 56 of 60 tests, with 4 known, pre-existing failures whose expectations predate the Health Center, Copilot and custom-rule changes.
+Current test status, all passing: **1,510 backend tests** (`cd backend && python -m pytest`); **65 Node tests** (`node --test tests/*.mjs`) for the instance selector, the instance-aware pages, the Instances edit flow, the Dashboard, the Health Center and the Fleet Overview; and **61 frontend smoke tests** (`python tests/test_frontend_smoke.py`). The IRIS Ops Skill tests cover the capability catalog, planning, execution, task answers, traces and every structured failure code; the multi-instance tests cover the registry, Wallet credentials, the compatibility check, the instance routes and instance-scoped reads.
 
 # ⚙️ Configuration
 

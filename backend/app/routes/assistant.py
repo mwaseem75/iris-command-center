@@ -1,20 +1,19 @@
 """AI Assistant query endpoint.
 
 A keyword classifier (intents.py) picks the question type; read-only answers
-reuse the route functions in routes/iris.py, and the one journal operation
-goes through journal_operation.py. No LLM is involved, and unknown questions
-get a fixed help reply.
+reuse the route functions in routes/iris.py. No LLM is involved, and unknown
+questions get a fixed help reply.
 
-It's a GET like the other routes; any real change still needs explicit
-confirmation in the message.
+It never changes anything: a journal PurgeArchived change request gets a
+fixed reply pointing to the Copilot (plan, authorization, confirmation,
+execution, verification) and the Operations page.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.assistant.intents import Intent, classify_intent
-from app.assistant.journal_operation import handle_journal_operation_message
 from app.assistant.responses import (
-    PRIMARY_ONLY_REPLY,
+    JOURNAL_CHANGE_REPLY,
     UNKNOWN_REPLY,
     UNREACHABLE_REPLY,
     format_database_status,
@@ -24,7 +23,7 @@ from app.assistant.responses import (
     format_task_info,
     format_web_app_status,
 )
-from app.dependencies import get_iris_client, get_read_client
+from app.dependencies import get_read_client
 from app.iris_client.client import IRISClient
 from app.models.schemas import AssistantQueryResponse
 from app.routes.iris import get_databases, get_info, get_processes, get_tasks, get_web_apps
@@ -36,7 +35,6 @@ router = APIRouter(prefix="/api/iris", tags=["assistant"])
 async def query_assistant(
     message: str = Query(..., min_length=1, max_length=500),
     client: IRISClient = Depends(get_read_client),
-    primary: IRISClient = Depends(get_iris_client),
 ) -> AssistantQueryResponse:
     intent = classify_intent(message)
 
@@ -60,11 +58,7 @@ async def query_assistant(
             envelope = await get_tasks(client)
             reply = format_task_info(envelope.result)
         elif intent is Intent.JOURNAL_OPERATION:
-            reply = (
-                await handle_journal_operation_message(message, primary)
-                if client is primary
-                else PRIMARY_ONLY_REPLY
-            )
+            reply = JOURNAL_CHANGE_REPLY
         else:
             reply = UNKNOWN_REPLY
     except HTTPException:

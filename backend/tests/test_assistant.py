@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.assistant.intents import Intent, classify_intent, parse_purge_archived_request
+from app.assistant.intents import Intent, classify_intent
+from app.assistant.responses import JOURNAL_CHANGE_REPLY
 from app.iris_client.exceptions import IRISConnectionError
 
 # --- classify_intent ---
@@ -55,39 +56,6 @@ def test_classify_intent_journal_operation() -> None:
     assert classify_intent("update_purge_archived") is Intent.JOURNAL_OPERATION
     assert classify_intent("journal.update_purge_archived") is Intent.JOURNAL_OPERATION
 
-
-# --- parse_purge_archived_request ---
-
-
-def test_parse_purge_archived_request_no_value_is_none() -> None:
-    target, confirmed = parse_purge_archived_request("change purge archived")
-    assert target is None
-    assert confirmed is False
-
-
-def test_parse_purge_archived_request_value_without_confirmation() -> None:
-    target, confirmed = parse_purge_archived_request("set purge archived to true")
-    assert target is True
-    assert confirmed is False
-
-
-def test_parse_purge_archived_request_confirmed_true() -> None:
-    target, confirmed = parse_purge_archived_request("confirm purge archived true")
-    assert target is True
-    assert confirmed is True
-
-
-def test_parse_purge_archived_request_confirmed_false() -> None:
-    target, confirmed = parse_purge_archived_request("confirm purge archived false")
-    assert target is False
-    assert confirmed is True
-
-
-def test_parse_purge_archived_request_ambiguous_value_is_none() -> None:
-    # Has both a true word and a false word, so don't guess.
-    target, confirmed = parse_purge_archived_request("confirm purge archived true or false")
-    assert target is None
-    assert confirmed is True
 
 
 # --- GET /api/iris/assistant/query ---
@@ -314,128 +282,28 @@ def test_assistant_never_uses_a_mutating_http_method(client: TestClient) -> None
     assert response.status_code == 405
 
 
-# --- journal.update_purge_archived through the assistant ---
-# Detection, confirmation, authorization and execution all go through
-# the normal framework (app/assistant/journal_operation.py). ---
+# --- journal PurgeArchived change requests: never executed here ---
+# The legacy GET endpoint answers them with a pointer to the Copilot, which
+# plans, authorizes, confirms, executes and verifies the change.
 
 
-def _journal_settings_body(purge_archived: bool) -> dict[str, Any]:
-    return {
-        "status": {"errors": [], "summary": ""},
-        "console": [],
-        "result": {
-            "AlternateDirectory": "/usr/irissys/mgr/journal/",
-            "ArchiveName": "",
-            "BackupsBeforePurge": 2,
-            "CurrentDirectory": "/usr/irissys/mgr/journal/",
-            "DaysBeforePurge": 2,
-            "FileSizeLimit": 1024,
-            "FreezeOnError": False,
-            "JournalFilePrefix": "",
-            "JournalcspSession": False,
-            "PurgeArchived": purge_archived,
-            "CompressFiles": True,
-            "wijdir": "",
-            "targwijsz": 0,
-        },
-    }
-
-
-def _info_body(privileges: dict[str, bool]) -> dict[str, Any]:
-    return {
-        "status": {"errors": [], "summary": ""},
-        "console": [],
-        "result": {
-            "apiVersion": 2,
-            "username": "_SYSTEM",
-            "serverVersion": "IRIS for UNIX 2026.2 (Build 221U)",
-            "systemMode": "",
-            "product": "iris",
-            "namespaces": [{"name": "%SYS"}],
-            "privileges": {name: {"use": use} for name, use in privileges.items()},
-        },
-    }
-
-
-def test_assistant_detects_journal_operation_without_calling_iris(
-    client: TestClient, mock_iris_client: AsyncMock
+@pytest.mark.parametrize("message", [
+    "change the purge archived setting",
+    "set purge archived to true",
+    "confirm purge archived true",
+    "proceed: journal.update_purge_archived false",
+])
+def test_assistant_journal_request_never_mutates_or_calls_iris(
+    client: TestClient, mock_iris_client: AsyncMock, message: str
 ) -> None:
-    # No value given, so it just describes the operation and never calls IRIS.
-    response = client.get(
-        "/api/iris/assistant/query", params={"message": "change the purge archived setting"}
-    )
+    response = client.get("/api/iris/assistant/query", params={"message": message})
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["intent"] == "journal_operation"
-    assert "PurgeArchived" in body["reply"] or "purge archived" in body["reply"].lower()
-    assert "Manage" in body["reply"] or "Journal" in body["reply"]
-    assert "confirm" in body["reply"].lower()
+    assert response.json() == {"reply": JOURNAL_CHANGE_REPLY, "intent": "journal_operation"}
     mock_iris_client.get.assert_not_awaited()
     mock_iris_client.put.assert_not_awaited()
-
-
-def test_assistant_journal_operation_requires_confirmation(
-    client: TestClient, mock_iris_client: AsyncMock
-) -> None:
-    # A value but no confirmation word: authorize() blocks it before the PUT.
-    mock_iris_client.get.return_value = _info_body({"Manage": True})
-
-    response = client.get(
-        "/api/iris/assistant/query", params={"message": "set purge archived to true"}
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["intent"] == "journal_operation"
-    assert "confirm purge archived true" in body["reply"].lower()
-    assert "nothing has been changed" in body["reply"].lower()
-    mock_iris_client.put.assert_not_awaited()
-
-
-def test_assistant_journal_operation_authorization_rejection_is_explained(
-    client: TestClient, mock_iris_client: AsyncMock
-) -> None:
-    # Confirmed with a value, but no Manage/Journal privilege: denied.
-    mock_iris_client.get.return_value = _info_body({"Operate": True, "Secure": True})
-
-    response = client.get(
-        "/api/iris/assistant/query", params={"message": "confirm purge archived true"}
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["intent"] == "journal_operation"
-    assert "can't do that" in body["reply"].lower()
-    assert "privilege" in body["reply"].lower()
-    mock_iris_client.put.assert_not_awaited()
-
-
-def test_assistant_journal_operation_successful_confirmed_execution(
-    client: TestClient, mock_iris_client: AsyncMock
-) -> None:
-    # Confirmed, a value, and the right privilege: the handler runs
-    # (against the mock client).
-    mock_iris_client.get.side_effect = [
-        _info_body({"Manage": True}),  # get_caller_privileges -> GET /info
-        _journal_settings_body(False),  # handler.execute() reads the current value
-        _journal_settings_body(True),  # handler.verify() re-reads it
-    ]
-    mock_iris_client.put.return_value = _journal_settings_body(True)
-
-    response = client.get(
-        "/api/iris/assistant/query", params={"message": "confirm purge archived true"}
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["intent"] == "journal_operation"
-    assert body["reply"].startswith("Done.")
-    assert "True" in body["reply"] or "true" in body["reply"].lower()
-    mock_iris_client.put.assert_awaited_once_with(
-        "/v2/journal/settings", json={"PurgeArchived": True}
-    )
-    assert mock_iris_client.get.await_count == 3
+    mock_iris_client.post.assert_not_awaited()
+    mock_iris_client.post_async_task.assert_not_awaited()
 
 
 def test_assistant_journal_operation_never_bypasses_confirmation() -> None:

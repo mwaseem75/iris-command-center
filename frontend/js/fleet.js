@@ -131,16 +131,16 @@ function summarize(instance) {
   if (!entry) return { state: "loading" };
   const value = (key) => settledValue(entry.results[key]);
   const report = value("health");
-  // /health answers 200 with status "unavailable" when it couldn't reach
-  // IRIS, so that answer alone doesn't make an instance reachable.
+  // /health answers 200 even when it couldn't reach IRIS (status
+  // "unavailable", or "partial" with every source unavailable), so only a
+  // direct IRIS read makes an instance reachable.
   const health = report && report.status !== "unavailable" ? report : null;
   const processes = resultOf(value("processes"));
   const list = (key) => {
     const result = resultOf(value(key));
     return Array.isArray(result) ? result : null;
   };
-  const reachable = entry.round.some((key) =>
-    entry.results[key].status === "fulfilled" && (key !== "health" || health !== null));
+  const reachable = entry.round.some((key) => key !== "health" && entry.results[key].status === "fulfilled");
   const failure = entry.round.map((key) => entry.results[key]).find((settled) => settled.status === "rejected");
   return {
     state: reachable ? "ok" : "unavailable",
@@ -148,7 +148,8 @@ function summarize(instance) {
     info: resultOf(value("info")),
     monitor: resultOf(value("monitor")),
     processes: Array.isArray(processes) ? processes.length : null,
-    health,
+    // Not shown for an unreachable instance: its findings (Issues) weren't checked.
+    health: reachable ? health : null,
     namespaces: list("namespaces"),
     databases: list("databases"),
     webApps: list("webApps"),

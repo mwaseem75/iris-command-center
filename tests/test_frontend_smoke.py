@@ -986,15 +986,20 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
     )
 
     # The assistant answers from live data, so it may call a fixed list of
-    # read-only GET wrappers and nothing else. Mutations go through
-    # Operations.
+    # read-only GET wrappers, plus the Copilot routes: a change is only ever
+    # planned, authorized (with explicit confirmation) and executed through
+    # them, and the backend re-authorizes before executing.
     allowed_reads = {
         "queryAssistant", "getInfo", "getProcesses", "getDatabases", "getDatabaseStorage",
         "getWebApps", "getTaskOverview", "getExecutionTraces", "getJournalSettings", "getMonitorDashboard",
         "getPythonDiagnostics", "searchKnowledge",
     }
+    copilot_pipeline = {
+        "classifyCopilotRequest", "askCopilot", "planCopilotOperation", "authorizeCopilotPlan", "executeCopilotPlan",
+    }
     called = set(re.findall(r"IrisApi\.([A-Za-z]+)\(", ai_js))
-    check(called <= allowed_reads, f"ai-assistant.js calls only read-only IrisApi methods (found: {sorted(called)})")
+    check(called <= allowed_reads | copilot_pipeline,
+          f"ai-assistant.js calls only read-only IrisApi methods and the Copilot routes (found: {sorted(called)})")
     mutating_methods = [
         "executeJournalPurgeArchived", "createNamespace", "createDatabase", "mountDatabase", "dismountDatabase",
         "setWebAppEnabled", "updateWebAppDescription", "setUserEnabled", "runTaskNow", "runDemoRehearsal",
@@ -1005,8 +1010,14 @@ def test_ai_assistant_nav_and_view_exist_and_use_only_assistant_query() -> None:
         "isMutationRequest(" in ai_js and "answerMutation(" in ai_js,
         "ai-assistant.js answers mutation requests locally (pointing to Operations) instead of forwarding them",
     )
+    # A purge-archived change is a mutation request, answered locally before
+    # the only call to the backend assistant (Copilot plans go through
+    # authorize/execute instead).
+    guard = "if (isMutationRequest(text)) return answerMutation(text);"
     check(
-        "if (/purge/.test(text)) return answerMutation(text);" in ai_js,
+        "/purge ?archived|purgearchived|purge_archived/.test(text) && /\\b(set|change|update|enable|disable" in ai_js
+        and guard in ai_js
+        and ai_js.rindex(guard) < ai_js.index("IrisApi.queryAssistant("),
         "ai-assistant.js never forwards a purge/journal-change message to the backend assistant",
     )
 
@@ -1116,7 +1127,7 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
 
     js = (FRONTEND_DIR / "js" / "issue-resolver.js").read_text(encoding="utf-8")
     calls = set(re.findall(r"IrisApi\.(\w+)", js))
-    check(calls == {"getIssues", "runDemoRehearsal", "getExecutionTraces",
+    check(calls == {"getIssues", "runDemoRehearsal", "getExecutionTraces", "getIssueResolutionHistory",
                     "getIssueRules", "createIssueRule", "deleteIssueRule"},
           "issue-resolver.js calls only getIssues(), the existing rehearsal, the trace list and the custom "
           f"rule routes (found {sorted(calls)})")
@@ -1128,7 +1139,7 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
         check(key in js, f"issue-resolver.js renders {key!r} from the catalog")
 
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
-    check('view === "issue-resolver"' in app_js and "loadIssueResolver()" in app_js,
+    check('"issue-resolver": () => loadIssueResolver()' in app_js,
           "app.js loads the Issue Resolver when its page opens")
 
 
@@ -2141,8 +2152,18 @@ def test_no_mutating_http_method_anywhere_in_frontend_js() -> None:
     # the instance routes (sendInstanceRequest, checked below).
     allowed_post_file = "api.js"
 
+    # health-center.js lists the IRIS endpoints its report is built from, as
+    # text; one of them is the backend's own POST /v2/database-dir/info read.
+    # That label (and only it) is not a request.
+    display_only = {"health-center.js": 'method: "POST",\n    path: "/v2/database-dir/info",'}
+
     for js_file in sorted(js_dir.glob("*.js")):
         content = js_file.read_text(encoding="utf-8")
+        if js_file.name in display_only:
+            label = display_only[js_file.name]
+            check(label in content and "fetch(" not in content,
+                  f"{js_file.relative_to(REPO_ROOT)} only lists that IRIS endpoint and makes no request itself")
+            content = content.replace(label, "")
         for method in mutating_methods:
             # Match the quoted verb (method: "POST"), not any word containing "post".
             pattern = rf'["\']{method}["\']'

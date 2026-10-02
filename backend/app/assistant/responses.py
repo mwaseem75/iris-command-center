@@ -11,8 +11,11 @@ UNKNOWN_REPLY = (
 )
 
 UNREACHABLE_REPLY = "I couldn't reach IRIS to answer that just now. Please try again shortly."
-PRIMARY_ONLY_REPLY = (
-    "Changes run on the Primary instance only. Switch to Primary in the header to make this change."
+JOURNAL_CHANGE_REPLY = (
+    "Nothing is changed from here. To change the journal PurgeArchived setting, ask for it "
+    '(for example "Enable purge archived"): the Copilot plans it, checks your IRIS privileges, '
+    "asks you to confirm, runs it on the Primary and verifies the result. You can also use "
+    "the Operations page."
 )
 
 

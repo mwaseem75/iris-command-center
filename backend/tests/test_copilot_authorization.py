@@ -172,9 +172,17 @@ def test_authorize_endpoint_never_invokes_executor_or_iris_mutation(
 
 
 def test_authorize_endpoint_rejects_non_boolean_confirmation(client: TestClient) -> None:
-    response = client.post(
-        "/api/iris/copilot/authorize",
-        json={"plan": _plan().model_dump(mode="json"), "confirmed": "yes"},
-    )
+    from app.main import app
+
+    # Privileges are a dependency (read from IRIS /info), resolved before the
+    # body is validated; this test is about the body only.
+    app.dependency_overrides[get_caller_privileges] = lambda: frozenset({"Manage"})
+    try:
+        response = client.post(
+            "/api/iris/copilot/authorize",
+            json={"plan": _plan().model_dump(mode="json"), "confirmed": "yes"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_caller_privileges, None)
 
     assert response.status_code == 422

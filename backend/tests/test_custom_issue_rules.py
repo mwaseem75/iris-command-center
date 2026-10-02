@@ -363,3 +363,74 @@ def test_non_finite_value_is_a_422_not_a_500(client: TestClient, token: str) -> 
     (error,) = response.json()["detail"]
     assert error["loc"] == ["body", "value"] and "finite number" in error["msg"]
     assert custom_rules.list_rules() == []
+
+
+# --- reconnect once after IRIS dropped the kept connection ---
+
+
+class _FakeIrisModule:
+    """The `iris` module: numbered connections; one can "die" (EPIPE after an IRIS restart)."""
+
+    def __init__(self) -> None:
+        self.globals: dict[tuple, Any] = {}
+        self.connections: list[dict] = []
+        self.down = False
+
+    def connect(self, *args: Any) -> Any:
+        if self.down:
+            raise RuntimeError("<COMMUNICATION LINK ERROR> Failed to connect")
+        state = {"dead": False, "closed": False}
+        self.connections.append(state)
+        return type("Connection", (), {"state": state, "close": lambda self: state.update(closed=True)})()
+
+    def createIRIS(self, handle: Any) -> Any:  # noqa: N802 - Native API name
+        module, state = self, handle.state
+
+        def check() -> None:
+            if state["dead"] or state["closed"]:
+                raise RuntimeError("<COMMUNICATION LINK ERROR> Error code: 32 EPIPE")
+
+        class Native:
+            def set(self, value: Any, *keys: Any) -> None:
+                check()
+                module.globals[keys] = value
+
+            def kill(self, *keys: Any) -> None:
+                check()
+                module.globals.pop(keys, None)
+
+        return Native()
+
+
+@pytest.fixture
+def fake_iris_module(monkeypatch: pytest.MonkeyPatch) -> _FakeIrisModule:
+    import sys
+
+    module = _FakeIrisModule()
+    monkeypatch.setitem(sys.modules, "iris", module)
+    return module
+
+
+def test_writer_reconnects_once_after_the_connection_died(fake_iris_module: _FakeIrisModule) -> None:
+    writer, _ = _writer()
+    writer._iris = None  # use the fake module, not the in-memory fake
+    rule = CustomIssueRule(**_rule(name="alpha_rule"))
+    assert writer.save_sync(rule)
+    fake_iris_module.connections[0]["dead"] = True  # IRIS restarted
+
+    assert writer.delete_sync("alpha_rule") is True
+    assert ("CommandCenterIssueRule", "rule", "alpha_rule") not in fake_iris_module.globals
+    assert len(fake_iris_module.connections) == 2 and fake_iris_module.connections[0]["closed"]
+
+
+def test_writer_reports_a_failure_when_iris_is_still_down(fake_iris_module: _FakeIrisModule) -> None:
+    writer, _ = _writer()
+    writer._iris = None
+    assert writer.save_sync(CustomIssueRule(**_rule(name="alpha_rule")))
+    fake_iris_module.connections[0]["dead"] = True
+    fake_iris_module.down = True
+
+    assert writer.save_sync(CustomIssueRule(**_rule(name="beta_rule"))) is False  # one retry, then reported
+    assert len(fake_iris_module.connections) == 1
+    fake_iris_module.down = False
+    assert writer.save_sync(CustomIssueRule(**_rule(name="beta_rule"))) is True  # not stuck on a dead connection

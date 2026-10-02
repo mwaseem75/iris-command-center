@@ -26,7 +26,7 @@ Notes:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from app.config import Settings
@@ -64,21 +64,41 @@ class IRISTraceWriter:
         )
         self._iris = iris.createIRIS(self._connection)
 
+    def _reset(self) -> None:
+        """Drop the connection so the next call reconnects."""
+        connection, self._connection, self._iris = self._connection, None, None
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - already failing; just discard it
+                pass
+
+    def _write(self, write: Callable[[Any], None]) -> None:
+        """Run `write(iris)`; on a failure, reconnect and try once more (raises if that fails too)."""
+        try:
+            self._ensure_connected()
+            write(self._iris)
+        except Exception:  # noqa: BLE001 - e.g. a connection IRIS has since closed
+            self._reset()
+            self._ensure_connected()
+            write(self._iris)
+
     def persist_sync(self, trace: ExecutionTrace) -> None:
         """Blocking. Write `trace` to ^CommandCenterTrace and drop the oldest entry
         once there are more than _MAX_IRIS_TRACES. Never raises.
         """
-        try:
-            self._ensure_connected()
-
-            raw_seq = self._iris.get(_GLOBAL_NAME, "seq")
+        def write(iris: Any) -> None:
+            raw_seq = iris.get(_GLOBAL_NAME, "seq")
             seq = (int(raw_seq) if raw_seq else 0) + 1
-            self._iris.set(str(seq), _GLOBAL_NAME, "seq")
-            self._iris.set(trace.model_dump_json(), _GLOBAL_NAME, "trace", seq)
+            iris.set(str(seq), _GLOBAL_NAME, "seq")
+            iris.set(trace.model_dump_json(), _GLOBAL_NAME, "trace", seq)
 
             oldest_surviving_seq = seq - _MAX_IRIS_TRACES
             if oldest_surviving_seq >= 1:
-                self._iris.kill(_GLOBAL_NAME, "trace", oldest_surviving_seq)
+                iris.kill(_GLOBAL_NAME, "trace", oldest_surviving_seq)
+
+        try:
+            self._write(write)
         except Exception:  # noqa: BLE001 - a persistence failure must never surface
             logger.warning(
                 "Could not persist execution trace %s to IRIS (^%s) — the "

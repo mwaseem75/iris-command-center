@@ -233,7 +233,12 @@ async def get_health_report(
         ) if can_score else None
 
         if score is None:
-            status = "partial" if completed else "unavailable" if missing else "not_assessed"
+            # Unscored with every check completed (Security has no scoring
+            # baseline): "not_assessed", not "1 of 1 checks ... partial".
+            if missing:
+                status = "partial" if completed else "unavailable"
+            else:
+                status = "partial" if category_findings else "not_assessed"
         elif any(item.severity == "critical" for item in category_findings):
             status = "critical"
         else:

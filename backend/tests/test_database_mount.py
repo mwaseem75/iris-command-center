@@ -102,7 +102,8 @@ async def test_dry_run_on_dismounted_database_succeeds_without_mounting(
 
     assert result.status is OperationResultStatus.DRY_RUN
     assert result.handler_result.outcome is HandlerOutcome.SUCCESS
-    assert result.handler_result.data == {"directory": _DIRECTORY, "read_only": True}
+    # mounted_before feeds the resolution context (executor.py).
+    assert result.handler_result.data == {"directory": _DIRECTORY, "read_only": True, "mounted_before": False}
     fake_iris_client.post_async_task.assert_awaited_once_with(
         "/v2/database-dir/info", params={"dir": _DIRECTORY}
     )

@@ -572,10 +572,6 @@ input:focus-visible {
   max-width: none;
 }
 
-.view--placeholder {
-  color: var(--color-text-muted);
-}
-
 /* --- Buttons --- */
 
 .btn {

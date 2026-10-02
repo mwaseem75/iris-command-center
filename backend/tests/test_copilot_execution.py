@@ -195,7 +195,8 @@ async def test_executor_success_but_handler_verification_failure_is_unsuccessful
 
 @pytest.mark.parametrize(
     ("actual", "expected"),
-    [(False, True), ("unexpected", None)],
+    # verified_value is what IRIS read back (None when it isn't a boolean).
+    [(False, False), ("unexpected", None)],
 )
 @pytest.mark.asyncio
 async def test_readback_mismatch_or_unexpected_value_is_unsuccessful(
@@ -238,15 +239,23 @@ async def test_false_setting_is_verified_as_false() -> None:
 def test_execute_endpoint_requires_confirmation_and_never_accepts_raw_message(
     client: TestClient,
 ) -> None:
-    response = client.post(
-        "/api/iris/copilot/execute",
-        json={
-            "plan": _plan().model_dump(mode="json"),
-            "authorization": _authorization().model_dump(mode="json"),
-            "confirmed": False,
-            "message": "execute it",
-        },
-    )
+    from app.main import app
+
+    # Privileges are a dependency (read from IRIS /info), resolved before the
+    # body is validated; this test is about the body only.
+    app.dependency_overrides[get_caller_privileges] = lambda: frozenset()
+    try:
+        response = client.post(
+            "/api/iris/copilot/execute",
+            json={
+                "plan": _plan().model_dump(mode="json"),
+                "authorization": _authorization().model_dump(mode="json"),
+                "confirmed": False,
+                "message": "execute it",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_caller_privileges, None)
 
     assert response.status_code == 422
 

@@ -102,7 +102,8 @@ def test_health_report_reuses_issue_evidence_and_severity_penalties(
     assert categories["web-applications"]["score"] == 90
     assert categories["system"]["score"] == 85
     assert findings["database_dismounted"]["severity"] == "high"
-    assert findings["database_dismounted"]["evidence"][0]["observed_value"] == "USER"
+    # The first detection evidence is the database's Directory.
+    assert findings["database_dismounted"]["evidence"][0]["observed_value"] == "/data/user/"
     assert findings["system_monitor_not_running"]["investigation"]["page"] == "system"
     assert len(body["recommendations"]) == len(body["findings"])
     mock_iris_client.post.assert_not_called()
