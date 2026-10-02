@@ -415,6 +415,15 @@ Users can also create **Custom Issue Rules** using a controlled set of live IRIS
 Each issue provides the available live evidence, explanation, severity, affected resource, and either a safe resolution path or an investigation path. For resolvable issues, the workflow follows the existing safety model: authorization → dry run → review → explicit confirmation → execution → verification. The resulting operation is captured in Observability and can be associated with the issue that initiated the resolution.
 The issue catalog is intentionally curated: Command Center only offers deterministic resolution where a supported operation has been explicitly registered and verified. Detection-only conditions remain read-only and are never automatically modified.
 
+For supported resolvable issues, the issue details drawer includes a **Fix Preview** that shows, before anything is resolved:
+- **Current → Proposed** — the detected value and the value the fix would set, for example `PurgeArchived: false → true`.
+- **Operation** — the registered operation that would run.
+- **Authorization requirement** — the required privilege, shown with its full name (for example `%Admin_Journal` or `%Admin_Manage`); the backend checks it when the operation runs.
+- **Confirmation** — whether explicit confirmation is required.
+- **Verified by** — the operation's readback check and the Issue Resolver re-detection used to verify the result.
+
+The preview is read-only and is built from the issue data already loaded on the page: it makes no additional requests and does not authorize or run anything. The current value reflects the state detected when the page was loaded, and on an instance other than the Primary it notes that the fix runs on the Primary only. Detection-only issues and custom rules have no Fix Preview.
+
 **Issue Resolver — main view**
   
 <img width="2178"  alt="image" src="https://github.com/user-attachments/assets/990e8f35-ac01-4229-93d4-bfce217d0e95" />

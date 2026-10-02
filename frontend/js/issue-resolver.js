@@ -152,9 +152,11 @@ function riskBadge(risk) {
   return badge(`${capitalize(risk)} risk`, RISK_BADGES[risk] || "status-badge--neutral");
 }
 
+// The registry holds the names IRIS's /info reports ("Journal"); shown as the
+// full privilege name (%Admin_Journal).
 function privilegeText(resolution) {
   const privileges = resolution.required_privileges || [];
-  return privileges.length ? privileges.join(" or ") : PLACEHOLDER;
+  return privileges.length ? privileges.map((name) => `%Admin_${name}`).join(" or ") : PLACEHOLDER;
 }
 
 function section(title, ...children) {
@@ -206,6 +208,8 @@ const RESOURCES = {
       ["Directory", issue.directory, { mono: true }],
       ["IRIS status", issue.status],
     ],
+    // For the Fix Preview: [what changes, current value, proposed value].
+    change: (issue) => ["Status", issue.status, "Mounted"],
     page: "databases",
     action: "Go to Resolve Issues →",
     hint: "Read-only. Resolving runs through Resolve Issues on the Databases page.",
@@ -220,6 +224,7 @@ const RESOURCES = {
       ["Enabled", issue.enabled],
       ["Type", issue.app_type],
     ],
+    change: (issue) => ["Enabled", issue.enabled, issue.parameters?.Enabled],
     page: "web-apps",
     action: "Resolve in Web Apps →",
     hint: "Read-only. Resolving runs through the web application's Enabled State on the Web Apps page.",
@@ -233,6 +238,7 @@ const RESOURCES = {
       ["ArchiveName", issue.archive_name, { mono: true }],
       ["PurgeArchived", issue.purge_archived],
     ],
+    change: (issue) => ["PurgeArchived", issue.purge_archived, issue.parameters?.PurgeArchived],
     page: "operations",
     action: "Resolve in Operations →",
     hint: "Read-only. Resolving runs through Update Journal Settings on the Operations page.",
@@ -623,6 +629,23 @@ function parameterRows(issue, resolution) {
   });
 }
 
+// What the fix would change, from the detected issue and its catalog entry.
+// Read-only: nothing is authorized or run from here.
+function fixPreview(issue, resolution) {
+  const [field, current, proposed] = resourceOf(issue).change(issue);
+  const rows = [
+    ["Current → Proposed", `${field}: ${textOrPlaceholder(current)} → ${textOrPlaceholder(proposed)}`, { mono: true }],
+    ["Operation", resolution.operation, { mono: true }],
+    ["Authorization requirement",
+      `${privilegeText(resolution)} (any one), checked by the backend when the operation runs`],
+    ["Confirmation", resolution.confirmation_required ? "Required" : "Not required"],
+    ["Verified by", bulletList(resolution.verification_rules.map((rule) => `${rule.condition} (${rule.source})`))],
+  ];
+  if (fixBlocked(resolution)) rows.push(["Runs on", "The Primary instance only. Select Primary to resolve this issue."]);
+  return section("Fix Preview", infoList(rows),
+    el("p", "ir-why__text", "The current value is the state detected when this page was loaded."));
+}
+
 function workflowList(resolution) {
   const list = el("ol", "resolve-steps");
   list.setAttribute("aria-label", "Catalog workflow steps");
@@ -830,6 +853,7 @@ function openDrawer(index) {
       summary,
       ...(relatedFindings ? [relatedFindings] : []),
       section("Live evidence", evidenceTable(issue, resolution)),
+      ...(res.change ? [fixPreview(issue, resolution)] : []),
       ...("affected_namespaces" in issue ? [section("Affected namespaces", affectedNamespaces(issue, resolution))] : []),
       section(
         "Recommended solution",

@@ -1138,6 +1138,18 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
                 "recommended_solution", "Why this solution?", "affected_namespaces", "impact_evidence"):
         check(key in js, f"issue-resolver.js renders {key!r} from the catalog")
 
+    # Fix Preview: built in the drawer from the issue and its catalog entry,
+    # for the three resolvable kinds only; no request of its own.
+    preview = js.split("function fixPreview(issue, resolution) {", 1)[-1].split("\n}\n", 1)[0]
+    check("IrisApi." not in preview and "fetch(" not in preview, "the Fix Preview makes no request")
+    for part in ('section("Fix Preview"', '"Current → Proposed"', "resolution.operation", '"Authorization requirement"',
+                 "privilegeText(resolution)", "checked by the backend when the operation runs", "resolution.confirmation_required",
+                 "resolution.verification_rules", "fixBlocked(resolution)", "state detected when this page was loaded"):
+        check(part in preview, f"the Fix Preview shows {part!r}")
+    check("...(res.change ? [fixPreview(issue, resolution)] : [])" in js, "the drawer adds it only where a change is described")
+    check(js.count("    change: (issue) =>") == 3, "RESOURCES describes the change for the three resolvable kinds")
+    check("`%Admin_${name}`" in js, "privileges are shown with their full %Admin_ names")
+
     app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
     check('"issue-resolver": () => loadIssueResolver()' in app_js,
           "app.js loads the Issue Resolver when its page opens")

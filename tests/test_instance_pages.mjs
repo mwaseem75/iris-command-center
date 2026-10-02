@@ -66,11 +66,30 @@ let down = new Set();   // instances whose IRIS reads fail (502)
 const DB_ISSUE = (who) => ({ kind: "database_dismounted", issue_id: `database_dismounted:${who}`, database: `${who.toUpperCase()}DB`,
   directory: `/data/${who}/`, status: "Dismounted" });
 const MONITOR_ISSUE = { kind: "system_monitor_not_running", issue_id: "system_monitor_not_running" };
+const JOURNAL_ISSUE = { kind: "journal_purge_archived_off", issue_id: "journal-issue-id", archive_name: "/archive",
+  purge_archived: false, parameters: { PurgeArchived: true }, readiness: "ready_to_check" };
 const RESOLUTIONS = {
   database_dismounted: { title: "Database dismounted", severity: "high", resolvable: true, operation: "database.mount",
     risk_level: "medium", required_privileges: ["Manage"], description: "", resolution_steps: [], verification: "" },
   system_monitor_not_running: { title: "System Monitor not running", severity: "medium", resolvable: false,
-    investigation: { page: "system", description: "Check the System Monitor." }, description: "", resolution_steps: [] },
+    investigation: { page: "system", description: "Check the System Monitor." }, description: "", resolution_steps: [],
+    detection_evidence: [{ source: "GET /v2/processes", field: "Routine", condition: "No System Monitor process.",
+      issue_field: "system_monitor" }],
+    explanation: "", verification_rules: [{ source: "GET /api/iris/issues", condition: "The issue is no longer reported.",
+      checked_by: "issue_detection" }] },
+  // As the backend sends it (the catalog entry), with what the drawer reads.
+  journal_purge_archived_off: { issue_type: "journal_purge_archived_off", title: "Archived journal files not purged",
+    severity: "low", resolvable: true, operation: "journal.update_purge_archived", risk_level: "low",
+    required_privileges: ["Journal", "Manage"], confirmation_required: true,
+    detection_evidence: [{ source: "GET /v2/journal/settings", field: "PurgeArchived", condition: "PurgeArchived is false.",
+      issue_field: "purge_archived" }],
+    explanation: "", recommended_solution: "Turn on PurgeArchived.",
+    parameters: [{ name: "PurgeArchived", from_issue_field: null, value: true }],
+    prerequisites: [], workflow_steps: [], safety_restrictions: [],
+    verification_rules: [
+      { source: "GET /v2/journal/settings", condition: "PurgeArchived is true.", checked_by: "operation" },
+      { source: "GET /api/iris/issues", condition: "The issue is no longer reported.", checked_by: "issue_detection" },
+    ] },
 };
 
 const TRACES = [
@@ -109,7 +128,8 @@ function answer(method, path, instance) {
   switch (path) {
     case "/api/iris/instances": return instancesBody();
     case "/api/iris/info": return envelope({ serverVersion: "IRIS 2026.2", apiVersion: 2, product: "iris" });
-    case "/api/iris/issues": return { issues: who === PRIMARY ? [DB_ISSUE("primary")] : [DB_ISSUE("iris2"), MONITOR_ISSUE],
+    case "/api/iris/issues": return { issues: who === PRIMARY ? [DB_ISSUE("primary"), JOURNAL_ISSUE]
+      : [DB_ISSUE("iris2"), MONITOR_ISSUE, JOURNAL_ISSUE],
       resolutions: RESOLUTIONS, correlations: [], issue_checks_unavailable: [] };
     case "/api/iris/issue-rules": return { signals: [], operators: [], pages: [], rules: [], max_rules: 5, persisted_to_iris: false };
     case "/api/iris/observability/traces": return { traces: TRACES };
@@ -206,6 +226,15 @@ const reads = (path) => requests.filter((r) => r.path === path);
 
 const issueActions = () => element("issue-resolver-list").children.map((card) => classed(card, "ir-issue__action")[0]);
 
+// Opens an issue's drawer the way a click on its card does; returns its Fix Preview section (or undefined).
+async function openIssue(index) {
+  const list = element("issue-resolver-list");
+  const card = list.children[index];
+  list.listeners.click[0]({ target: { closest: (selector) => (selector === ".ir-issue" ? card : null) } });
+  await new Promise((resolve) => setTimeout(resolve, 0));  // let the drawer's own reads finish
+  return element("issue-resolver-drawer-body").children.find((node) => node.children[0]?.textContent === "Fix Preview");
+}
+
 test("Issue Resolver, Primary: issues read without ?instance=, fixes enabled", async () => {
   await issues.loadIssueResolver();
   assert.deepEqual(reads("/api/iris/issues").map((r) => r.instance), [null]);
@@ -246,6 +275,40 @@ test("Issue Resolver, IRIS-2 unreachable: its own error, never the Primary's iss
   assert.equal(element("issue-resolver-list").children.length, 0);
   assert.match(element("issue-resolver-error-banner-text").textContent,
     /^Could not check IRIS-2 for issues right now\. .*no other instance's issues are shown\.$/);
+});
+
+test("Issue Resolver, Primary: the journal issue's Fix Preview, read-only", async () => {
+  await issues.loadIssueResolver();
+  requests = [];
+  const preview = await openIssue(1);
+  assert.ok(preview, "the drawer has a Fix Preview section");
+  const shown = text(preview);
+  assert.match(shown, /Current → Proposed PurgeArchived: false → true/);
+  assert.match(shown, /Operation journal\.update_purge_archived/);
+  assert.match(shown, /Authorization requirement %Admin_Journal or %Admin_Manage \(any one\), checked by the backend when the operation runs/);
+  assert.match(shown, /Confirmation Required/);
+  assert.match(shown, /Verified by PurgeArchived is true\. \(GET \/v2\/journal\/settings\) The issue is no longer reported\. \(GET \/api\/iris\/issues\)/);
+  assert.match(shown, /The current value is the state detected when this page was loaded\.$/);
+  assert.doesNotMatch(shown, /Primary instance only/);
+  // Card and drawer show the same full privilege names.
+  assert.match(text(element("issue-resolver-list")), /Requires %Admin_Journal or %Admin_Manage/);
+  // Opening it only reads (its resolution history); nothing is authorized or run.
+  assert.ok(requests.every((r) => r.method === "GET"), "only GETs");
+  assert.deepEqual(requests.map((r) => r.path), ["/api/iris/issues/journal-issue-id/history"]);
+  assert.equal(navigations.length, 0, "the Resolve button wasn't used");
+});
+
+test("Issue Resolver, IRIS-2: the Fix Preview says the fix runs on the Primary only; no requests", async () => {
+  await select(IRIS2);
+  await issues.loadIssueResolver();
+  requests = [];
+  const preview = await openIssue(2);
+  assert.match(text(preview), /Current → Proposed PurgeArchived: false → true/);
+  assert.match(text(preview), /Runs on The Primary instance only\. Select Primary to resolve this issue\./);
+  assert.equal(issueActions()[2].disabled, true, "its Resolve button stays Primary only");
+  assert.deepEqual(requests, [], "nothing is read or changed by opening it");
+  // A detection-only issue has no Fix Preview.
+  assert.equal(await openIssue(1), undefined);
 });
 
 // --- Operations ---
