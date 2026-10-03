@@ -455,6 +455,12 @@ function formatBoolean(value) {
   return typeof value === "boolean" ? (value ? "Yes" : "No") : PLACEHOLDER;
 }
 
+// The setting as IRIS reports it, for the before/after rows (as in the Issue
+// Resolver's Fix Preview).
+function purgeArchivedValue(value) {
+  return `PurgeArchived: ${typeof value === "boolean" ? String(value) : PLACEHOLDER}`;
+}
+
 // Show the "choose a value" step and hide confirm/result. Called on load,
 // cancel and after a result, never mid-run.
 function showChooseStage() {
@@ -605,17 +611,29 @@ function renderExecutionResult(result) {
       textOrPlaceholder(result.handler_result.detail),
       { mono: false },
     );
+    // Before and after, as the handler read them: the value it found just
+    // before the change, the value requested, and (below) its readback.
     const data = result.handler_result.data || {};
     if ("original_purge_archived" in data) {
-      addInfoRow(dom.resultList, "Original Value", formatBoolean(data.original_purge_archived));
+      addInfoRow(dom.resultList, "Current", purgeArchivedValue(data.original_purge_archived));
     }
     if ("requested_purge_archived" in data) {
-      addInfoRow(dom.resultList, "Requested Value", formatBoolean(data.requested_purge_archived));
+      addInfoRow(dom.resultList, "Proposed", purgeArchivedValue(data.requested_purge_archived));
     }
   }
 
   if (result.verification) {
-    addInfoRow(dom.resultList, "Verification Status", textOrPlaceholder(result.verification.status));
+    const readback = result.verification.evidence && result.verification.evidence.purge_archived;
+    if (typeof readback === "boolean") {
+      addInfoRow(dom.resultList, "Result", purgeArchivedValue(readback));
+    }
+    const status = result.verification.status;
+    addInfoRow(
+      dom.resultList,
+      "Verification",
+      status === "verified" ? "✓ Verified" : status === "verification_failed" ? "✗ Not verified" : textOrPlaceholder(status),
+      { mono: false },
+    );
     addInfoRow(
       dom.resultList,
       "Verification Detail",

@@ -63,6 +63,15 @@ const classed = (node, name) => [...walk(node)].filter((n) => String(n.className
 let requests = [];
 let down = new Set();   // instances whose IRIS reads fail (502)
 
+// What POST /api/iris/journal/purge-archived answers (an OperationResult, as the executor returns it).
+const purgeResult = ({ status = "success", verification = "verified", readback = false } = {}) => ({
+  operation_name: "journal.update_purge_archived", status, detail: "Operation executed and verified.",
+  handler_result: { outcome: "success", detail: "PurgeArchived changed from true to false.",
+    data: { original_purge_archived: true, requested_purge_archived: false } },
+  verification: { status: verification, detail: "Confirmed via GET.", evidence: { purge_archived: readback } },
+});
+let purgeAnswer = purgeResult();
+
 const DB_ISSUE = (who) => ({ kind: "database_dismounted", issue_id: `database_dismounted:${who}`, database: `${who.toUpperCase()}DB`,
   directory: `/data/${who}/`, status: "Dismounted" });
 const MONITOR_ISSUE = { kind: "system_monitor_not_running", issue_id: "system_monitor_not_running" };
@@ -122,9 +131,7 @@ function envelope(result) {
 
 function answer(method, path, instance) {
   const who = instance || PRIMARY;
-  if (method === "POST" && path === "/api/iris/journal/purge-archived") {
-    return { operation_name: "journal.update_purge_archived", status: "success", detail: "PurgeArchived is now on." };
-  }
+  if (method === "POST" && path === "/api/iris/journal/purge-archived") return purgeAnswer;
   switch (path) {
     case "/api/iris/instances": return instancesBody();
     case "/api/iris/info": return envelope({ serverVersion: "IRIS 2026.2", apiVersion: 2, product: "iris" });
@@ -206,6 +213,7 @@ before(async () => {
 
 beforeEach(async () => {
   down = new Set();
+  purgeAnswer = purgeResult();
   registryFails = false;
   primaryCheck = null;
   iris2Check = IRIS2_CHECK;
@@ -283,7 +291,7 @@ test("Issue Resolver, Primary: the journal issue's Fix Preview, read-only", asyn
   const preview = await openIssue(1);
   assert.ok(preview, "the drawer has a Fix Preview section");
   const shown = text(preview);
-  assert.match(shown, /Current → Proposed PurgeArchived: false → true/);
+  assert.match(shown, /Current PurgeArchived: false Proposed PurgeArchived: true Operation journal\.update_purge_archived/);
   assert.match(shown, /Operation journal\.update_purge_archived/);
   assert.match(shown, /Authorization requirement %Admin_Journal or %Admin_Manage \(any one\), checked by the backend when the operation runs/);
   assert.match(shown, /Confirmation Required/);
@@ -303,7 +311,7 @@ test("Issue Resolver, IRIS-2: the Fix Preview says the fix runs on the Primary o
   await issues.loadIssueResolver();
   requests = [];
   const preview = await openIssue(2);
-  assert.match(text(preview), /Current → Proposed PurgeArchived: false → true/);
+  assert.match(text(preview), /Current PurgeArchived: false Proposed PurgeArchived: true/);
   assert.match(text(preview), /Runs on The Primary instance only\. Select Primary to resolve this issue\./);
   assert.equal(issueActions()[2].disabled, true, "its Resolve button stays Primary only");
   assert.deepEqual(requests, [], "nothing is read or changed by opening it");
@@ -368,6 +376,41 @@ test("Operations, Primary: the confirmed change goes to the Primary's route (no 
   const posts = requests.filter((r) => r.method === "POST");
   assert.deepEqual(posts.map((r) => [r.path, r.instance]), [["/api/iris/journal/purge-archived", null]]);
   assert.match(text(element("operations-result-list")), /Ran On Primary instance/);
+});
+
+test("Operations: the result shows the value before, the proposed value, the readback after and the verification", async () => {
+  await operations.loadOperations();
+  await new Promise((r) => setTimeout(r, 0));
+  element("operations-set-false-button").listeners.click[0]();
+  await element("operations-confirm-button").listeners.click[0]();
+  await new Promise((r) => setTimeout(r, 0));
+  const shown = text(element("operations-result-list"));
+  assert.match(shown, /Current PurgeArchived: true Proposed PurgeArchived: false Result PurgeArchived: false Verification ✓ Verified Verification Detail Confirmed via GET\./);
+  assert.doesNotMatch(shown, /Original Value|Requested Value/);
+});
+
+test("Operations: a failed verification shows the value IRIS actually read back, not the requested one", async () => {
+  purgeAnswer = purgeResult({ status: "verification_failed", verification: "verification_failed", readback: true });
+  await operations.loadOperations();
+  await new Promise((r) => setTimeout(r, 0));
+  element("operations-set-false-button").listeners.click[0]();
+  await element("operations-confirm-button").listeners.click[0]();
+  await new Promise((r) => setTimeout(r, 0));
+  const shown = text(element("operations-result-list"));
+  assert.match(shown, /Proposed PurgeArchived: false Result PurgeArchived: true Verification ✗ Not verified/);
+});
+
+test("Operations: a refused change shows no before/after rows (nothing ran)", async () => {
+  purgeAnswer = { operation_name: "journal.update_purge_archived", status: "unauthorized",
+    detail: "Missing required privilege: Journal or Manage." };
+  await operations.loadOperations();
+  await new Promise((r) => setTimeout(r, 0));
+  element("operations-set-false-button").listeners.click[0]();
+  await element("operations-confirm-button").listeners.click[0]();
+  await new Promise((r) => setTimeout(r, 0));
+  const shown = text(element("operations-result-list"));
+  assert.match(shown, /Status unauthorized Detail Missing required privilege/);
+  assert.doesNotMatch(shown, /Current|Proposed|Result PurgeArchived|Verification/);
 });
 
 // --- Observability ---

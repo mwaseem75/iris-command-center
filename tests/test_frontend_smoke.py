@@ -897,6 +897,17 @@ def test_operations_nav_and_view_exist_and_use_only_expected_endpoints() -> None
         "operations.js calls IrisApi.executeJournalPurgeArchived() to execute, via the existing framework",
     )
 
+    # Before/after review of an executed change, from the existing result only:
+    # the handler's pre-change read, the requested value, its verification
+    # readback and status. Nothing is inferred and no request is added.
+    result_view = operations_js.split("function renderExecutionResult(result) {", 1)[1].split("\n}\n", 1)[0]
+    for part in ('"Current", purgeArchivedValue(data.original_purge_archived)',
+                 '"Proposed", purgeArchivedValue(data.requested_purge_archived)',
+                 "result.verification.evidence && result.verification.evidence.purge_archived",
+                 '"Result", purgeArchivedValue(readback)', '"✓ Verified"', '"✗ Not verified"'):
+        check(part in result_view, f"the result shows {part.replace('✓', 'v').replace('✗', 'x')!r}")
+    check("IrisApi." not in result_view, "showing the result makes no request")
+
     other_methods = [
         "getInfo", "getNamespaces", "getProcesses", "getDatabases", "getWebApps", "getTasks",
         "getOauth2Server", "getOauth2ClientServerDefinitions", "getOauth2ServerClients",
@@ -1142,7 +1153,8 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
     # for the three resolvable kinds only; no request of its own.
     preview = js.split("function fixPreview(issue, resolution) {", 1)[-1].split("\n}\n", 1)[0]
     check("IrisApi." not in preview and "fetch(" not in preview, "the Fix Preview makes no request")
-    for part in ('section("Fix Preview"', '"Current → Proposed"', "resolution.operation", '"Authorization requirement"',
+    for part in ('section("Fix Preview"', '["Current", `${field}: ${textOrPlaceholder(current)}`',
+                 '["Proposed", `${field}: ${textOrPlaceholder(proposed)}`', "resolution.operation", '"Authorization requirement"',
                  "privilegeText(resolution)", "checked by the backend when the operation runs", "resolution.confirmation_required",
                  "resolution.verification_rules", "fixBlocked(resolution)", "state detected when this page was loaded"):
         check(part in preview, f"the Fix Preview shows {part.replace('→', '->')!r}")

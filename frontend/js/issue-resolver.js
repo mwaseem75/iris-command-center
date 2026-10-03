@@ -634,7 +634,8 @@ function parameterRows(issue, resolution) {
 function fixPreview(issue, resolution) {
   const [field, current, proposed] = resourceOf(issue).change(issue);
   const rows = [
-    ["Current → Proposed", `${field}: ${textOrPlaceholder(current)} → ${textOrPlaceholder(proposed)}`, { mono: true }],
+    ["Current", `${field}: ${textOrPlaceholder(current)}`, { mono: true }],
+    ["Proposed", `${field}: ${textOrPlaceholder(proposed)}`, { mono: true }],
     ["Operation", resolution.operation, { mono: true }],
     ["Authorization requirement",
       `${privilegeText(resolution)} (any one), checked by the backend when the operation runs`],
