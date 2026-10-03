@@ -401,8 +401,7 @@ A **Needs Attention** panel under the KPI cards lists what may need an operator'
 
 It uses data the Dashboard already reads (`GET /api/iris/issues` and `GET /api/iris/tasks/overview`) and adds no detection rules of its own. When nothing is found it says so; when a source can't be read it says that instead of showing an all-clear. The panel only links to existing pages; nothing is run from it.
 
-<!-- Screenshot placeholder: replace with the Needs Attention screenshot. -->
-![Dashboard — Needs Attention](docs/dashboard-needs-attention.png)
+<img width="1267" alt="image" src="https://github.com/user-attachments/assets/8064e2da-1590-4836-a7a1-ad5a10e43fc5" />
 
 ### 🩺 Health Center
 Health Center presents an overall health status and assessment coverage across **Performance, Tasks, Databases, Security, Web Applications, and System**. It shows findings, evidence, and recommendations from available read-only checks, reusing Issue Resolver detections where applicable rather than duplicating them.
@@ -519,7 +518,7 @@ The top of the Security page summarizes the selected instance before you open a 
 The overview is read-only and uses existing routes (`GET /api/iris/security/services`, `/security/x509/overview`, `/security/wallet/overview` and `/security/audit/enabled`); the OAuth 2.0 summary reuses the page's existing OAuth read.
 
 <!-- Screenshot placeholder: replace with the Security Overview screenshot. -->
-![Security Center](docs/security-center.png)
+<img width="1278" height="384" alt="image" src="https://github.com/user-attachments/assets/1d967732-2f85-4e75-9fbd-f2da146d47c3" />
 
 Sensitive information is protected. The application deliberately withholds or filters values such as:
 - Passwords
