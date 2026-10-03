@@ -1,13 +1,12 @@
 # spec/
 
-This directory is the designated location for the InterSystems IRIS SysAdmin
-REST API specification file, **`mainspec_v2.json`**.
+`mainspec_v2.json` is the InterSystems IRIS SysAdmin REST API specification
+("SysAdmin APIs", version 2) the Command Center is built against: an OpenAPI
+3.0 document for the API served under `/api/admin`, with 190 paths and 273
+operations.
 
-The specification file is **not included** in this repository snapshot. Before
-Phase 1 implementation work begins, `mainspec_v2.json` must be copied into
-this directory.
-
-No endpoint names, methods, or privilege requirements should be assumed or
-invented in project documentation prior to that file being present and
-reviewed. See [`docs/api-capability-matrix.md`](../docs/api-capability-matrix.md)
-for how discovered capabilities will be tracked once the spec is available.
+It is reference material only; nothing loads it at runtime. Where a live IRIS
+response differs from the spec, the backend models follow the real response
+(see `backend/app/models/iris.py`). The API Capability Explorer
+(`backend/app/capabilities.py`) lists which of these endpoints the Command
+Center has verified and uses.

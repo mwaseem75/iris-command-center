@@ -312,8 +312,6 @@ used by the rest of Command Center.
 
 Ask IRIS lets you ask questions about live IRIS data from the screen you are working on. It is contextual rather than a generic chatbot: it opens for one IRIS resource — processes, databases, web applications, tasks or detected issues — and suggests questions about that resource.
 
-<!-- TODO: Add Ask IRIS screenshot here -->
-
 ### Where to find it
 
 - **Dashboard cards** — the Processes, Databases, Web Applications and Tasks cards each have a small 🤖 Ask IRIS action beside the card, and the Issues & Recommendations panel has one for detected issues. Clicking the card itself still opens its page.
@@ -746,7 +744,7 @@ The test suite covers:
 - **Live IRIS verification** — selected workflows are exercised against a real IRIS 2026.2 instance to confirm that API responses, privileges, operations, and resulting system state match expectations.
 
 The test suite is designed to verify not only that an operation succeeds, but also that **unsafe or invalid operations are refused and that successful changes are verified against the resulting IRIS state**.
-Current test status, all passing: **1,510 backend tests** (`cd backend && python -m pytest`); **65 Node tests** (`node --test tests/*.mjs`) for the instance selector, the instance-aware pages, the Instances edit flow, the Dashboard, the Health Center and the Fleet Overview; and **61 frontend smoke tests** (`python tests/test_frontend_smoke.py`). The IRIS Ops Skill tests cover the capability catalog, planning, execution, task answers, traces and every structured failure code; the multi-instance tests cover the registry, Wallet credentials, the compatibility check, the instance routes and instance-scoped reads.
+Current test status, all passing: **1,536 backend tests** (`cd backend && python -m pytest`); **104 Node tests** (`node --test tests/*.mjs`) for the instance selector, the instance-aware pages, the Instances edit flow, the Dashboard, the Health Center and the Fleet Overview; and **66 frontend smoke tests** (`python tests/test_frontend_smoke.py`). The IRIS Ops Skill tests cover the capability catalog, planning, execution, task answers, traces and every structured failure code; the multi-instance tests cover the registry, Wallet credentials, the compatibility check, the instance routes and instance-scoped reads.
 
 # ⚙️ Configuration
 
