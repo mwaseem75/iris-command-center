@@ -536,6 +536,23 @@ def test_the_docker_managed_instance_is_marked_and_cannot_be_edited_or_deleted(c
     body = client.post(f"/api/iris/instances/{docker_id}/activate", json={"confirmed": True}).json()
     assert body["status"] == "success", body
 
+    # Its password alone can be re-stored (the Wallet secret is lost when the
+    # Primary's container is recreated); with any other field it's refused.
+    ref = credential_ref_for(docker_id)
+    del env.store.secrets[ref]
+    body = _update(client, docker_id, name="Renamed", password=NEW_CANARY)
+    assert "managed by Docker Compose" in body["handler_result"]["detail"]
+    assert ref not in env.store.secrets
+    body = _update(client, docker_id, password=NEW_CANARY, dry_run=True)
+    assert (body["status"], body["handler_result"]["outcome"]) == ("dry_run", "success"), body
+    assert ref not in env.store.secrets
+    body = _update(client, docker_id, password=NEW_CANARY)
+    assert body["status"] == "success", body
+    assert env.store.secrets[ref] == NEW_CANARY
+    assert env.connection_check.await_args.kwargs["password"].get_secret_value() == NEW_CANARY
+    assert (env.registry.get(docker_id).name, env.registry.get(docker_id).base_url) == ("IRIS-2", DOCKER_URL)
+    assert _delete(client, docker_id)["handler_result"]["outcome"] == "failure"
+
     # A user-defined instance is still fully editable and deletable.
     assert _update(client, ovh_id, name="OVH renamed")["status"] == "success"
     assert _delete(client, ovh_id)["status"] == "success"

@@ -87,13 +87,15 @@ class _InstanceHandler(OperationHandler):
         self._store = store
         self._settings = settings
 
-    def _user_defined(self, instance_id: str) -> InstanceDefinition | HandlerExecutionResult:
+    def _user_defined(
+        self, instance_id: str, *, allow_docker_managed: bool = False
+    ) -> InstanceDefinition | HandlerExecutionResult:
         instance = self._registry.get(instance_id)
         if instance is None:
             return _failure(f"No instance with id {instance_id!r}.")
         if instance.primary:
             return _failure("The Primary instance comes from the environment and can't be changed.")
-        if is_docker_managed(instance):
+        if is_docker_managed(instance) and not allow_docker_managed:
             return _failure(f"{instance.name} is managed by Docker Compose (the iris-2 service) and can't be changed here.")
         return instance
 
@@ -208,7 +210,14 @@ class InstanceUpdateHandler(_InstanceHandler):
             params = InstanceUpdateParameters.model_validate(request.parameters)
         except ValidationError as exc:
             return _invalid(exc)
-        current = self._user_defined(params.instance_id)
+        new_password = params.password if params.password and params.password.get_secret_value().strip() else None
+        # A Docker-managed instance's definition is fixed, but its password can
+        # be re-stored: the Wallet secret is lost whenever the Primary's
+        # container is recreated (only its USER database persists).
+        password_only = new_password is not None and all(
+            getattr(params, field) is None for field in ("name", *_CONNECTION_FIELDS)
+        )
+        current = self._user_defined(params.instance_id, allow_docker_managed=password_only)
         if isinstance(current, HandlerExecutionResult):
             return current
         changes = {
@@ -222,7 +231,6 @@ class InstanceUpdateHandler(_InstanceHandler):
             return _invalid(exc)
         if "base_url" in changes and self._registry.url_in_use(merged.base_url, ignore=current.id):
             return _failure("An instance with this URL is already registered.")
-        new_password = params.password if params.password and params.password.get_secret_value().strip() else None
         connection_changed = new_password is not None or any(f in changes for f in _CONNECTION_FIELDS)
         check = None
         if current.active and connection_changed:
