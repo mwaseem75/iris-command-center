@@ -551,9 +551,7 @@ Screen Insights is a contextual briefing for the Dashboard, Health Center, Fleet
 
 The briefing follows the selected IRIS instance; on the Fleet Overview it covers all active instances instead. The text is fixed and written for each page. Opening Screen Insights is read-only and makes no additional API requests.
 
-<!-- Screenshot placeholder: replace with the Screen Insights screenshot. -->
-![Screen Insights](docs/screen-insights.png)
-
+<img width="362"  alt="image" src="https://github.com/user-attachments/assets/cdf0d929-3599-416c-b2bb-1eba223ddf6e" />
 
 ---
 ## Advanced Capabilities
