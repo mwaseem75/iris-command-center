@@ -2645,6 +2645,26 @@ def test_security_overview_is_read_only_inventory_and_findings() -> None:
     check("loadSecurityOverview()," in app_js, "app.js loads it with the Security page")
 
 
+def test_health_center_shows_each_checks_evidence_based_outcome() -> None:
+    print("Checking the Health Center's per-check outcomes: passed / issue detected / not assessed...")
+    js = (FRONTEND_DIR / "js" / "health-center.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    for status in ("passed", "issue_detected", "not_assessed"):
+        check(f"  {status}: [" in code, f"health-center.js has a label for the {status!r} check status")
+    check("Array.isArray(category.checks)" in code and "renderCheck(check)" in code,
+          "category cards render the report's per-category checks")
+    check('check.status === "not_assessed"' in code and "check.reason" in code,
+          "a check that couldn't run shows why, never as passed")
+    check("Source: ${check.source}" in code and "Reports an issue when: ${check.condition}" in code,
+          "each check names its source and condition")
+    summary = code.split("function renderSummary(categories) {", 1)[1].split("\n}\n", 1)[0]
+    check("findings(item).length && !critical(item)" in summary and '"Partially Assessed"' in summary,
+          "Needs Attention counts detected issues; partial assessment is counted separately")
+    calls = sorted(set(re.findall(r"IrisApi\.(\w+)\(", code)))
+    check(calls == ["getHealthReport", "getInfo", "getMonitorDashboard", "getProcesses"],
+          f"health-center.js reads only its existing routes (found {calls})")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -2711,6 +2731,7 @@ def main() -> None:
         test_explain_this_screen_is_read_only_and_covers_nine_pages,
         test_dashboard_needs_attention_reuses_loaded_data_and_only_links,
         test_security_overview_is_read_only_inventory_and_findings,
+        test_health_center_shows_each_checks_evidence_based_outcome,
     ]
     for test in tests:
         print(f"\n{test.__name__}")

@@ -220,14 +220,31 @@ Issue = Annotated[
 ]
 
 
+class CheckObservation(BaseModel):
+    """A value a check read from IRIS, whether or not it reported an issue."""
+
+    source: str  # e.g. "GET /v2/task/manager"
+    field: str
+    value: str | int | float | bool
+
+
 class IssuesResponse(BaseModel):
     issues: list[Issue]
     resolutions: dict[str, IssueResolution]
+    # The values each check read (by issue kind), so a check that reported
+    # nothing can still show what it saw. Filled by list_issues().
+    check_observations: dict[str, list[CheckObservation]] = {}
     correlations: list[IssueCorrelation] = []
     issue_checks_unavailable: list[str] = []  # issue checks whose IRIS data couldn't be read
     # Kept for compatibility; always empty now (see the module docstring).
     recommendations: list[Recommendation] = []
     recommendations_unavailable: list[str] = []
+
+
+def _observe(observed: dict | None, kind: str, source: str, field: str, value: str | int | float | bool) -> None:
+    """Record a value a check read (only when the caller collects them)."""
+    if observed is not None:
+        observed.setdefault(kind, []).append(CheckObservation(source=source, field=field, value=value))
 
 
 def _dir_key(directory: str) -> str:
@@ -274,7 +291,7 @@ async def _read_namespaces(client: IRISClient) -> list[NamespaceEntry] | None:
         return None
 
 
-async def get_issues(client: IRISClient) -> IssuesResponse:
+async def get_issues(client: IRISClient, observed: dict | None = None) -> IssuesResponse:
     """The detected issues and the catalog, without recommendations. The
     Issue Resolution Rehearsal uses this directly."""
     databases = (await get_databases(client)).result
@@ -315,6 +332,9 @@ async def get_issues(client: IRISClient) -> IssuesResponse:
                 parameters={"Directory": dir_entry.Directory, "ReadOnly": False},
             )
         )
+    _observe(observed, "database_dismounted", "GET /v2/databases and GET /v2/database-dirs", "Databases checked", len(databases))
+    _observe(observed, "database_dismounted", "GET /v2/databases and GET /v2/database-dirs",
+             "Dismounted (excluding system and mirrored databases)", len(issues))
     return IssuesResponse(issues=issues, resolutions=ISSUE_CATALOG)
 
 
@@ -349,12 +369,14 @@ def _journal_issues(settings: JournalSettings) -> list[JournalPurgeArchivedIssue
     ]
 
 
-async def find_journal_issues(client: IRISClient) -> list[JournalPurgeArchivedIssue] | None:
+async def find_journal_issues(client: IRISClient, observed: dict | None = None) -> list[JournalPurgeArchivedIssue] | None:
     """journal_purge_archived_off issues, or None if the settings couldn't be read. Read-only."""
     try:
         settings = (await get_journal_settings(client)).result
     except (HTTPException, ValidationError):
         return None
+    _observe(observed, "journal_purge_archived_off", "GET /v2/journal/settings", "ArchiveName", settings.ArchiveName)
+    _observe(observed, "journal_purge_archived_off", "GET /v2/journal/settings", "PurgeArchived", settings.PurgeArchived)
     return _journal_issues(settings)
 
 
@@ -401,7 +423,7 @@ def _web_app_namespace_issues(apps: list[WebAppEntry], namespaces: list[Namespac
     ]
 
 
-async def find_web_app_issues(client: IRISClient) -> list[WebAppNamespaceIssue] | None:
+async def find_web_app_issues(client: IRISClient, observed: dict | None = None) -> list[WebAppNamespaceIssue] | None:
     """web_app_namespace_missing issues, or None if the data couldn't be read. Read-only."""
     try:
         apps = _web_app_candidates((await get_web_apps(client)).result)
@@ -409,13 +431,15 @@ async def find_web_app_issues(client: IRISClient) -> list[WebAppNamespaceIssue] 
         namespaces = (await get_namespaces(client)).result if apps else []
     except (HTTPException, ValidationError):
         return None
+    _observe(observed, "web_app_namespace_missing", "GET /v2/web-apps and GET /v2/namespaces",
+             "Enabled applications checked", len(apps))
     return _web_app_namespace_issues(apps, namespaces)
 
 
 # --- detection-only: system_monitor_not_running, task_manager_not_running, database_full ---
 
 
-async def find_system_monitor_issues(client: IRISClient) -> list[SystemMonitorIssue] | None:
+async def find_system_monitor_issues(client: IRISClient, observed: dict | None = None) -> list[SystemMonitorIssue] | None:
     """system_monitor_not_running, or None if dashboard/process data couldn't be read. Read-only."""
     try:
         status = (await get_monitor_dashboard(client)).result.Status
@@ -426,6 +450,8 @@ async def find_system_monitor_issues(client: IRISClient) -> list[SystemMonitorIs
         process.Routine.startswith("%SYS.Monitor.Control") and process.Nspace == "%SYS"
         for process in processes
     )
+    _observe(observed, "system_monitor_not_running", "GET /v2/processes",
+             "%SYS.Monitor.Control process in %SYS", running)
     if running:
         return []
     return [
@@ -450,12 +476,13 @@ async def find_system_monitor_issues(client: IRISClient) -> list[SystemMonitorIs
     ]
 
 
-async def find_task_manager_issues(client: IRISClient) -> list[TaskManagerIssue] | None:
+async def find_task_manager_issues(client: IRISClient, observed: dict | None = None) -> list[TaskManagerIssue] | None:
     """task_manager_not_running, or None if the status couldn't be read. Read-only."""
     try:
         status = (await get_task_manager(client)).result.Status
     except (HTTPException, ValidationError):
         return None
+    _observe(observed, "task_manager_not_running", "GET /v2/task/manager", "Status", status)
     if status == "Running":
         return []
     return [
@@ -479,12 +506,13 @@ async def find_task_manager_issues(client: IRISClient) -> list[TaskManagerIssue]
     ]
 
 
-async def find_audit_logging_issues(client: IRISClient) -> list[AuditLoggingDisabledIssue] | None:
+async def find_audit_logging_issues(client: IRISClient, observed: dict | None = None) -> list[AuditLoggingDisabledIssue] | None:
     """Report disabled audit logging, or None if IRIS's status could not be read."""
     try:
         enabled = (await get_audit_enabled(client)).result.Enabled
     except (HTTPException, ValidationError):
         return None
+    _observe(observed, "audit_logging_disabled", "GET /v2/security/audit/enabled", "Enabled", enabled)
     if enabled:
         return []
     return [
@@ -537,7 +565,9 @@ def _explain_full(name: str, entry: DatabaseStorageEntry, reasons: list[str]) ->
     )
 
 
-async def find_database_full_issues(client: IRISClient) -> tuple[list[DatabaseFullIssue] | None, bool]:
+async def find_database_full_issues(
+    client: IRISClient, observed: dict | None = None
+) -> tuple[list[DatabaseFullIssue] | None, bool]:
     """(database_full issues or None if storage couldn't be read, whether every
     mounted database's Full flag was read). Read-only."""
     try:
@@ -550,6 +580,9 @@ async def find_database_full_issues(client: IRISClient) -> tuple[list[DatabaseFu
         await asyncio.gather(*(_read_full_flag(client, entry.Directory) for entry in mounted)),
     ))
     complete = all(flag is not None for flag in flags.values())
+    if complete:
+        _observe(observed, "database_full", "GET /v2/database-dirs and POST /v2/database-dir/info",
+                 "Mounted databases checked", len(mounted))
 
     found: list[tuple[DatabaseStorageEntry, list[str]]] = []
     for entry in storage:
@@ -599,7 +632,9 @@ async def find_database_full_issues(client: IRISClient) -> tuple[list[DatabaseFu
 # --- Custom Issue Rules ---
 
 
-async def evaluate_custom_rules(client: IRISClient) -> tuple[list[CustomRuleIssue], list[str]]:
+async def evaluate_custom_rules(
+    client: IRISClient, observed: dict | None = None
+) -> tuple[list[CustomRuleIssue], list[str]]:
     """(issues for rules whose condition holds, rule kinds that couldn't be
     evaluated). One dashboard read for every rule; nothing if there are none."""
     rules = custom_rules.list_rules()
@@ -618,7 +653,10 @@ async def evaluate_custom_rules(client: IRISClient) -> tuple[list[CustomRuleIssu
         matched, value = rule.evaluate(dashboard)
         if matched is None:
             unavailable.append(rule.issue_type)
-        elif matched:
+            continue
+        _observe(observed, rule.issue_type, "GET /v2/monitor/dashboard/main",
+                 custom_rules.SIGNALS[rule.signal].label, value)
+        if matched:
             signal = custom_rules.SIGNALS[rule.signal]
             issues.append(
                 CustomRuleIssue(
@@ -656,23 +694,24 @@ async def list_issues(client: IRISClient = Depends(get_read_client)) -> IssuesRe
     # it). Custom rules are Command Center's own and are evaluated on it too.
     # Database issues first (the part the Issue Resolution Rehearsal also
     # uses), then the web-app and journal checks.
-    response = await get_issues(client)
+    observed: dict[str, list[CheckObservation]] = {}  # what each check read (the Health Center shows it)
+    response = await get_issues(client, observed)
     for kind, found in (
-        ("web_app_namespace_missing", await find_web_app_issues(client)),
-        ("journal_purge_archived_off", await find_journal_issues(client)),
-        ("system_monitor_not_running", await find_system_monitor_issues(client)),
-        ("task_manager_not_running", await find_task_manager_issues(client)),
-        ("audit_logging_disabled", await find_audit_logging_issues(client)),
+        ("web_app_namespace_missing", await find_web_app_issues(client, observed)),
+        ("journal_purge_archived_off", await find_journal_issues(client, observed)),
+        ("system_monitor_not_running", await find_system_monitor_issues(client, observed)),
+        ("task_manager_not_running", await find_task_manager_issues(client, observed)),
+        ("audit_logging_disabled", await find_audit_logging_issues(client, observed)),
     ):
         if found is None:
             response.issue_checks_unavailable.append(kind)
         else:
             response.issues += found
-    full, complete = await find_database_full_issues(client)
+    full, complete = await find_database_full_issues(client, observed)
     response.issues += full or []
     if not complete:
         response.issue_checks_unavailable.append("database_full")
-    custom, custom_unavailable = await evaluate_custom_rules(client)
+    custom, custom_unavailable = await evaluate_custom_rules(client, observed)
     response.issues += custom
     response.issue_checks_unavailable += custom_unavailable
     response.resolutions = {
@@ -680,6 +719,7 @@ async def list_issues(client: IRISClient = Depends(get_read_client)) -> IssuesRe
         **{rule.issue_type: rule.to_catalog_entry() for rule in custom_rules.list_rules()},
     }
     response.correlations = correlate_issues(response.issues, response.resolutions)
+    response.check_observations = observed
     return response
 
 

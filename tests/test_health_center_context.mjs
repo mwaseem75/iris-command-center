@@ -25,6 +25,8 @@ function stub(id = null) {
       if (key === "setAttribute") return (name, value) => { props.attributes[name] = String(value); };
       if (key === "classList") return { add() {}, remove() {}, toggle() {}, contains: () => false };
       if (key === "querySelectorAll") return () => [];
+      if (key === "append") return (...nodes) => { props.children.push(...nodes); };
+      if (key === "replaceChildren") return (...nodes) => { props.children = [...nodes]; };
       return () => stub();
     },
     set(_, key, value) {
@@ -43,6 +45,7 @@ let requests = [];
 let instances = [];
 let fail = null;  // { id, status }
 let gate = null;  // a promise that holds back IRIS-2 answers
+let reportOverride = null;  // the /health answer for a test, if set
 
 function report(who) {
   return { generated_at: "2026-10-01T10:00:00Z", status: "healthy", overall_score: who === PRIMARY ? 100 : 95,
@@ -55,7 +58,7 @@ function answer(path, instance) {
   const list = (k) => ({ status: { errors: [] }, result: Array.from({ length: n * k }, (_, i) => ({ Name: `${who}-${i}` })) });
   switch (path) {
     case "/api/iris/instances": return { instances };
-    case "/api/iris/health": return report(who);
+    case "/api/iris/health": return reportOverride ?? report(who);
     case "/api/iris/info": return { status: { errors: [] }, result: { apiVersion: 2, serverVersion: `IRIS 2026.2 (${who})`, product: "iris", systemMode: "", namespaces: [] } };
     case "/api/iris/monitor/dashboard": return { status: { errors: [] }, result: null };
     case "/api/iris/processes": return list(7);
@@ -93,7 +96,7 @@ before(async () => {
     getElementById: element,
     createElement: () => stub(),
     createElementNS: () => stub(),
-    createTextNode: () => stub(),
+    createTextNode: (value) => { const node = stub(); node.textContent = String(value); return node; },
     addEventListener() {},
     dispatchEvent: () => true,
     querySelectorAll: () => [],
@@ -111,6 +114,7 @@ before(async () => {
 
 beforeEach(async () => {
   fail = null;
+  reportOverride = null;
   gate = null;
   instances = registry();
   await context.refreshInstanceContext();
@@ -222,4 +226,60 @@ test("no password or Wallet reference is sent or shown", async () => {
   const output = [...elements.values()].map((e) => `${e.textContent}|${e.title}|${JSON.stringify(e.dataset)}`).join("\n")
     + requests.map((r) => r.path + r.instance).join("\n");
   assert.ok(!output.includes(SECRET) && !output.includes("CommandCenter.") && !output.includes("credential_ref"));
+});
+
+// --- per-check results and the summary ---
+
+const nodeText = (node) => [node.textContent, ...(node.children || []).map(nodeText)].filter(Boolean).join(" ");
+
+const check = (check_id, status, extra = {}) => ({ check_id, status, source: "GET /v2/x", condition: "the condition",
+  evidence: [], reason: null, ...extra });
+const observed = (field, observed_value) => ({ source: "GET /v2/x", field, observed_value, value_status: "observed",
+  condition: "the condition" });
+const category = (id, status, checks, findings = [], extra = {}) => ({ id, name: id, status, score: null,
+  checks_completed: checks.filter((c) => c.status !== "not_assessed").length, checks_total: checks.length,
+  evidence: [], findings, unavailable_sources: [], checks, ...extra });
+const finding = (severity) => ({ id: "f", check_id: "x", category: "x", severity, title: "T", explanation: "E",
+  evidence: [], recommendation: null, investigation: null });
+
+test("each check shows its outcome and what it observed; the summary counts detected issues separately", async () => {
+  reportOverride = { generated_at: "2026-10-03T10:00:00Z", status: "partial", overall_score: 95, score_method: "",
+    penalty_weights: {}, findings: [], recommendations: [], unavailable_sources: [], categories: [
+      category("tasks", "healthy", [check("task_manager_not_running", "passed", { evidence: [observed("Status", "Running")] })],
+        [], { score: 100 }),
+      category("system", "warning", [check("system_monitor_not_running", "issue_detected",
+        { evidence: [observed("SystemMonitor", false)] })], [finding("medium")], { score: 90 }),
+      category("security", "partial", [check("audit_status", "issue_detected", { evidence: [observed("Enabled", false)] })],
+        [finding("high")]),
+      category("databases", "partial", [
+        check("database_dismounted", "passed", { evidence: [observed("Databases checked", 10)] }),
+        check("database_full", "not_assessed", { reason: "IRIS data for this check could not be read or evaluated." }),
+      ]),
+      category("performance", "not_assessed", []),
+      category("web-applications", "unavailable", [check("web_app_namespace_missing", "not_assessed", { reason: "no data" })]),
+    ] };
+  await health.loadHealthCenter();
+  await settle();
+
+  const cards = element("health-center-categories").children.map(nodeText);
+  assert.match(cards[0], /Task manager ✓ Passed Status: Running Technical details Source: GET \/v2\/x Reports an issue when: the condition/);
+  assert.match(cards[2], /1 issue detected · 1 of 1 check completed\./, "an unscored category says its issue first");
+  assert.match(cards[2], /Audit status ⚠ Issue detected Audit enabled: false/);
+  assert.match(cards[3], /Database mounts ✓ Passed Databases checked: 10/);
+  assert.match(cards[3], /Database capacity — Not assessed IRIS data for this check could not be read or evaluated\./);
+  assert.doesNotMatch(cards[3], /Database capacity ✓/, "an unavailable check is never shown as passed");
+
+  const summary = element("health-center-summary").children.map(nodeText);
+  assert.deepEqual(summary, ["1 Healthy", "2 Needs Attention", "0 Critical", "1 Partially Assessed", "2 Not Assessed"]);
+});
+
+test("a critical finding counts as Critical, not Needs Attention", async () => {
+  reportOverride = { generated_at: "2026-10-03T10:00:00Z", status: "critical", overall_score: 60, score_method: "",
+    penalty_weights: {}, findings: [], recommendations: [], unavailable_sources: [], categories: [
+      category("databases", "critical", [check("database_full", "issue_detected")], [finding("critical")], { score: 60 }),
+    ] };
+  await health.loadHealthCenter();
+  await settle();
+  assert.deepEqual(element("health-center-summary").children.map(nodeText),
+    ["0 Healthy", "0 Needs Attention", "1 Critical", "0 Partially Assessed", "0 Not Assessed"]);
 });

@@ -6233,6 +6233,18 @@ html.detail-workspace-open {
   color: var(--color-text-muted);
 }
 
+/* An odd last item (e.g. Not Assessed) spans the row. */
+.health-center__summary-item:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* A check's observed value (or why it wasn't assessed), under its status. */
+.health-center__check-value {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+}
+
 .health-center__summary-item--ok .health-center__summary-count { color: var(--color-success); }
 .health-center__summary-item--warning .health-center__summary-count { color: var(--color-warning); }
 .health-center__summary-item--error .health-center__summary-count { color: var(--color-error); }

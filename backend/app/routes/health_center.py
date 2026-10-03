@@ -15,6 +15,7 @@ from app.iris_client.client import IRISClient
 from app.models.schemas import (
     HealthCategoryId,
     HealthCategoryResult,
+    HealthCheckResult,
     HealthEvidence,
     HealthFinding,
     HealthInvestigationDestination,
@@ -24,6 +25,7 @@ from app.models.schemas import (
     HealthUnavailableSource,
 )
 from app.resolution import custom_rules
+from app.resolution.catalog import ISSUE_CATALOG
 from app.routes.issues import list_issues
 from app.routes.iris import get_audit_enabled
 
@@ -62,6 +64,47 @@ _CUSTOM_CATEGORIES: dict[str, HealthCategoryId] = {
     "serious_alerts": "system",
     "application_errors": "system",
 }
+
+
+def _check_result(
+    check: str,
+    category_findings: list[HealthFinding],
+    missing: list[HealthUnavailableSource],
+    issues: Any,
+    catalog: dict[str, Any],
+    security_evidence: list[HealthEvidence],
+    audit_enabled: bool | None,
+) -> HealthCheckResult:
+    """How one check came out, from what list_issues() returned: its finding,
+    its unavailability, or what it observed while reporting nothing."""
+    kind = "audit_logging_disabled" if check == "audit_status" else check
+    entry = catalog.get(kind)
+    condition = "; ".join(item.condition for item in entry.detection_evidence) if entry else ""
+    source = _SOURCES.get(check, "GET /v2/monitor/dashboard/main")
+    unavailable = next((item for item in missing if item.check_id == check), None)
+    if unavailable is not None:
+        return HealthCheckResult(check_id=check, status="not_assessed", source=source, condition=condition,
+                                 evidence=[], reason=unavailable.reason)
+    found = [item for item in category_findings if item.check_id == kind]
+    if found:
+        return HealthCheckResult(check_id=check, status="issue_detected", source=source, condition=condition,
+                                 evidence=[evidence for item in found for evidence in item.evidence])
+    if check == "audit_status":
+        # The audit status was read (from the check, or re-read when it couldn't run).
+        return HealthCheckResult(check_id=check, status="passed" if audit_enabled else "issue_detected",
+                                 source=source, condition=condition, evidence=security_evidence)
+    observations = issues.check_observations.get(kind, []) if issues is not None else []
+    return HealthCheckResult(
+        check_id=check,
+        status="passed",
+        source=source,
+        condition=condition,
+        evidence=[
+            HealthEvidence(source=item.source, field=item.field, observed_value=item.value,
+                           value_status="observed", condition=condition)
+            for item in observations
+        ],
+    )
 
 
 def _finding(issue: Any, resolution: Any, category: HealthCategoryId) -> HealthFinding:
@@ -216,6 +259,7 @@ async def get_health_report(
         if item.recommendation
     ]
 
+    catalog = {**ISSUE_CATALOG, **{rule.issue_type: rule.to_catalog_entry() for rule in rules}}
     categories = []
     for category_id, name, base_checks in _CATEGORIES:
         checks = list(base_checks)
@@ -276,6 +320,10 @@ async def get_health_report(
                 evidence=category_evidence,
                 findings=category_findings,
                 unavailable_sources=missing,
+                checks=[
+                    _check_result(check, category_findings, missing, issues, catalog, security_evidence, audit_enabled)
+                    for check in checks
+                ],
             )
         )
 

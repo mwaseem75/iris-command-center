@@ -133,11 +133,19 @@ function evidenceLabel(field) {
   return EVIDENCE_LABELS[field] || field.replace(/_/g, " ");
 }
 
+// How a single check came out (from the report's per-category `checks`).
+const CHECK_STATUS = {
+  passed: ["✓ Passed", "status-badge--ok"],
+  issue_detected: ["⚠ Issue detected", "status-badge--warning"],
+  not_assessed: ["— Not assessed", "status-badge--neutral"],
+};
+
 function evidenceValue(item) {
   if (item.value_status === "unknown") return "Unknown";
   if (item.value_status === "not_applicable") return "Not applicable";
   if (item.observed_value === null || item.observed_value === undefined) return "Unknown";
   if (item.observed_value === "not reported") return "No issue detected";
+  if (item.observed_value === "") return "(empty)";
   if (typeof item.observed_value === "object") return JSON.stringify(item.observed_value);
   return String(item.observed_value);
 }
@@ -150,6 +158,29 @@ function renderEvidenceRow(item) {
   const details = el("details", "health-center__technical-details");
   details.append(el("summary", "", "Technical details"));
   details.append(el("p", "", `${item.source} · ${item.condition}`));
+  row.append(details);
+  return row;
+}
+
+// One check: its outcome, what it observed (or why it couldn't run), and,
+// under Technical details, where the data came from and what it checks.
+function renderCheck(check) {
+  const row = el("div", "health-center__evidence-row health-center__check");
+  row.dataset.status = check.status;
+  row.append(el("dt", "", evidenceLabel(check.check_id)));
+  const value = el("dd", "");
+  const [label, variant] = CHECK_STATUS[check.status] || [check.status, "status-badge--neutral"];
+  value.append(el("span", `status-badge ${variant}`, label));
+  const observed = check.status === "not_assessed"
+    ? check.reason
+    : (check.evidence || []).map((item) => `${evidenceLabel(item.field)}: ${evidenceValue(item)}`).join(" · ");
+  if (observed) value.append(el("span", "health-center__check-value", observed));
+  row.append(value);
+
+  const details = el("details", "health-center__technical-details");
+  details.append(el("summary", "", "Technical details"));
+  details.append(el("p", "", `Source: ${check.source}`));
+  if (check.condition) details.append(el("p", "", `Reports an issue when: ${check.condition}`));
   row.append(details);
   return row;
 }
@@ -171,6 +202,12 @@ function renderEvidence(items, limit = 4) {
 }
 
 function categorySummary(category, hasPerformanceSnapshot = false) {
+  // A detected issue is said first, even where the category isn't scored.
+  const found = (category.findings || []).length;
+  if (category.score === null && found) {
+    return `${found} ${found === 1 ? "issue" : "issues"} detected · ${category.checks_completed} of `
+      + `${category.checks_total} ${category.checks_total === 1 ? "check" : "checks"} completed.`;
+  }
   if (category.score === null) {
     if (category.id === "performance" && hasPerformanceSnapshot) {
       return "Informational snapshot available; no performance condition assessed.";
@@ -253,11 +290,19 @@ function renderCategory(category, monitorPerformance) {
   header.append(title, statusBadge(category.status));
 
   card.append(header, el("p", "health-center__category-summary", categorySummary(category, Boolean(snapshot))));
-  const evidence = renderEvidence(category.evidence || []);
-  if (evidence) card.append(evidence);
+  // Each check with its outcome; a backend without `checks` keeps the evidence list.
+  const checks = Array.isArray(category.checks) ? category.checks : null;
+  if (checks && checks.length) {
+    const list = el("dl", "health-center__evidence-list");
+    checks.forEach((check) => list.append(renderCheck(check)));
+    card.append(list);
+  } else if (!checks) {
+    const evidence = renderEvidence(category.evidence || []);
+    if (evidence) card.append(evidence);
+  }
   if (snapshot) card.append(snapshot);
 
-  const unavailable = category.unavailable_sources || [];
+  const unavailable = checks ? [] : category.unavailable_sources || [];
   if (unavailable.length) {
     const details = el("details", "health-center__technical-details");
     details.append(el("summary", "", `${unavailable.length} unavailable check${unavailable.length === 1 ? "" : "s"}`));
@@ -275,17 +320,23 @@ function renderCategory(category, monitorPerformance) {
   return card;
 }
 
+// Needs Attention and Critical count categories with detected issues; an
+// incomplete or unavailable assessment is counted separately, never as healthy.
 function renderSummary(categories) {
+  const findings = (item) => item.findings || [];
+  const critical = (item) => findings(item).some((finding) => finding.severity === "critical");
   const counts = {
     healthy: categories.filter((item) => item.status === "healthy").length,
-    attention: categories.filter((item) => ["warning", "partial"].includes(item.status)).length,
-    critical: categories.filter((item) => item.status === "critical").length,
+    attention: categories.filter((item) => findings(item).length && !critical(item)).length,
+    critical: categories.filter(critical).length,
+    partial: categories.filter((item) => item.status === "partial" && !findings(item).length).length,
     notAssessed: categories.filter((item) => ["not_assessed", "unavailable"].includes(item.status)).length,
   };
   const items = [
     ["Healthy", counts.healthy, "ok"],
     ["Needs Attention", counts.attention, "warning"],
     ["Critical", counts.critical, "error"],
+    ["Partially Assessed", counts.partial, "neutral"],
     ["Not Assessed", counts.notAssessed, "neutral"],
   ];
   dom.summary.replaceChildren(...items.map(([label, count, variant]) => {

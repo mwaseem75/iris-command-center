@@ -239,3 +239,93 @@ def test_custom_license_use_rule_is_assigned_to_system_category(
     )
     assert finding["category"] == "system"
     assert finding["evidence"][0]["observed_value"] == 0
+
+
+# --- per-check results (passed / issue_detected / not_assessed) ---
+
+
+def _checks(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {check["check_id"]: check for category in body["categories"] for check in category["checks"]}
+
+
+def _observed(check: dict[str, Any]) -> dict[str, Any]:
+    return {item["field"]: item["observed_value"] for item in check["evidence"]}
+
+
+def test_passed_checks_show_what_the_detection_observed(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock_health(mock_iris_client, journal=_journal(archive_name="/archive", purge_archived=True))
+
+    checks = _checks(client.get("/api/iris/health").json())
+
+    task_manager = checks["task_manager_not_running"]
+    assert task_manager["status"] == "passed"
+    assert task_manager["source"] == "GET /v2/task/manager"
+    assert task_manager["condition"]  # from the catalog's detection evidence
+    assert _observed(task_manager) == {"Status": "Running"}
+    assert _observed(checks["journal_purge_archived_off"]) == {"ArchiveName": "/archive", "PurgeArchived": True}
+    assert _observed(checks["system_monitor_not_running"]) == {"%SYS.Monitor.Control process in %SYS": True}
+    assert _observed(checks["database_dismounted"]) == {
+        "Databases checked": 0, "Dismounted (excluding system and mirrored databases)": 0}
+    assert checks["audit_status"]["status"] == "passed"
+    assert _observed(checks["audit_status"]) == {"Enabled": True}
+    assert all(check["status"] == "passed" for check in checks.values())
+    mock_iris_client.put.assert_not_called()
+    mock_iris_client.post.assert_not_called()
+
+
+def test_a_detected_issue_is_issue_detected_with_the_findings_evidence(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock_health(mock_iris_client, [_db("USER", "/data/user/")], [_dir("/data/user/", "Dismounted")], monitor_process=False)
+
+    body = client.get("/api/iris/health").json()
+    checks = _checks(body)
+
+    dismounted = checks["database_dismounted"]
+    assert dismounted["status"] == "issue_detected"
+    assert _observed(dismounted)["Directory"] == "/data/user/"
+    assert checks["system_monitor_not_running"]["status"] == "issue_detected"
+    assert checks["task_manager_not_running"]["status"] == "passed"
+    # Scoring is unchanged: the existing penalties still apply.
+    categories = {item["id"]: item for item in body["categories"]}
+    assert categories["databases"]["score"] == 75  # 100 - high 25
+    assert categories["system"]["score"] == 90  # 100 - medium 10 (System Monitor)
+
+
+def test_an_unavailable_check_is_not_assessed_never_passed(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock_health(mock_iris_client, fail_task_manager=True)
+
+    body = client.get("/api/iris/health").json()
+    check = _checks(body)["task_manager_not_running"]
+
+    assert check["status"] == "not_assessed"
+    assert check["evidence"] == []
+    assert check["source"] == "GET /v2/task/manager"
+    assert check["reason"] == "IRIS data for this check could not be read or evaluated."
+    tasks = next(item for item in body["categories"] if item["id"] == "tasks")
+    assert tasks["status"] == "unavailable" and tasks["score"] is None
+
+
+def test_a_category_with_a_finding_shows_it_as_issue_detected(client: TestClient, mock_iris_client: AsyncMock) -> None:
+    _mock_health(mock_iris_client, audit_enabled=False)
+
+    body = client.get("/api/iris/health").json()
+    security = next(item for item in body["categories"] if item["id"] == "security")
+
+    assert security["status"] == "partial" and security["score"] is None  # category semantics unchanged
+    (check,) = security["checks"]
+    assert check["check_id"] == "audit_status"
+    assert check["status"] == "issue_detected"
+    assert _observed(check) == {"Enabled": False}
+    assert check["source"] == "GET /v2/security/audit/enabled"
+
+
+def test_the_issue_check_observations_are_returned_by_the_issues_route_too(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    _mock_health(mock_iris_client)
+
+    observations = client.get("/api/iris/issues").json()["check_observations"]
+
+    assert observations["task_manager_not_running"] == [{"source": "GET /v2/task/manager", "field": "Status", "value": "Running"}]
+    assert observations["audit_logging_disabled"][0]["value"] is True

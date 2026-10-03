@@ -108,6 +108,17 @@ class HealthUnavailableSource(BaseModel):
     reason: str
 
 
+class HealthCheckResult(BaseModel):
+    """One check of a category, as the Issue Resolver's detection ran it."""
+
+    check_id: str
+    status: Literal["passed", "issue_detected", "not_assessed"]
+    source: str  # where the check reads its IRIS data
+    condition: str  # what makes it report an issue (from the catalog)
+    evidence: list[HealthEvidence]  # what it observed, when it could read it
+    reason: str | None = None  # why it couldn't be assessed
+
+
 class HealthCategoryResult(BaseModel):
     id: HealthCategoryId
     name: str
@@ -118,6 +129,7 @@ class HealthCategoryResult(BaseModel):
     evidence: list[HealthEvidence]
     findings: list[HealthFinding]
     unavailable_sources: list[HealthUnavailableSource]
+    checks: list[HealthCheckResult] = []
 
 
 class HealthReport(BaseModel):
