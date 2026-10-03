@@ -92,6 +92,8 @@ const dom = {
   scopeNote: $("dashboard-scope-note"),
   activityPanel: $("dashboard-activity-panel"),
   issuesPanel: $("dashboard-issues-panel"),
+  attentionList: $("dashboard-attention-list"),
+  attentionCount: $("dashboard-attention-count"),
   demoButton: $("dashboard-demo-activity-button"),
 };
 
@@ -634,6 +636,121 @@ function renderRecommendations(body) {
   }
 }
 
+// --- Needs Attention ---
+//
+// A short triage list from data this page already reads for the selected
+// instance: the issues the Issue Resolver detects (GET /api/iris/issues,
+// with their catalog severity) and IRIS's own task states (GET
+// /api/iris/tasks/overview: suspended tasks, and tasks whose last run
+// reported an error). Nothing is inferred beyond those; each item only
+// links to the page where it's handled. Nothing is run from here.
+
+const ATTENTION_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+// A last run failed only for these TaskExtraInfo.Status codes (as on the Tasks
+// page); Info.Error is the result text ("Success", "" or a message) either way.
+const TASK_ERROR_STATUS_CODES = new Set(["-2", "-3", "-4", "-5"]);
+
+function namesList(names) {
+  const shown = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+}
+
+/**
+ * The Needs Attention items for an issues response and a task overview list
+ * (either null if it couldn't be read): { items, unavailable }.
+ */
+export function attentionItems(issuesBody, tasks) {
+  const items = [];
+  const unavailable = [];
+  const issues = Array.isArray(issuesBody?.issues) ? issuesBody.issues : null;
+  const resolutions = issuesBody?.resolutions && typeof issuesBody.resolutions === "object" ? issuesBody.resolutions : {};
+  if (issues === null) {
+    unavailable.push("the issue checks");
+  } else {
+    for (const issue of issues) {
+      const resolution = resolutions[issue.kind];
+      const severity = SEVERITY_ORDER.includes(resolution?.severity) ? resolution.severity : null;
+      const [name, detail] = issueResource(issue);
+      items.push({
+        rank: severity ? ATTENTION_RANK[severity] : 2,
+        badge: severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : "Issue",
+        badgeClass: SEVERITY_BADGE[severity] || "status-badge--warning",
+        title: `${resolution?.title || issue.title || issue.kind}: ${textOrPlaceholder(name)}`,
+        text: detail,
+        action: ["View Issues →", "issue-resolver"],
+      });
+    }
+    const unchecked = Array.isArray(issuesBody.issue_checks_unavailable) ? issuesBody.issue_checks_unavailable : [];
+    if (unchecked.length) unavailable.push(`some issue checks (${unchecked.map((kind) => resolutions[kind]?.title || kind).join(", ")})`);
+  }
+
+  if (!Array.isArray(tasks)) {
+    unavailable.push("the task states");
+  } else {
+    const failed = tasks.filter((task) => TASK_ERROR_STATUS_CODES.has(String(task.Info?.Status)));
+    if (failed.length) {
+      items.push({
+        rank: 1,
+        badge: "Error",
+        badgeClass: "status-badge--error",
+        title: `${failed.length} ${failed.length === 1 ? "task" : "tasks"} reported an error on the last run`,
+        text: namesList(failed.map((task) => task.Name)),
+        action: ["View Tasks →", "tasks"],
+      });
+    }
+    const suspended = tasks.filter((task) => task.State === "Suspended");
+    if (suspended.length) {
+      items.push({
+        rank: 2,
+        badge: "Suspended",
+        badgeClass: "status-badge--warning",
+        title: `${suspended.length} suspended ${suspended.length === 1 ? "task" : "tasks"}`,
+        text: `${namesList(suspended.map((task) => task.Name))}. Suspended tasks don't run until they're resumed.`,
+        action: ["View Tasks →", "tasks"],
+      });
+    }
+  }
+  items.sort((a, b) => a.rank - b.rank);
+  return { items, unavailable };
+}
+
+function attentionItem({ badge, badgeClass, title, text, action: [label, view] }) {
+  const item = document.createElement("li");
+  item.className = "dash-issue dash-attention__item";
+  const body = document.createElement("div");
+  body.className = "dash-issue__body";
+  const heading = document.createElement("p");
+  heading.className = "dash-issue__title";
+  heading.textContent = title;
+  const detail = document.createElement("p");
+  detail.className = "dash-issue__text";
+  detail.textContent = text;
+  body.append(heading, detail);
+  const open = document.createElement("button");
+  open.className = "dash-panel__link dash-issue__action";
+  open.type = "button";
+  open.textContent = label;
+  open.addEventListener("click", () => navigateTo(view));
+  item.append(makeBadge(badge, badgeClass), body, open);
+  return item;
+}
+
+function renderAttention(issuesSettled, tasksSettled) {
+  if (!issuesSettled || !tasksSettled) return;  // not refreshed this time, keep what's shown
+  const issuesBody = fulfilled(issuesSettled);
+  const tasks = fulfilled(tasksSettled)?.result;
+  const { items, unavailable } = attentionItems(issuesBody, Array.isArray(tasks) ? tasks : null);
+  dom.attentionList.replaceChildren(...items.map(attentionItem));
+  dom.attentionCount.textContent = items.length ? `${items.length} ${items.length === 1 ? "item" : "items"}` : "";
+  if (unavailable.length) {
+    dom.attentionList.append(issueStatusItem("Unavailable", "status-badge--warning",
+      `Couldn't read ${unavailable.join(" or ")} right now. Try Refresh.`, "info"));
+  } else if (items.length === 0) {
+    dom.attentionList.append(issueStatusItem("OK", "status-badge--ok",
+      "Nothing needs attention: no detected issues, suspended tasks or task errors.", "ok"));
+  }
+}
+
 // --- Resources (sampled trends) ---
 
 function takeSample(monitor) {
@@ -1038,6 +1155,8 @@ function resetForContext() {
     dom.statGrid.querySelector(cardSelector).classList.remove("stat-card--error");
   }
   for (const viz of [dom.databasesViz, dom.processesViz, dom.webAppsViz, dom.tasksViz]) viz.replaceChildren();
+  dom.attentionList.replaceChildren();
+  dom.attentionCount.textContent = "";
   dom.view.classList.add("dashboard--switching");
 }
 
@@ -1115,7 +1234,10 @@ async function refreshInstance(ctx, { includeSlow }) {
         webApps: IrisApi.getWebApps(id),
         tasks: IrisApi.getTaskOverview(id),
         storage: IrisApi.getDatabaseStorage(id),
-        ...(primary ? { operations: IrisApi.getOperations(), issues: IrisApi.getIssues() } : {}),
+        // Read for the selected instance (Needs Attention); the Issues &
+        // Recommendations panel stays Primary-only.
+        issues: IrisApi.getIssues(id),
+        ...(primary ? { operations: IrisApi.getOperations() } : {}),
       }
     : {};
   const keys = [...Object.keys(fast), ...Object.keys(slow)];
@@ -1154,6 +1276,7 @@ async function refreshInstance(ctx, { includeSlow }) {
     // not the list's Suspended flag.
     renderMicroBar(dom.tasksViz, r.tasks, (task) => task.State || "Unknown");
     renderStorage(r.storage);
+    renderAttention(r.issues, r.tasks);
     if (primary) renderOperationsSummary(r.operations, r.traces);
   } else if (primary) {
     renderOperationsSummary(null, r.traces);

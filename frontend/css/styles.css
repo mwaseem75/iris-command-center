@@ -5991,6 +5991,38 @@ html.detail-workspace-open {
   justify-self: start;
 }
 
+/* Security Overview: findings under its inventory cards (rows as in Needs Attention). */
+.security-overview__findings {
+  margin-top: 12px;
+}
+
+/* Needs Attention (full width, under the KPI cards): one line per finding,
+   with its link on the right. */
+.dash-attention {
+  margin-top: 12px;
+}
+
+.dash-attention__item {
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.dash-attention__item .dash-issue__action {
+  grid-column: auto;
+  justify-self: end;
+}
+
+@media (max-width: 600px) {
+  .dash-attention__item {
+    grid-template-columns: 70px minmax(0, 1fr);
+  }
+
+  .dash-attention__item .dash-issue__action {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
 /* --- Investigation: two prominent tabs (Audit Investigation, Message Log) --- */
 
 .inv-tabs {

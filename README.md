@@ -393,6 +393,17 @@ IRIS Command Center is designed around practical operational scenarios rather th
 The dashboard provides a live operational snapshot. 
 <img width="2172"  alt="image" src="https://github.com/user-attachments/assets/ca0ac865-94f7-46f1-99f5-712364961983" />
 
+#### Needs Attention
+A **Needs Attention** panel under the KPI cards lists what may need an operator's attention on the selected instance:
+- **Detected issues** — every issue the Issue Resolver currently reports (for example a dismounted database or archived journal files not purged), with the catalog's severity, linking to the Issue Resolver.
+- **Suspended tasks** — tasks IRIS reports as `Suspended`, linking to Tasks.
+- **Failed task runs** — tasks whose last run ended with an IRIS error status (the same rule as the Tasks page), linking to Tasks.
+
+It uses data the Dashboard already reads (`GET /api/iris/issues` and `GET /api/iris/tasks/overview`) and adds no detection rules of its own. When nothing is found it says so; when a source can't be read it says that instead of showing an all-clear. The panel only links to existing pages; nothing is run from it.
+
+<!-- Screenshot placeholder: replace with the Needs Attention screenshot. -->
+![Dashboard — Needs Attention](docs/dashboard-needs-attention.png)
+
 ### 🩺 Health Center
 Health Center presents an overall health status and assessment coverage across **Performance, Tasks, Databases, Security, Web Applications, and System**. It shows findings, evidence, and recommendations from available read-only checks, reusing Issue Resolver detections where applicable rather than duplicating them.
 <img width="2207" alt="image" src="https://github.com/user-attachments/assets/9202195a-e8e8-44aa-80e9-2202d56e8c18" />
@@ -494,6 +505,22 @@ Security is organized into focused areas rather than exposing sensitive configur
 | **X.509** | Credential and certificate metadata without private keys |
 | **OAuth2** | Server/client configuration metadata without secrets or tokens |
 <img width="2172" alt="image" src="https://github.com/user-attachments/assets/54083e46-6aee-4d3c-86a7-74de644cd462" />
+
+#### Security Overview
+The top of the Security page summarizes the selected instance before you open a tab:
+- **Inventory** — enabled services (out of all services), X.509 credentials, Wallet collections with their number of secrets (counted only; no names or values are shown here), and whether an OAuth 2.0 server is configured, with its client and server-definition counts. Each card opens its tab.
+- **Findings** — shown only when IRIS's data states them:
+  - certificates that have expired, expire within 30 days, or are not yet valid, from each certificate's `ValidityNotBefore` / `ValidityNotAfter` (the Certificates tab's own rule; a missing date is never treated as expired);
+  - enabled services that allow `Unauthenticated` access;
+  - security auditing turned off.
+
+  Each finding links to the Certificates or Authentication tab, or to Investigation.
+
+The overview is read-only and uses existing routes (`GET /api/iris/security/services`, `/security/x509/overview`, `/security/wallet/overview` and `/security/audit/enabled`); the OAuth 2.0 summary reuses the page's existing OAuth read.
+
+<!-- Screenshot placeholder: replace with the Security Overview screenshot. -->
+![Security Center](docs/security-center.png)
+
 Sensitive information is protected. The application deliberately withholds or filters values such as:
 - Passwords
 - JWTs

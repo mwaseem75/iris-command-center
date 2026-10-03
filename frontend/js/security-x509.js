@@ -66,8 +66,8 @@ function parseIrisDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Validity status from the certificate's dates. */
-function validityOf(certificate, now = new Date()) {
+/** Validity status from the certificate's dates (also used by the Security Overview). */
+export function validityOf(certificate, now = new Date()) {
   if (!certificate) return "Unknown";
   const notAfter = parseIrisDate(certificate.ValidityNotAfter);
   if (!notAfter) return "Unknown";

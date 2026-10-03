@@ -12,6 +12,7 @@
 import { IrisApi, ApiError } from "./api.js";
 import { selectedInstanceId } from "./instance-context.js";
 import { openSecurityDrawer, registerSecurityDrawerRenderer, securityUi as ui } from "./security-access.js";
+import { setOAuthOverview } from "./security-overview.js";
 
 const PLACEHOLDER = "—";
 const $ = (id) => document.getElementById(id);
@@ -470,6 +471,7 @@ export async function loadSecurity() {
   } catch (err) {
     if (seq !== loadSeq) return;
     overview = null;
+    setOAuthOverview(null);
     dom.content.hidden = true;
     setConnectionState("error", "Could not reach IRIS", "");
     setBanner(
@@ -487,6 +489,7 @@ export async function loadSecurity() {
   const result = response && response.result && typeof response.result === "object" ? response.result : null;
   if (!result) {
     overview = null;
+    setOAuthOverview(null);
     dom.content.hidden = true;
     setConnectionState("error", "IRIS returned no data", "");
     setBanner(dom.oauthErrorBanner, dom.oauthErrorBannerText, "IRIS did not return the expected OAuth 2.0 information.");
@@ -495,6 +498,7 @@ export async function loadSecurity() {
   }
 
   overview = result;
+  setOAuthOverview(result);  // the Security Overview's OAuth 2.0 card
   const warnings = response.status && Array.isArray(response.status.errors) ? response.status.errors : [];
   if (warnings.length > 0) {
     setConnectionState("degraded", "Connected (with warnings)", response.status.summary || "");

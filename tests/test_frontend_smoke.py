@@ -1636,7 +1636,7 @@ def test_dashboard_shows_issues_and_recommendations() -> None:
     check("Issues &amp; Recommendations" in html, "the Dashboard has an Issues & Recommendations panel")
     check("Recent Alerts" not in html, "the old Recent Alerts panel is gone")
     dashboard_js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
-    check("IrisApi.getIssues()" in dashboard_js, "dashboard.js reads GET /api/iris/issues")
+    check("IrisApi.getIssues(id)" in dashboard_js, "dashboard.js reads GET /api/iris/issues for the selected instance")
     check("resolutions" in dashboard_js, "dashboard.js explains issues with the catalog entries")
     check("No actionable issues detected." in dashboard_js, "dashboard.js has a clear no-issues state")
     check('navigateTo("issue-resolver")' in dashboard_js and "Review & Resolve" in dashboard_js,
@@ -1687,7 +1687,7 @@ def test_dashboard_shows_recommendations_separately_from_issues() -> None:
     code = re.sub(r"//[^\n]*", "", js)
     check("body?.recommendations" in code and "body?.recommendations_unavailable" in code,
           "dashboard.js reads recommendations and recommendations_unavailable from the issues response")
-    check(code.count("IrisApi.getIssues()") == 1, "no extra request: recommendations come from the same GET /api/iris/issues")
+    check(code.count("IrisApi.getIssues(") == 1, "no extra request: recommendations come from the same GET /api/iris/issues")
     for field in ("rec.severity", "rec.title", "rec.explanation", "rec.evidence", "rec.recommended_operation",
                   "rec.parameters"):
         check(field in code, f"each recommendation shows {field!r}")
@@ -2580,6 +2580,59 @@ def test_explain_this_screen_is_read_only_and_covers_nine_pages() -> None:
           "app.js wires the button and places it in the open page's header")
 
 
+def test_dashboard_needs_attention_reuses_loaded_data_and_only_links() -> None:
+    print("Checking the Dashboard's Needs Attention: existing data, links only, no new requests...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    check('id="dashboard-attention-panel"' in html and "Needs Attention" in html and 'id="dashboard-attention-list"' in html,
+          "the Dashboard has a Needs Attention panel")
+    check(html.index('id="dashboard-attention-panel"') < html.index('id="dashboard-main-grid"'),
+          "it sits under the KPI cards, above the panels")
+    calls = sorted(set(re.findall(r"IrisApi\.(\w+)\(", code)))
+    check(calls == ["getDatabaseStorage", "getDatabases", "getExecutionTraces", "getInfo", "getIssues", "getMonitorDashboard",
+                    "getNamespaces", "getOperations", "getProcesses", "getTaskOverview", "getWebApps"],
+          f"dashboard.js reads only its existing routes (found {calls})")
+    check(code.count("IrisApi.getIssues(") == 1 and code.count("IrisApi.getTaskOverview(") == 1,
+          "Needs Attention reuses the issues and task overview the page already reads")
+    attention = code.split("export function attentionItems(", 1)[1].split("\nfunction renderAttention(", 1)[0]
+    check("IrisApi" not in attention and "fetch(" not in attention, "the detection itself makes no request")
+    for fact in ('task.State === "Suspended"', "TASK_ERROR_STATUS_CODES.has(String(task.Info?.Status))",
+                 "issue_checks_unavailable", "resolutions[issue.kind]"):
+        check(fact in attention, f"it uses {fact!r} as IRIS or the issue check reports it")
+    check('["View Issues →", "issue-resolver"]' in attention and '["View Tasks →", "tasks"]' in attention
+          and "navigateTo(view)" in code, "each item links to its existing page")
+    check("renderAttention(r.issues, r.tasks);" in code, "it renders from the same refresh results")
+
+
+def test_security_overview_is_read_only_inventory_and_findings() -> None:
+    print("Checking the Security Overview: existing read routes, IRIS-reported findings, links only...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "security-overview.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    security_js = (FRONTEND_DIR / "js" / "security.js").read_text(encoding="utf-8")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    check('id="security-overview-section"' in html and 'id="security-overview-cards"' in html
+          and 'id="security-overview-findings"' in html, "the Security page has a Security Overview")
+    check(html.index('id="security-overview-section"') < html.index('id="security-access-section"'),
+          "it sits above Identity & Access")
+    calls = sorted(set(re.findall(r"IrisApi\.(\w+)\(", code)))
+    check(calls == ["getAuditEnabled", "getSecurityServices", "getSecurityWalletOverview", "getSecurityX509Overview"],
+          f"security-overview.js reads only existing GET routes (found {calls})")
+    check("fetch(" not in code and "innerHTML" not in code and "setUserEnabled" not in code,
+          "it makes no other request, changes nothing and renders with textContent")
+    check('import { validityOf } from "./security-x509.js";' in js
+          and "export function validityOf(" in (FRONTEND_DIR / "js" / "security-x509.js").read_text(encoding="utf-8"),
+          "certificate validity uses the Certificates tab's own rule")
+    check('AuthenticationMethods.includes("Unauthenticated")' in code and "auditEnabled === false" in code,
+          "service and audit findings come from what IRIS reports")
+    check("Secrets.length" in code and "secret.Name" not in code and "SecretValue" not in code,
+          "Wallet secrets are only counted")
+    check(security_js.count("setOAuthOverview(") == 3, "security.js shares its OAuth 2.0 overview (no second request)")
+    check("loadSecurityOverview()," in app_js, "app.js loads it with the Security page")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -2644,6 +2697,8 @@ def main() -> None:
         test_instance_selector_is_in_page_headers_and_context_only,
         test_fleet_overview_is_read_only_and_reads_each_instance,
         test_explain_this_screen_is_read_only_and_covers_nine_pages,
+        test_dashboard_needs_attention_reuses_loaded_data_and_only_links,
+        test_security_overview_is_read_only_inventory_and_findings,
     ]
     for test in tests:
         print(f"\n{test.__name__}")

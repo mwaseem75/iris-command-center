@@ -321,6 +321,18 @@
             </article>
           </div>
 
+          <!-- Needs Attention: detected issues and IRIS task states for the
+               selected instance (js/dashboard.js). Links only; nothing runs here. -->
+          <section class="info-card dash-panel dash-attention" id="dashboard-attention-panel" aria-labelledby="dashboard-attention-title">
+            <header class="dash-panel__head">
+              <h3 class="info-card__title" id="dashboard-attention-title"><span class="dash-panel__icon" aria-hidden="true">&#9873;</span>Needs Attention</h3>
+              <span class="dash-panel__meta" id="dashboard-attention-count" title="Detected issues (GET /api/iris/issues) and IRIS task states (GET /api/iris/tasks/overview) for the selected instance."></span>
+            </header>
+            <ul class="dash-alert-list" id="dashboard-attention-list" aria-label="Needs attention">
+              <li class="dash-alert-list__item" data-level="info"><span class="dash-alert-list__text">Checking&hellip;</span></li>
+            </ul>
+          </section>
+
           <div class="dash-grid dash-grid--main" id="dashboard-main-grid">
             <section class="info-card dash-panel dash-panel--resources" aria-labelledby="dashboard-resources-title">
               <header class="dash-panel__head">
@@ -1870,6 +1882,18 @@
               <span class="connection-status__label" id="security-connection-status-label">Checking connection&hellip;</span>
             </div>
             <p class="info-panel__meta" id="security-connection-detail"></p>
+          </div>
+
+          <!-- Security Overview (js/security-overview.js): inventory and findings
+               from what IRIS reports for the selected instance. Read-only. -->
+          <div class="ns-section" id="security-overview-section">
+            <div class="ns-section__header">
+              <h3 class="section-heading">Security Overview</h3>
+              <span class="dash-panel__meta" id="security-overview-count"></span>
+            </div>
+            <p class="ns-hint">What each area holds, and findings from what IRIS reports: certificate validity, enabled services that accept unauthenticated access, and the audit status. Read-only; no secret values are read.</p>
+            <div class="stat-grid stat-grid--compact" id="security-overview-cards" aria-label="Security inventory"></div>
+            <ul class="dash-alert-list security-overview__findings" id="security-overview-findings" aria-label="Security findings"></ul>
           </div>
 
           <div class="ns-section" id="security-access-section">

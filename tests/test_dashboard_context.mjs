@@ -31,7 +31,7 @@ function classList() {
 
 function stub(id = null) {
   const props = { id, hidden: false, dataset: {}, textContent: "", title: "", children: [], style: {},
-    classList: classList(), attributes: {}, disabled: false, value: "" };
+    classList: classList(), attributes: {}, disabled: false, value: "", listeners: {} };
   return new Proxy(function () {}, {
     get(_, key) {
       if (key in props) return props[key];
@@ -41,6 +41,9 @@ function stub(id = null) {
       if (key === "querySelectorAll") return () => [];
       if (key === "closest") return () => null;
       if (key === "contains") return () => false;
+      if (key === "append") return (...nodes) => { props.children.push(...nodes); };
+      if (key === "replaceChildren") return (...nodes) => { props.children = [...nodes]; };
+      if (key === "addEventListener") return (type, fn) => { (props.listeners[type] ||= []).push(fn); };
       return () => stub();
     },
     set(_, key, value) {
@@ -60,6 +63,7 @@ function element(id) {
 let requests = [];
 let instances = [];
 let failInstance = null; // { id, status }
+let attentionData = {};     // instance id -> { issues, tasks } for Needs Attention (default: nothing to report)
 
 function envelope(result) {
   return { status: { errors: [] }, result };
@@ -77,12 +81,12 @@ function answer(path, instance) {
     case "/api/iris/processes": return envelope(list(7));
     case "/api/iris/web-apps": return envelope(list(11));
     case "/api/iris/tasks": return envelope(list(13));
-    case "/api/iris/tasks/overview": return envelope(list(13));
+    case "/api/iris/tasks/overview": return envelope(attentionData[who]?.tasks ?? list(13));
     case "/api/iris/databases/storage": return envelope([]);
     case "/api/iris/monitor/dashboard": return envelope(null); // no counters: panels show "unavailable"
     case "/api/iris/observability/traces": return { traces: [] };
     case "/api/iris/operations": return { operations: [] };
-    case "/api/iris/issues": return { issues: [], recommendations: [] };
+    case "/api/iris/issues": return attentionData[who]?.issues ?? { issues: [], recommendations: [] };
     default: return envelope([]);
   }
 }
@@ -146,6 +150,7 @@ before(async () => {
 
 beforeEach(async () => {
   failInstance = null;
+  attentionData = {};
   instances = registry();
   await context.refreshInstanceContext();
   context.selectInstanceContext(PRIMARY);
@@ -180,9 +185,11 @@ test("IRIS-2 selected: every IRIS read targets IRIS-2, Primary-only panels are h
   const reads = irisReads();
   assert.ok(reads.length > 0);
   assert.ok(reads.every((r) => r.instance === IRIS2), JSON.stringify(reads.map((r) => [r.path, r.instance])));
-  for (const path of ["/api/iris/issues", "/api/iris/observability/traces", "/api/iris/operations"]) {
+  for (const path of ["/api/iris/observability/traces", "/api/iris/operations"]) {
     assert.ok(!reads.some((r) => r.path === path), `${path} is Primary-only`);
   }
+  // Needs Attention reads IRIS-2's own issues; the Issues & Recommendations panel stays Primary-only.
+  assert.ok(reads.some((r) => r.path === "/api/iris/issues" && r.instance === IRIS2));
   assert.equal(text("stat-namespaces"), "6");
   assert.equal(text("stat-processes"), "14");
   assert.equal(text("dashboard-title-scope"), "· IRIS-2");
@@ -250,4 +257,103 @@ test("no password or Wallet reference is sent or shown", async () => {
   for (const output of [shown, sent]) {
     assert.ok(!output.includes(SECRET) && !output.includes("CommandCenter.") && !output.includes("credential_ref"));
   }
+});
+
+// --- Needs Attention ---
+
+const nodeText = (node) => [node.textContent, ...(node.children || []).map(nodeText)].filter(Boolean).join(" ");
+const attentionRows = () => element("dashboard-attention-list").children.map(nodeText);
+
+const CATALOG = {
+  database_dismounted: { title: "Dismounted database", severity: "high", resolvable: true },
+  journal_purge_archived_off: { title: "Archived journal files are not purged", severity: "low", resolvable: true },
+  system_monitor_not_running: { title: "System Monitor not running", severity: "medium", resolvable: false },
+};
+const DISMOUNTED = { kind: "database_dismounted", database: "IPM", directory: "/usr/irissys/mgr/ipm/", status: "Dismounted" };
+const JOURNAL = { kind: "journal_purge_archived_off", archive_name: "journal-archive", purge_archived: false };
+// Info as IRIS reports it: Error is the last result's text, Status its code (negative codes are failures).
+const task = (name, state, status = "1", error = "Success") =>
+  ({ Id: 1, Name: name, State: state, Info: { Status: status, Error: error, Suspended: state === "Suspended" } });
+
+test("attentionItems: detected issues by catalog severity, then task errors and suspended tasks", () => {
+  const { items, unavailable } = dashboard.attentionItems(
+    { issues: [JOURNAL, DISMOUNTED], resolutions: CATALOG },
+    [task("Purge Journal", "Not Running"), task("Integrity Check", "Suspended", "1", ""),
+      task("Backup", "Not Running", "-2", "ERROR #5001: disk full")],
+  );
+  assert.deepEqual(unavailable, []);
+  assert.deepEqual(items.map((i) => [i.badge, i.title, i.text, i.action[1]]), [
+    ["High", "Dismounted database: IPM", "/usr/irissys/mgr/ipm/ · Dismounted", "issue-resolver"],
+    ["Error", "1 task reported an error on the last run", "Backup", "tasks"],
+    ["Suspended", "1 suspended task", "Integrity Check. Suspended tasks don't run until they're resumed.", "tasks"],
+    ["Low", "Archived journal files are not purged: Journal settings", "ArchiveName journal-archive · PurgeArchived off", "issue-resolver"],
+  ]);
+});
+
+test("attentionItems: nothing to report, and nothing inferred from data that couldn't be read", () => {
+  assert.deepEqual(dashboard.attentionItems({ issues: [], resolutions: CATALOG }, [task("Purge Journal", "Not Running")]),
+    { items: [], unavailable: [] });
+  const none = dashboard.attentionItems(null, null);
+  assert.deepEqual(none.items, []);
+  assert.deepEqual(none.unavailable, ["the issue checks", "the task states"]);
+  const partial = dashboard.attentionItems(
+    { issues: [], resolutions: CATALOG, issue_checks_unavailable: ["system_monitor_not_running"] }, []);
+  assert.deepEqual(partial.unavailable, ["some issue checks (System Monitor not running)"]);
+  // A last-result text that isn't "Success" is not an error without an error Status code (as on the Tasks page).
+  const notFailed = dashboard.attentionItems({ issues: [] }, [
+    task("Feature Tracker", "Not Running", "1", "Task Has Expired for 2026-06-28 00:00  Continuing from 2026-10-03"),
+    task("Diagnostic Report", "Not Running", "1", ""),
+    task("Purge Tasks", "Not Running", "1", "Success"),
+  ]);
+  assert.deepEqual(notFailed.items, []);
+  for (const code of ["-2", "-3", "-4", "-5"]) {
+    assert.equal(dashboard.attentionItems({ issues: [] }, [task("Job", "Not Running", code, "x")]).items[0].badge, "Error");
+  }
+  assert.deepEqual(dashboard.attentionItems({ issues: [] }, [task("Job", "Running", "-1", "")]).items, [], "-1 is running");
+  // Long name lists are shortened.
+  const many = dashboard.attentionItems({ issues: [] }, ["A", "B", "C", "D", "E"].map((n) => task(n, "Suspended")));
+  assert.equal(many.items[0].text, "A, B, C and 2 more. Suspended tasks don't run until they're resumed.");
+});
+
+test("Needs Attention, Primary: nothing to report shows a positive empty state", async () => {
+  await dashboard.loadDashboard();
+  assert.deepEqual(attentionRows(), ["OK Nothing needs attention: no detected issues, suspended tasks or task errors."]);
+  assert.equal(text("dashboard-attention-count"), "");
+});
+
+test("Needs Attention, IRIS-2: its own issues and task states; links use the normal navigation; nothing is changed", async () => {
+  attentionData[IRIS2] = {
+    issues: { issues: [DISMOUNTED], resolutions: CATALOG, recommendations: [] },
+    tasks: [task("Integrity Check", "Suspended"), task("Purge Tasks", "Not Running")],
+  };
+  context.selectInstanceContext(IRIS2);
+  await settle();
+  assert.deepEqual(attentionRows(), [
+    "High Dismounted database: IPM /usr/irissys/mgr/ipm/ · Dismounted View Issues →",
+    "Suspended 1 suspended task Integrity Check. Suspended tasks don't run until they're resumed. View Tasks →",
+  ]);
+  assert.equal(text("dashboard-attention-count"), "2 items");
+  assert.equal(element("dashboard-issues-panel").hidden, true, "the detailed panel stays Primary-only");
+  assert.ok(irisReads().every((r) => r.instance === IRIS2), "nothing falls back to the Primary");
+  assert.ok(requests.every((r) => r.method === "GET"), "detection only");
+
+  const nav = await import("../frontend/js/nav.js");
+  const opened = [];
+  nav.initNavigation((view) => opened.push(view));
+  const [issueRow, taskRow] = element("dashboard-attention-list").children;
+  requests = [];
+  issueRow.children[2].listeners.click[0]();
+  taskRow.children[2].listeners.click[0]();
+  assert.deepEqual(opened, ["issue-resolver", "tasks"]);
+  assert.deepEqual(requests, [], "a link only navigates; the page it opens loads as usual");
+});
+
+test("Needs Attention: data that couldn't be read is said, not shown as all clear", async () => {
+  attentionData[PRIMARY] = { issues: { detail: "no issues field" }, tasks: [task("Integrity Check", "Suspended")] };
+  await dashboard.loadDashboard();
+  const rows = attentionRows();
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /^Suspended 1 suspended task/);
+  assert.equal(rows[1], "Unavailable Couldn't read the issue checks right now. Try Refresh.");
+  assert.ok(!rows.some((row) => row.startsWith("OK")));
 });

@@ -20,6 +20,7 @@ import { loadDatabases, initDatabasesControls } from "./databases.js";
 import { loadWebApps, initWebAppsControls, resolveWebAppIssue } from "./web-apps.js";
 import { loadTasks, initTasksControls } from "./tasks.js";
 import { loadSecurity, initSecurityControls } from "./security.js";
+import { loadSecurityOverview } from "./security-overview.js";
 import { loadSecurityAccess, initSecurityAccessControls } from "./security-access.js";
 import { initSecurityAuthControls, refreshSecurityAuthIfLoaded } from "./security-auth.js";
 import { initSecurityWalletControls, refreshSecurityWalletIfLoaded } from "./security-wallet.js";
@@ -79,6 +80,7 @@ const LOADERS = {
   tasks: () => loadTasks(),
   security: () => Promise.all([
     loadSecurity(),
+    loadSecurityOverview(),
     loadSecurityAccess(),
     refreshSecurityAuthIfLoaded(),
     refreshSecurityWalletIfLoaded(),
