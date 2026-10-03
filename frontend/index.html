@@ -3883,6 +3883,28 @@
           </aside>
         </section>
 
+        <!-- Screen Insights (js/explain-screen.js): app.js moves the button
+             into the open page's header; the side panel briefs on that page. -->
+        <button class="btn explain-screen-button" type="button" id="explain-screen-button" hidden>
+          <span class="btn__icon" aria-hidden="true">&#9432;</span>
+          Screen Insights
+        </button>
+        <div class="ns-drawer-backdrop" id="explain-screen-backdrop" hidden></div>
+        <aside class="ns-drawer ns-drawer--side explain-screen" id="explain-screen-drawer" hidden aria-labelledby="explain-screen-title">
+          <div class="ns-drawer__header">
+            <div class="explain-screen__heading">
+              <span class="explain-screen__badge" aria-hidden="true">i</span>
+              <div>
+                <h3 class="ns-drawer__title" id="explain-screen-title">Screen Insights</h3>
+                <p class="explain-screen__context" id="explain-screen-context"></p>
+              </div>
+            </div>
+            <button class="ns-drawer__close" type="button" id="explain-screen-close" aria-label="Close Screen Insights">&times;</button>
+          </div>
+          <div class="explain-screen__body" id="explain-screen-body"></div>
+          <p class="explain-screen__footer">This explanation is built from the current Command Center view.</p>
+        </aside>
+
         <div class="ns-drawer-backdrop" id="demo-activity-backdrop" hidden></div>
         <aside class="ns-drawer ns-drawer--wide demo-drawer" id="demo-activity-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="demo-activity-title">
           <div class="ns-drawer__header">

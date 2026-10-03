@@ -541,6 +541,19 @@ Command Center also supports controlled updates to selected journal settings thr
 Changes are validated before execution and verified against the live IRIS configuration afterward, with the operation captured in Observability for traceability.
 <img width="2167"  alt="image" src="https://github.com/user-attachments/assets/07784520-ae0e-4515-9db4-f54faec03317" />
 
+### ℹ️ Screen Insights
+Screen Insights is a contextual briefing for the Dashboard, Health Center, Fleet Overview, Issue Resolver, Operations, Observability, Security, API Capability Explorer and Investigation pages. The **Screen Insights** button in the page header opens it as a right-side panel over the current page:
+- **Overview** — the page's purpose and where its data comes from.
+- **Current snapshot** — a few current values taken from what the page already displays. A value that hasn't loaded yet is shown as *Not loaded yet. Use Refresh.*
+- **What matters here** — what the page tells you, where to look next, and changes & safety: what is read-only, which changes are possible, and how they are guarded (required `%Admin_*` privilege, explicit confirmation, verification, Primary-only changes).
+- **Key terms** — what the main metrics and statuses mean.
+- **Related areas** — links that open related pages through the normal application navigation.
+
+The briefing follows the selected IRIS instance; on the Fleet Overview it covers all active instances instead. The text is fixed and written for each page. Opening Screen Insights is read-only and makes no additional API requests.
+
+<!-- Screenshot placeholder: replace with the Screen Insights screenshot. -->
+![Screen Insights](docs/screen-insights.png)
+
 
 ---
 ## Advanced Capabilities

@@ -1145,7 +1145,7 @@ def test_issue_resolver_page_exists_and_is_read_only() -> None:
     for part in ('section("Fix Preview"', '"Current → Proposed"', "resolution.operation", '"Authorization requirement"',
                  "privilegeText(resolution)", "checked by the backend when the operation runs", "resolution.confirmation_required",
                  "resolution.verification_rules", "fixBlocked(resolution)", "state detected when this page was loaded"):
-        check(part in preview, f"the Fix Preview shows {part!r}")
+        check(part in preview, f"the Fix Preview shows {part.replace('→', '->')!r}")
     check("...(res.change ? [fixPreview(issue, resolution)] : [])" in js, "the drawer adds it only where a change is described")
     check(js.count("    change: (issue) =>") == 3, "RESOURCES describes the change for the three resolvable kinds")
     check("`%Admin_${name}`" in js, "privileges are shown with their full %Admin_ names")
@@ -2533,6 +2533,53 @@ def test_fleet_overview_is_read_only_and_reads_each_instance() -> None:
           "only active instances are read, each on its own")
 
 
+def test_explain_this_screen_is_read_only_and_covers_nine_pages() -> None:
+    print("Checking Screen Insights: shared button and side panel, nine pages, no requests...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "explain-screen.js").read_text(encoding="utf-8")
+    app_js = (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    check(re.search(r'id="explain-screen-button" hidden>\s*<span[^>]*>&#9432;</span>\s*Screen Insights\s*</button>', html)
+          is not None, "the header button reads Screen Insights")
+    for marker in ('id="explain-screen-button"',
+                   'class="ns-drawer ns-drawer--side explain-screen" id="explain-screen-drawer" hidden',
+                   'id="explain-screen-backdrop"', 'id="explain-screen-close"', 'id="explain-screen-body"',
+                   "This explanation is built from the current Command Center view."):
+        check(marker in html, f"index.html has {marker!r}")
+    check("IrisApi" not in js and "fetch(" not in js and "innerHTML" not in js,
+          "explain-screen.js makes no request and renders with textContent")
+    views = ["dashboard", "health-center", "fleet", "issue-resolver", "operations", "observability", "security",
+             "capabilities", "investigation"]
+    table = js.split("export const EXPLANATIONS = {", 1)[1].split("\n};", 1)[0]
+    explained = re.findall(r'^  "?([a-z-]+)"?: \{$', table, re.M)
+    check(sorted(explained) == sorted(views), f"exactly the nine pages are explained (found {explained})")
+    for view in views:
+        check(f'data-view="{view}"' in html, f"{view} is a real page")
+    fact_ids = re.findall(r'^ +\["[A-Z][^"]*", "([a-z0-9-]+)"\]', table, re.M)
+    fact_ids += re.findall(r'^ +(?:note|updated): "([a-z0-9-]+)"', table, re.M)
+    check(len(fact_ids) >= 30, f"the snapshots read the pages' own elements (found {len(fact_ids)})")
+    for fact_id in fact_ids:
+        check(f'id="{fact_id}"' in html, f"live fact {fact_id!r} is an element the page already renders")
+    for related in re.findall(r'^ +related: \[([^\]]*)\]', table, re.M):
+        for view in re.findall(r'"([a-z-]+)"', related):
+            check(re.search(rf'class="nav-item[^"]*" type="button" data-view="{view}"', html) is not None,
+                  f"related area {view!r} is a nav page")
+    for title in ("Overview", "Current snapshot", "All active instances", "What matters here", "Key terms",
+                  "Related areas"):
+        check(f'"{title}"' in js, f"the briefing has a {title!r} section")
+    check("navigateTo(view);" in js and "closeExplanation();" in js, "a related area closes the panel, then navigates")
+    check("dom.drawer.scrollTop = 0;" in js, "the panel always opens at the top")
+    check(".ns-drawer.ns-drawer--side {" in (FRONTEND_DIR / "css" / "styles.css").read_text(encoding="utf-8"),
+          "styles.css makes it a side panel")
+    check('"Not loaded yet. Use Refresh."' in js, "a value that hasn't loaded says so")
+    check("allInstances: true" in js and "Covers every active instance" in js,
+          "Fleet Overview uses its own all-instances context")
+    check('import { initExplainScreen, placeExplainButton } from "./explain-screen.js";' in app_js
+          and "initExplainScreen(() => currentView);" in app_js
+          and app_js.count("placeExplainButton(") == 2,
+          "app.js wires the button and places it in the open page's header")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -2596,6 +2643,7 @@ def main() -> None:
         test_instances_page_uses_instance_routes_and_confirmed_operations,
         test_instance_selector_is_in_page_headers_and_context_only,
         test_fleet_overview_is_read_only_and_reads_each_instance,
+        test_explain_this_screen_is_read_only_and_covers_nine_pages,
     ]
     for test in tests:
         print(f"\n{test.__name__}")

@@ -7473,6 +7473,295 @@ html.detail-workspace-open {
   margin-left: auto;
 }
 
+/* Explain This Screen: moved by js/app.js into the open page's header, right
+   after the instance selector (or the title block), so it sits with the
+   header's other controls on the right. */
+.explain-screen-button {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.instance-selector:not([hidden]) + .explain-screen-button {
+  margin-left: 0;
+}
+
+/* Screen Insights panel (js/explain-screen.js): the shared .ns-drawer as a
+   right-hand side panel instead of the centered workspace. */
+.ns-drawer.ns-drawer--side {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  transform: none;
+  width: min(640px, 100vw);
+  max-height: none;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+}
+
+.explain-screen__heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.explain-screen__badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.explain-screen__context {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.explain-screen__body {
+  display: grid;
+  gap: 14px;
+}
+
+.explain-screen__footer {
+  margin: 16px 0 0;
+  color: var(--color-text-faint);
+  font-size: 12px;
+}
+
+.explain-card {
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.explain-card__title,
+.explain-section__title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.explain-card__text {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.explain-overview {
+  display: flex;
+  gap: 14px;
+  background: var(--color-accent-soft);
+}
+
+.explain-overview__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-size: 20px;
+}
+
+.explain-overview__source {
+  margin: 8px 0 0;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.explain-snapshot__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.explain-snapshot__instance,
+.explain-snapshot__updated {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.explain-snapshot__updated {
+  text-align: right;
+}
+
+.explain-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.explain-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  text-align: center;
+}
+
+.explain-tile .dash-kpi__icon {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 4px;
+}
+
+.explain-tile__value {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.explain-tile[data-tone="warning"] .explain-tile__value {
+  color: var(--color-warning);
+}
+
+.explain-tile[data-state="missing"] .explain-tile__value {
+  color: var(--color-text-faint);
+}
+
+.explain-tile__label {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+}
+
+.explain-snapshot__note,
+.explain-snapshot__missing {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.explain-snapshot__missing {
+  color: var(--color-warning);
+}
+
+.explain-insights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.explain-insight {
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius);
+  background: var(--color-accent-soft);
+}
+
+.explain-insight[data-kind="next"] {
+  background: color-mix(in srgb, var(--color-chart-2) 12%, transparent);
+}
+
+.explain-insight[data-kind="safety"] {
+  background: var(--color-warning-soft);
+}
+
+.explain-insight__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.explain-insight[data-kind="next"] .explain-insight__title {
+  color: var(--color-chart-2);
+}
+
+.explain-insight[data-kind="safety"] .explain-insight__title {
+  color: var(--color-warning);
+}
+
+.explain-insight__text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.explain-terms {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.explain-terms dt {
+  font-weight: 700;
+}
+
+.explain-terms dd {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.explain-related {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.explain-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.explain-chip:hover,
+.explain-chip:focus-visible {
+  background: var(--color-surface-hover);
+}
+
+.explain-chip__icon {
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 700px) {
+  .explain-insights {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .explain-terms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .explain-terms dd {
+    margin-bottom: 6px;
+  }
+}
+
 /* The brand keeps its width; the long IRIS version text gives way (it
    already truncates). */
 .app-header > .brand {

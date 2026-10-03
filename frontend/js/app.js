@@ -47,6 +47,7 @@ import { loadCapabilities, initCapabilitiesControls } from "./capabilities.js";
 import { loadMessageLog, initMessageLogControls } from "./message-log.js";
 import { loadInstances, initInstancesControls } from "./instances.js";
 import { loadFleet, initFleetControls } from "./fleet.js";
+import { initExplainScreen, placeExplainButton } from "./explain-screen.js";
 
 // Pages that show the selected instance's IRIS data (Observability: its
 // traces; API Explorer: its recorded API compatibility).
@@ -140,6 +141,7 @@ function placeSelectorFor(view) {
 function openView(view) {
   currentView = view;
   placeSelectorFor(view);
+  placeExplainButton(view);
   applyInstanceScope(view);
   if (!LOADERS[view]) return;
   currentLoad = Promise.resolve(LOADERS[view]()).catch(() => {});
@@ -150,6 +152,7 @@ function init() {
   initInstanceSelector();
   // Modal behaviour for all detail panels (see detail-workspace.js).
   initDetailWorkspaces();
+  initExplainScreen(() => currentView);
   // Opening a trace from the Dashboard or Demo Activity: focus it, then go to
   // Observability, which loads the trace list as usual.
   const openTrace = (traceId) => {
@@ -242,6 +245,7 @@ function init() {
   // Fleet Overview always shows every active instance.
   let lastKey = contextKey(getInstanceContext());
   placeSelectorFor(currentView);
+  placeExplainButton(currentView);
   applyInstanceScope(currentView);
   onInstanceContextChange((ctx) => {
     const key = contextKey(ctx);
