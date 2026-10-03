@@ -317,8 +317,13 @@ Ask IRIS lets you ask questions about live IRIS data from the screen you are wor
 ### Where to find it
 
 - **Dashboard cards** — the Processes, Databases, Web Applications and Tasks cards each have a small 🤖 Ask IRIS action beside the card, and the Issues & Recommendations panel has one for detected issues. Clicking the card itself still opens its page.
+<img width="784" alt="image" src="https://github.com/user-attachments/assets/6cd81b6a-a0f1-441d-9937-f2439cfdb0d3" />
+
 - **Management screens** — the Processes, Databases, Web Applications and Tasks screens have an **Ask IRIS** button next to **Refresh**.
+<img width="377" alt="image" src="https://github.com/user-attachments/assets/2f7d45e9-51a6-4f7c-802c-366d5b1c55b5" />
+
 - **A single process** — in the Processes view, open a process and choose **Ask IRIS about this process** to ask about that PID.
+<img width="614" alt="image" src="https://github.com/user-attachments/assets/3ebe3501-493d-4060-bf1d-de12b79cfcdd" />
 
 ### How it answers
 
