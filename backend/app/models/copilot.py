@@ -98,6 +98,7 @@ class CopilotOperationalContext(BaseModel):
     info: CopilotInfoContext | None = None
     databases: list[CopilotDatabaseContext]
     databases_total: int | None = None
+    databases_by_status: dict[str, int] = {}  # over every database
     processes: list[CopilotProcessContext]
     processes_total: int | None = None
     # Summaries over every process from the same /v2/processes read.
@@ -108,6 +109,11 @@ class CopilotOperationalContext(BaseModel):
     process_focus: CopilotProcessContext | None = None
     web_apps: list[CopilotWebAppContext]
     web_apps_total: int | None = None
+    # Over every web application, from the same /v2/web-apps read.
+    web_apps_by_state: dict[str, int] = {}  # "Enabled" / "Disabled"
+    web_apps_by_namespace: dict[str, int] = {}
+    web_apps_by_type: dict[str, int] = {}
+    web_apps_disabled: list[str] = []  # names, at most 10
     tasks: list[CopilotTaskContext]
     tasks_total: int | None = None
     issues: list[CopilotIssueContext] = []

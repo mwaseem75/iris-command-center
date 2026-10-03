@@ -1,47 +1,116 @@
-// Ask IRIS on the Processes page: a side panel with read-only answers about
-// the live process list. Questions go to the existing Copilot (POST
-// /api/iris/copilot/ask) for the selected instance; its deterministic
-// provider answers from the read-only context it reads there. There is no
-// LLM, and this panel never plans, authorizes or runs a change: a change
-// request gets a read-only reply and a link to Operations.
+// Ask IRIS: a side panel with read-only answers about one context (Processes,
+// Databases, Web Apps, Tasks or the detected issues). Questions go to the
+// existing Copilot (POST /api/iris/copilot/ask) for the selected instance;
+// its deterministic provider answers from the read-only context it reads
+// there. There is no LLM, and this panel never plans, authorizes or runs a
+// change: a change request gets a read-only reply and links to the pages
+// where changes are made.
 //
 // One panel (`.ns-drawer`, so detail-workspace.js gives it the modal
-// behaviour), opened from the Processes header or a process's detail drawer.
+// behaviour), opened by any `[data-ask-iris="<context>"]` button: the page
+// headers, the Dashboard cards and a process's detail drawer.
 // All DOM is built with createElement/textContent, no innerHTML.
 
 import { ApiError, IrisApi } from "./api.js";
 import { getInstanceContext, selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 
-const PROMPTS = [
-  "Summarize process activity",
-  "Show processes by state",
-  "Show processes by namespace",
-  "Which processes have the highest cumulative CPU time?",
-  "Are there any active issues?",
-];
+// Each context: its title, suggested prompts, the words that make a question
+// about it (to name the source), its source, the page it lives on and the
+// next steps. Prompts only ask what the Copilot's context can answer.
+export const CONTEXTS = {
+  processes: {
+    title: "Processes",
+    prompts: [
+      "Summarize process activity",
+      "Show processes by state",
+      "Show processes by namespace",
+      "Which processes have the highest cumulative CPU time?",
+      "Are there any active issues?",
+    ],
+    words: /\bprocess(es)?\b|\bpid\b/i,
+    source: "GET /v2/processes",
+    page: "processes",
+    steps: ["investigation", "processes", "issue-resolver"],
+  },
+  databases: {
+    title: "Databases",
+    prompts: [
+      "Summarize database status",
+      "Which databases need attention?",
+      "Show dismounted databases",
+      "Explain the current database status",
+    ],
+    words: /\bdatabases?\b/i,
+    source: "GET /v2/databases, with the Issue Resolver's detection",
+    page: "databases",
+    steps: ["databases", "issue-resolver"],
+  },
+  "web-apps": {
+    title: "Web Applications",
+    prompts: [
+      "Summarize web applications",
+      "Which web apps are disabled?",
+      "Show web apps by namespace",
+      "Do any web apps point to a missing namespace?",
+    ],
+    words: /\bweb\s*apps?\b|\bweb\s+applications?\b/i,
+    source: "GET /v2/web-apps, with the Issue Resolver's detection",
+    page: "web-apps",
+    steps: ["web-apps", "issue-resolver"],
+  },
+  tasks: {
+    title: "Tasks",
+    prompts: [
+      "Which tasks are suspended?",
+      "Are there task errors?",
+      "Explain the current task status",
+      "Summarize task schedules",
+    ],
+    words: /\btasks?\b/i,
+    source: "GET /v2/tasks, with each task's info and details",
+    page: "tasks",
+    steps: ["tasks", "issue-resolver"],
+  },
+  // Like the Dashboard's Issues panel, for the Primary instance only.
+  issues: {
+    title: "Detected Issues",
+    prompts: [
+      "Are there any active issues?",
+      "Which issues need attention?",
+      "Which issue checks could not run?",
+    ],
+    words: null,
+    source: "Issue Resolver detection (read-only)",
+    page: "issue-resolver",
+    steps: ["issue-resolver"],
+    primaryOnly: true,
+  },
+};
 
-const PROCESS_WORD = /\bprocess(es)?\b|\bpid\b/i;
-
-// Next steps: [label, view, hint]. They only open existing pages.
+// Next steps: view -> [label, hint]. They only open existing pages.
 const STEPS = {
-  investigation: ["Open Investigation", "investigation", "Audit trail for this instance"],
-  processes: ["View Processes", "processes", "Refresh the process list"],
-  issues: ["Open Issue Resolver", "issue-resolver", "Check for related issues"],
-  operations: ["Open Operations", "operations", "Changes, with confirmation"],
+  investigation: ["Open Investigation", "Audit trail for this instance"],
+  processes: ["View Processes", "Refresh the process list"],
+  databases: ["View Databases", "Database details and status"],
+  "web-apps": ["View Web Apps", "Application settings and REST endpoints"],
+  tasks: ["View Tasks", "Schedules and run state"],
+  "issue-resolver": ["Open Issue Resolver", "Check for related issues"],
+  operations: ["Open Operations", "Changes, with confirmation"],
 };
 
 const READ_ONLY_REPLY =
-  "Ask IRIS is read-only and doesn't make changes. Changes go through Operations, which checks your " +
-  "privileges, asks for explicit confirmation and verifies the result, on the Primary instance only.";
+  "Ask IRIS is read-only and doesn't make changes. Changes go through the existing operation workflows, " +
+  "which check your privileges, ask for explicit confirmation and verify the result, on the Primary instance only.";
 
 const $ = (id) => document.getElementById(id);
 const dom = {
-  openButton: $("processes-ask-button"),
   backdrop: $("ask-iris-backdrop"),
   drawer: $("ask-iris-drawer"),
   close: $("ask-iris-close"),
+  title: $("ask-iris-title"),
   instance: $("ask-iris-instance"),
+  screen: $("ask-iris-screen"),
   readAt: $("ask-iris-read-at"),
   prompts: $("ask-iris-prompts"),
   form: $("ask-iris-form"),
@@ -54,6 +123,7 @@ const dom = {
   result: $("ask-iris-result"),
 };
 
+let context = CONTEXTS.processes;  // the open panel's context
 let selectedPid = null;  // the process the panel was opened for, if any
 let busy = false;
 let latest = 0;  // numbers each question; an answer to an older one is dropped
@@ -76,7 +146,7 @@ function fmtTime(date) {
 }
 
 function renderPrompts() {
-  const prompts = selectedPid === null ? PROMPTS : [`Explain PID ${selectedPid}`, ...PROMPTS];
+  const prompts = selectedPid === null ? context.prompts : [`Explain PID ${selectedPid}`, ...context.prompts];
   dom.prompts.replaceChildren(
     ...prompts.map((prompt) => {
       const button = el("button", "explain-chip", prompt);
@@ -97,25 +167,27 @@ function setBusy(isBusy) {
   dom.loading.hidden = !isBusy;
 }
 
+const aboutContext = (question) => Boolean(context.words && context.words.test(question));
+
 function sourceOf(question, intent) {
-  if (intent === "issue_investigation") return "Issue Resolver detection (read-only)";
-  if (PROCESS_WORD.test(question)) return "GET /v2/processes";
+  if (intent === "issue_investigation") return CONTEXTS.issues.source;
+  if (aboutContext(question)) return context.source;
   return "Copilot read-only context (system, databases, processes, web apps, tasks, issues)";
 }
 
 function stepsFor(question, intent) {
-  if (intent === "resolution_request") return ["operations", "processes"];
-  if (intent === "issue_investigation") return ["issues", "investigation"];
-  if (intent === "read_only_query" && PROCESS_WORD.test(question)) return ["investigation", "processes", "issues"];
-  return ["processes"];
+  if (intent === "resolution_request") return [...new Set(["operations", context.page])];
+  if (intent === "issue_investigation") return ["issue-resolver", "investigation"];
+  if (intent === "read_only_query" && aboutContext(question)) return context.steps;
+  return [context.page];
 }
 
-function nextSteps(keys) {
+function nextSteps(views) {
   const section = el("section", "explain-card");
   section.append(el("h4", "explain-card__title", "What you can do next"));
   const row = el("div", "ask-iris__steps");
-  for (const key of keys) {
-    const [label, view, hint] = STEPS[key];
+  for (const view of views) {
+    const [label, hint] = STEPS[view];
     const button = el("button", "explain-chip ask-iris__step");
     button.type = "button";
     button.dataset.view = view;
@@ -171,7 +243,7 @@ async function ask(raw) {
   // The instance is fixed per question: the backend reads that instance or
   // fails; it never answers from the Primary instead.
   const instance = instanceLabel();
-  dom.loadingText.textContent = `Reading live process data from ${instance}…`;
+  dom.loadingText.textContent = `Reading live IRIS data from ${instance}…`;
   dom.error.hidden = true;
   dom.result.replaceChildren();
   setBusy(true);
@@ -187,7 +259,7 @@ async function ask(raw) {
   } catch (err) {
     if (id !== latest) return;
     dom.errorText.textContent = err instanceof ApiError
-      ? `Couldn't read process data from ${instance}. The Command Center backend or this IRIS instance ` +
+      ? `Couldn't read IRIS data from ${instance}. The Command Center backend or this IRIS instance ` +
         "may be unreachable; no other instance was used. Try again."
       : "Something went wrong while answering that. Try again.";
     dom.error.hidden = false;
@@ -196,10 +268,20 @@ async function ask(raw) {
   }
 }
 
-/** Opens the panel; with a `pid`, it asks about that process right away. */
-export function openAskIris(pid = null) {
+/**
+ * Opens the panel for `key` (one of CONTEXTS). `screen` names where it was
+ * opened from (default: the context's own page); with a `pid` (Processes),
+ * it asks about that process right away. A Primary-only context doesn't
+ * open while another instance is selected.
+ */
+export function openAskIris(key, { pid = null, screen = null } = {}) {
+  const next = CONTEXTS[key];
+  if (!next || (next.primaryOnly && selectedInstanceId())) return;
+  context = next;
   selectedPid = pid;
+  dom.title.textContent = `Ask IRIS · ${context.title}`;
   dom.instance.textContent = instanceLabel();
+  dom.screen.textContent = screen ? `${screen} · ${context.title}` : context.title;
   dom.readAt.textContent = "Not read yet";
   dom.error.hidden = true;
   dom.result.replaceChildren();
@@ -220,7 +302,12 @@ function closeAskIris() {
 }
 
 export function initAskIris() {
-  dom.openButton.addEventListener("click", () => openAskIris());
+  // Every entry point is a [data-ask-iris] button. On the Dashboard they sit
+  // beside the cards, not inside them, so a card click still opens its page.
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ask-iris]");
+    if (button) openAskIris(button.dataset.askIris, { screen: button.dataset.askIrisScreen || null });
+  });
   dom.close.addEventListener("click", closeAskIris);
   dom.backdrop.addEventListener("click", closeAskIris);
   document.addEventListener("keydown", (event) => {

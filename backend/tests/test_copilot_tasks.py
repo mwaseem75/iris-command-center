@@ -147,13 +147,52 @@ async def test_state_comes_from_task_info_not_the_list_flag(
 async def test_error_is_capped_and_empty_error_is_none() -> None:
     client = _client(
         [_task(1, "Failing"), _task(2, "Fine")],
-        infos={1: _task_info(error="E" * 400), 2: _task_info(error="")},
+        infos={1: _task_info(status="-2", error="E" * 400), 2: _task_info(error="")},
     )
 
     tasks = (await CopilotContextService(client).get_context()).tasks
 
     assert tasks[0].error == "E" * _TEXT_LIMIT
     assert tasks[1].error is None
+
+
+@pytest.mark.asyncio
+async def test_only_the_failed_run_status_codes_are_errors() -> None:
+    """IRIS puts the last run's result text in Error ("Success" too); only
+    Status -2..-5 mean that run failed (as on the Tasks page)."""
+    codes = ["-2", "-3", "-4", "-5", "0", "-1", "1"]
+    client = _client(
+        [_task(index, f"T{code}") for index, code in enumerate(codes, start=1)],
+        infos={
+            index: _task_info(status=code, error="Task Has Expired" if code.startswith("-") and code != "-1" else "Success")
+            for index, code in enumerate(codes, start=1)
+        },
+    )
+
+    tasks = (await CopilotContextService(client).get_context()).tasks
+
+    assert [task.error for task in tasks] == ["Task Has Expired"] * 4 + [None, None, None]
+
+
+def test_ask_iris_task_errors_ignore_success_results(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    iris = _client(
+        [_task(1, "Switch Journal"), _task(2, "Purge Journal"), _task(3, "Integrity Check")],
+        infos={
+            1: _task_info(status="0", error="Success"),
+            2: _task_info(status="0", error="Success"),
+            3: _task_info(status="-3", error="Error before execution"),
+        },
+    )
+    mock_iris_client.get.side_effect = iris.get.side_effect
+
+    body = client.post("/api/iris/copilot/ask", json={"message": "Are there task errors?"}).json()
+
+    assert body["intent"] == "read_only_query"
+    assert body["answer"] == "Of the 3 tasks: 0 suspended, 1 with an error reported. Nothing is changed from here."
+    assert "Error reported for Integrity Check: Error before execution" in body["observations"]
+    assert not any("Success" in line for line in body["observations"])
 
 
 @pytest.mark.asyncio
@@ -300,7 +339,7 @@ async def test_unreadable_tasks_are_reported_without_guessing() -> None:
 @pytest.mark.asyncio
 async def test_non_task_read_only_questions_keep_the_generic_answer() -> None:
     output = await DeterministicCopilotProvider().generate(
-        _request("List the databases", [_task_context(state="Suspended")])
+        _request("Which version is connected?", [_task_context(state="Suspended")])
     )
 
     assert output.answer == "Here is the available read-only operational context."
@@ -354,7 +393,7 @@ def test_ask_about_tasks_is_read_only_end_to_end(
 ) -> None:
     iris = _client(
         [_task(1, "Integrity Check"), _task(2, "Purge Journal")],
-        infos={1: _task_info(suspended=True), 2: _task_info(error="Task Has Expired")},
+        infos={1: _task_info(suspended=True), 2: _task_info(status="-2", error="Task Has Expired")},
     )
     mock_iris_client.get.side_effect = iris.get.side_effect
 
@@ -421,7 +460,7 @@ def test_state_and_error_question_makes_no_task_detail_calls(
 ) -> None:
     iris = _client(
         [_task(i, f"Task{i}") for i in range(1, _LIMIT + 4)],
-        infos={1: _task_info(suspended=True), 2: _task_info(error="Task Has Expired")},
+        infos={1: _task_info(suspended=True), 2: _task_info(status="-2", error="Task Has Expired")},
     )
 
     body = _ask(client, mock_iris_client, iris, "Which tasks are suspended?")
@@ -466,7 +505,7 @@ def test_non_task_question_makes_no_task_detail_calls(
 
 @pytest.mark.asyncio
 async def test_context_without_details_keeps_state_and_leaves_detail_fields_empty() -> None:
-    client = _client([_task(1, "T")], infos={1: _task_info(suspended=True, error="boom")})
+    client = _client([_task(1, "T")], infos={1: _task_info(suspended=True, status="-2", error="boom")})
 
     context = await CopilotContextService(client).get_context(task_details=False)
 

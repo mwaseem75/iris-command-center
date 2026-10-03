@@ -39,6 +39,8 @@ from app.routes.issues import IssuesResponse, list_issues
 
 _MAX_ITEMS_PER_SOURCE = 10
 _MAX_TOP_PROCESSES = 5
+# TaskExtraInfo.Status codes of a failed last run (-1 is running).
+_TASK_ERROR_STATUS_CODES = frozenset({"-2", "-3", "-4", "-5"})
 _MAX_TEXT_LENGTH = 160
 _MAX_EXPLANATION_LENGTH = 320
 _T = TypeVar("_T")
@@ -98,10 +100,13 @@ class CopilotContextService:
         )
 
         processes = processes if isinstance(processes, list) else None
+        databases = databases if isinstance(databases, list) else None
+        web_apps = web_apps if isinstance(web_apps, list) else None
         return CopilotOperationalContext(
             info=self._info(info) if isinstance(info, InfoResult) else None,
-            databases=self._databases(databases) if isinstance(databases, list) else [],
-            databases_total=len(databases) if isinstance(databases, list) else None,
+            databases=self._databases(databases) if databases is not None else [],
+            databases_total=len(databases) if databases is not None else None,
+            databases_by_status=self._counts(databases, lambda item: item.Status or "Unknown"),
             processes=self._processes(processes) if processes is not None else [],
             processes_total=len(processes) if processes is not None else None,
             processes_by_state=self._counts(processes, lambda item: item.State or "Unknown"),
@@ -114,8 +119,16 @@ class CopilotContextService:
             process_focus=next(
                 (self._process(item) for item in processes or [] if item.Pid == focus_pid), None
             ),
-            web_apps=self._web_apps(web_apps) if isinstance(web_apps, list) else [],
-            web_apps_total=len(web_apps) if isinstance(web_apps, list) else None,
+            web_apps=self._web_apps(web_apps) if web_apps is not None else [],
+            web_apps_total=len(web_apps) if web_apps is not None else None,
+            web_apps_by_state=self._counts(
+                web_apps, lambda item: "Enabled" if item.Enabled else "Disabled"
+            ),
+            web_apps_by_namespace=self._counts(web_apps, lambda item: item.Namespace or "(none)"),
+            web_apps_by_type=self._counts(web_apps, lambda item: item.Type or "(none)"),
+            web_apps_disabled=[
+                _bounded_text(item.Name) or "" for item in web_apps or [] if not item.Enabled
+            ][:_MAX_ITEMS_PER_SOURCE],
             tasks=self._tasks(tasks, details) if isinstance(tasks, list) else [],
             tasks_total=len(tasks) if isinstance(tasks, list) else None,
             issues=self._issues(issues) if issues is not None else [],
@@ -166,11 +179,9 @@ class CopilotContextService:
         return [cls._process(item) for item in processes[:_MAX_ITEMS_PER_SOURCE]]
 
     @staticmethod
-    def _counts(
-        processes: list[ProcessEntry] | None, key: Callable[[ProcessEntry], str]
-    ) -> dict[str, int]:
-        """Processes per key, most first; empty if the list couldn't be read."""
-        counts = Counter(_bounded_text(key(item)) for item in processes or [])
+    def _counts(items: list[_T] | None, key: Callable[[_T], str]) -> dict[str, int]:
+        """Items per key, most first; empty if the list couldn't be read."""
+        counts = Counter(_bounded_text(key(item)) for item in items or [])
         return dict(counts.most_common())
 
     @staticmethod
@@ -212,7 +223,14 @@ class CopilotContextService:
                     type=_bounded_text(item.Type),
                     state=item.State,
                     suspended=info.Suspended if info is not None else None,
-                    error=_bounded_text(info.Error) if info is not None and info.Error else None,
+                    # Info.Error is the last run's result text ("Success",
+                    # "" or a message); it's an error only for these Status
+                    # codes, as on the Tasks page and in Needs Attention.
+                    error=(
+                        _bounded_text(info.Error)
+                        if info is not None and info.Status in _TASK_ERROR_STATUS_CODES
+                        else None
+                    ),
                     last_finished=_bounded_text(item.LastFinished),
                     next_scheduled=_bounded_text(item.NextScheduled),
                     run_as_user=_bounded_text(detail.RunAsUser) if detail else None,

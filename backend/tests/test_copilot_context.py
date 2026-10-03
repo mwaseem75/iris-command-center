@@ -26,9 +26,10 @@ _LIMIT = 10
 _TEXT_LIMIT = 160
 _EXPLANATION_LIMIT = 320
 _CONTEXT_KEYS = {
-    "info", "databases", "databases_total", "processes", "processes_total",
+    "info", "databases", "databases_total", "databases_by_status", "processes", "processes_total",
     "processes_by_state", "processes_by_namespace", "processes_top_cpu", "process_focus",
-    "web_apps", "web_apps_total", "tasks", "tasks_total",
+    "web_apps", "web_apps_total", "web_apps_by_state", "web_apps_by_namespace", "web_apps_by_type",
+    "web_apps_disabled", "tasks", "tasks_total",
     "issues", "issues_total", "issue_checks_unavailable", "unavailable",
 }
 
@@ -448,3 +449,32 @@ def test_ask_about_a_pid_reads_it_from_the_same_process_list(
     mock_iris_client.post.assert_not_awaited()
     mock_iris_client.put.assert_not_awaited()
     execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_database_and_web_app_summaries_come_from_the_same_reads() -> None:
+    client = AsyncMock()
+    responses = _iris_responses()
+    responses["/v2/databases"] = _body(
+        [{**_database(f"DB{index}"), "Status": status}
+         for index, status in enumerate(["Mounted/RW"] * 11 + ["Dismounted"])]
+    )
+    responses["/v2/web-apps"] = _body(
+        [{**_web_app(f"/app{index}"), "Enabled": index % 4 != 0, "Namespace": ns, "Type": "CSP"}
+         for index, ns in enumerate(["USER", "", "%SYS"] * 4)]
+    )
+
+    async def get(path: str, params=None):
+        return responses[path]
+
+    client.get.side_effect = get
+    context = await CopilotContextService(client).get_context()
+
+    assert context.databases_total == 12 and len(context.databases) == _LIMIT
+    assert context.databases_by_status == {"Mounted/RW": 11, "Dismounted": 1}
+    assert context.web_apps_by_state == {"Disabled": 3, "Enabled": 9}
+    assert context.web_apps_by_namespace == {"USER": 4, "(none)": 4, "%SYS": 4}
+    assert context.web_apps_by_type == {"CSP": 12}
+    assert context.web_apps_disabled == ["/app0", "/app4", "/app8"]
+    paths = [call.args[0] for call in client.get.await_args_list]
+    assert paths.count("/v2/databases") == 1 and paths.count("/v2/web-apps") == 1

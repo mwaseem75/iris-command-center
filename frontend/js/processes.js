@@ -507,7 +507,7 @@ export function initProcessesControls() {
   dom.drawerAskButton.addEventListener("click", () => {
     const pid = currentDrawerPid;
     closeDrawer();
-    openAskIris(pid);
+    openAskIris("processes", { pid });
   });
   dom.drawerBackdrop.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {

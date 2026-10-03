@@ -66,6 +66,16 @@ class DeterministicCopilotProvider:
             observations.extend(process_observations)
             return CopilotAIOutput(answer=answer, observations=observations[:8])
 
+        if request.intent is CopilotIntent.READ_ONLY_QUERY and _DATABASE_WORD.search(request.message):
+            answer, database_observations = _database_answer(context)
+            observations.extend(database_observations)
+            return CopilotAIOutput(answer=answer, observations=observations[:8])
+
+        if request.intent is CopilotIntent.READ_ONLY_QUERY and _WEB_APP_WORD.search(request.message):
+            answer, web_app_observations = _web_app_answer(request.message, context)
+            observations.extend(web_app_observations)
+            return CopilotAIOutput(answer=answer, observations=observations[:8])
+
         if request.intent is CopilotIntent.READ_ONLY_QUERY and _TASK_WORD.search(request.message):
             observations.extend(
                 _task_detail_observations(context)
@@ -87,6 +97,9 @@ _CPU_WORD = re.compile(r"\bcpu\b|\btop\b|\bbusiest\b|\bheaviest\b", re.IGNORECAS
 _NAMESPACE_WORD = re.compile(r"\bnamespaces?\b", re.IGNORECASE)
 _STATE_WORD = re.compile(r"\bstates?\b", re.IGNORECASE)
 _CPU_NOTE = "cumulative CPU time as reported by IRIS, not current CPU usage"
+_DATABASE_WORD = re.compile(r"\bdatabases?\b", re.IGNORECASE)
+_WEB_APP_WORD = re.compile(r"\bweb\s*apps?\b|\bweb\s+applications?\b", re.IGNORECASE)
+_DATABASE_ISSUES = ("database_dismounted", "database_full")
 
 
 def _process_answer(message: str, context: CopilotOperationalContext) -> tuple[str, list[str]]:
@@ -159,6 +172,82 @@ def _pid_answer(pid: int, context: CopilotOperationalContext) -> tuple[str, list
             f"Elapsed time: {process.elapsed_time or 'not reported'}",
         ],
     )
+
+
+def _detected(context: CopilotOperationalContext, kinds: tuple[str, ...], what: str) -> str:
+    """What the Issue Resolver's detection says about `kinds` (from the issues
+    in the context, which lists at most the first 10)."""
+    if context.issues_total is None:
+        return f"Issue detection could not be read, so {what} are unknown."
+    found = sum(1 for issue in context.issues if issue.kind in kinds)
+    unchecked = [kind for kind in kinds if kind in context.issue_checks_unavailable]
+    text = (
+        f"The Issue Resolver detects {what}: {found}."
+        if found else f"The Issue Resolver detects no {what}."
+    )
+    if unchecked:
+        text += " Checks that could not run: " + ", ".join(unchecked) + "."
+    return text
+
+
+def _issue_lines(context: CopilotOperationalContext, kinds: tuple[str, ...]) -> list[str]:
+    return [
+        f"{issue.title or issue.kind}: {issue.resource_name}" for issue in context.issues
+        if issue.kind in kinds
+    ]
+
+
+def _database_answer(context: CopilotOperationalContext) -> tuple[str, list[str]]:
+    """Status as IRIS reports it, plus detected dismounted or full databases.
+    The context has no database sizes."""
+    total = context.databases_total
+    if total is None:
+        return "Database information could not be read, so database status could not be assessed.", []
+    if total == 0:
+        return "IRIS reports no databases.", []
+    noun = "database" if total == 1 else "databases"
+    answer = (
+        f"IRIS reports {total} {noun}: {_joined_counts(context.databases_by_status)}. "
+        + _detected(context, _DATABASE_ISSUES, "dismounted or full databases")
+    )
+    observations = _issue_lines(context, _DATABASE_ISSUES)
+    observations += _count_lines("Status", context.databases_by_status)
+    names = [database.name for database in context.databases]
+    more = f" and {total - len(names)} more" if total > len(names) else ""
+    observations.append("Databases: " + ", ".join(names) + more + ".")
+    return answer, observations[:8]
+
+
+def _web_app_answer(message: str, context: CopilotOperationalContext) -> tuple[str, list[str]]:
+    """Enabled state, namespace and type as IRIS reports them, plus detected
+    applications whose namespace is missing."""
+    total = context.web_apps_total
+    if total is None:
+        return (
+            "Web application information could not be read, so web applications could not be assessed.",
+            [],
+        )
+    if total == 0:
+        return "IRIS reports no web applications.", []
+    by_state = context.web_apps_by_state
+    noun = "web application" if total == 1 else "web applications"
+    answer = (
+        f"IRIS reports {total} {noun}: {by_state.get('Enabled', 0)} enabled, "
+        f"{by_state.get('Disabled', 0)} disabled. "
+        + _detected(context, ("web_app_namespace_missing",), "web applications with a missing namespace")
+    )
+    observations = _issue_lines(context, ("web_app_namespace_missing",))
+    if _NAMESPACE_WORD.search(message):
+        return answer, (observations + _count_lines("Namespace", context.web_apps_by_namespace))[:8]
+    disabled = context.web_apps_disabled
+    if disabled:
+        more = by_state.get("Disabled", 0) - len(disabled)
+        observations.append(
+            "Disabled: " + ", ".join(disabled) + (f" and {more} more" if more > 0 else "") + "."
+        )
+    observations.append("By namespace: " + _joined_counts(context.web_apps_by_namespace) + ".")
+    observations.append("By type (as reported by IRIS): " + _joined_counts(context.web_apps_by_type) + ".")
+    return answer, observations[:8]
 
 
 def _count_lines(label: str, counts: dict[str, int]) -> list[str]:
@@ -286,6 +375,8 @@ def _issue_observations(context: CopilotOperationalContext) -> list[str]:
             "Issue checks that could not run: "
             + ", ".join(context.issue_checks_unavailable) + "."
         )
+    elif context.issues_total is not None:
+        observations.append("All issue checks ran.")
     for issue in context.issues:
         severity = f"[{issue.severity}] " if issue.severity else ""
         line = f"{severity}{issue.title or issue.kind} ({issue.resource_name})"

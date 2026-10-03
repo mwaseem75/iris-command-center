@@ -92,6 +92,7 @@ frameworks.
 | 🔎 **Investigation** | Search the native IRIS security audit trail and relate activity to Command Center traces |
 | 👁️ **Observability** | Inspect structured execution traces and optionally persist them inside IRIS |
 | 🤖 **AI Assistant / IRIS Ops Skill** | Issue-aware AI operations over live IRIS data with a closed capability catalog, read-only Task Catalog, explicit confirmation, server-side authorization, structured execution traces, and machine-readable failure states |
+| 💬 **Ask IRIS — Contextual AI Assistant** | Ask questions about live IRIS data right where you are: from the Dashboard cards and the Processes, Databases, Web Applications and Tasks screens, and about Detected Issues. In the Processes view you can ask about a specific PID. Answers show their evidence and source. Strictly read-only: it never executes administrative operations |
 | 🔍 **Vector Search** | Search an IRIS-persisted operational knowledge corpus using IRIS Vector Search |
 | 🐍 **Embedded Python** | Inspect live diagnostics from IRIS Embedded Python |
 | 🖥️ **Instances (Multi-IRIS)** | Register additional IRIS 2026.2+ instances, test their compatibility, open any active instance with the instance selector in each page's header, and monitor all active instances in the Fleet Overview |
@@ -304,6 +305,48 @@ used by the rest of Command Center.
 - Execution traces are kept in memory (newest 200) unless `PERSIST_TRACES_TO_IRIS` is enabled.
 
 ➡️ **Demo walkthrough:** [docs/ops-skill-demo.md](docs/ops-skill-demo.md)
+
+---
+
+## Ask IRIS — Contextual AI Assistant
+
+Ask IRIS lets you ask questions about live IRIS data from the screen you are working on. It is contextual rather than a generic chatbot: it opens for one IRIS resource — processes, databases, web applications, tasks or detected issues — and suggests questions about that resource.
+
+<!-- TODO: Add Ask IRIS screenshot here -->
+
+### Where to find it
+
+- **Dashboard cards** — the Processes, Databases, Web Applications and Tasks cards each have a small 🤖 Ask IRIS action beside the card, and the Issues & Recommendations panel has one for detected issues. Clicking the card itself still opens its page.
+- **Management screens** — the Processes, Databases, Web Applications and Tasks screens have an **Ask IRIS** button next to **Refresh**.
+- **A single process** — in the Processes view, open a process and choose **Ask IRIS about this process** to ask about that PID.
+
+### How it answers
+
+Ask IRIS reuses the IRIS Ops Skill's read-only path (`POST /api/iris/copilot/ask`). Each question is answered by the Copilot's deterministic, rule-based provider from the IRIS management API data the Command Center already reads — the process, database, web application and task lists and the Issue Resolver's detection. No LLM or external AI service is involved, and no new IRIS endpoints are used.
+
+Each answer shows:
+
+- the **answer** itself;
+- the **evidence** it rests on, such as counts by state or status, the processes with the highest cumulative CPU time, or a detected issue;
+- the **source**, the **instance** that was read and the **time** it was read;
+- **next steps** that open the relevant existing screen, such as Databases, Tasks, Issue Resolver or Investigation.
+
+Answers use only data the Command Center actually has. For example, database answers report mount status and detected dismounted or full databases but never database sizes, and process CPU time is IRIS's cumulative CPU time, not current CPU usage.
+
+### Read-only by design
+
+- Ask IRIS never calls the Copilot's planning, authorization, confirmation or execution paths, and never runs an operation.
+- A change request, such as *"Mount database IPM"*, gets a read-only reply that points to the screens where changes are made through the normal authorization → confirmation → execution → verification flow.
+- Questions are answered for the instance selected in the page header; if it can't be read, Ask IRIS says so and never falls back to the Primary.
+- Detected-issue questions follow the Dashboard's existing Primary-instance restriction: the Issues & Recommendations panel, and its Ask IRIS action, are shown only for the Primary.
+
+### Example questions
+
+- *"How many processes are running?"*
+- *"Are there any task errors?"*
+- *"Are any databases dismounted?"*
+- *"Which web applications are disabled?"*
+- *"Explain PID 413"*
 
 ---
 

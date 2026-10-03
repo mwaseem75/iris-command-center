@@ -2683,6 +2683,12 @@ def test_ask_iris_on_processes_is_read_only_and_reuses_the_copilot() -> None:
     check("navigateTo(button.dataset.view)" in code, "next steps only switch pages with navigateTo()")
     check("initAskIris()" in (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8"),
           "app.js initializes Ask IRIS")
+    check(html.count('id="ask-iris-drawer"') == 1, "one Ask IRIS panel serves every context")
+    entries = sorted(set(re.findall(r'data-ask-iris="([a-z-]+)"', html)))
+    check(entries == ["databases", "issues", "processes", "tasks", "web-apps"],
+          f"Ask IRIS opens only for its five contexts (found {entries})")
+    check("ask-iris" not in (FRONTEND_DIR / "js" / "dashboard.js").read_text(encoding="utf-8"),
+          "the Dashboard cards' own click handling is unchanged (the Ask IRIS button sits beside each card)")
 
 
 def main() -> None:

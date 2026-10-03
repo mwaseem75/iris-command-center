@@ -8565,7 +8565,7 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 
 /* --- Ask IRIS (js/ask-iris.js): the Screen Insights side panel layout --- */
 
-.processes__header-actions {
+.view__header-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -8574,6 +8574,45 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
 .ask-iris-button {
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+/* Dashboard: the card's 🤖 sits beside the card (a sibling, not inside its
+   role="button"), at its right edge halfway down, clear of the card's title. */
+.dash-kpi-slot {
+  position: relative;
+  display: grid;
+}
+
+.ask-iris-card-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.ask-iris-card-button:hover,
+.ask-iris-card-button:focus-visible {
+  border-color: var(--color-accent);
+  background: var(--color-surface-hover);
+}
+
+.dash-kpi-slot > .ask-iris-card-button {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+}
+
+.dash-panel__head > .ask-iris-card-button {
+  margin-left: auto;
 }
 
 #processes-drawer-ask-button {

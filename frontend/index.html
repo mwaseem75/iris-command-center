@@ -271,45 +271,61 @@
               <span class="stat-card__link">View details &rarr;</span>
             </article>
 
-            <article class="stat-card stat-card--interactive dash-kpi" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
-              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></svg></span>
-              <div class="dash-kpi__body">
-                <h3 class="stat-card__label">Databases</h3>
-                <p class="stat-card__value" id="stat-databases">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
-              </div>
-              <span class="stat-card__link">View details &rarr;</span>
-            </article>
+            <div class="dash-kpi-slot">
+              <article class="stat-card stat-card--interactive dash-kpi" data-card="databases" role="button" tabindex="0" aria-label="View Databases">
+                <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></svg></span>
+                <div class="dash-kpi__body">
+                  <h3 class="stat-card__label">Databases</h3>
+                  <p class="stat-card__value" id="stat-databases">&mdash;</p>
+                  <div class="stat-card__micro-bar" id="stat-databases-viz"></div>
+                </div>
+                <span class="stat-card__link">View details &rarr;</span>
+              </article>
+              <button class="ask-iris-card-button" type="button" data-ask-iris="databases" data-ask-iris-screen="Dashboard"
+                aria-label="Ask IRIS about databases" title="Ask IRIS about databases">&#129302;</button>
+            </div>
 
-            <article class="stat-card stat-card--interactive dash-kpi" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
-              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></span>
-              <div class="dash-kpi__body">
-                <h3 class="stat-card__label">Processes</h3>
-                <p class="stat-card__value" id="stat-processes">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
-              </div>
-              <span class="stat-card__link">View details &rarr;</span>
-            </article>
+            <div class="dash-kpi-slot">
+              <article class="stat-card stat-card--interactive dash-kpi" data-card="processes" role="button" tabindex="0" aria-label="View Processes">
+                <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></span>
+                <div class="dash-kpi__body">
+                  <h3 class="stat-card__label">Processes</h3>
+                  <p class="stat-card__value" id="stat-processes">&mdash;</p>
+                  <div class="stat-card__micro-bar" id="stat-processes-viz"></div>
+                </div>
+                <span class="stat-card__link">View details &rarr;</span>
+              </article>
+              <button class="ask-iris-card-button" type="button" data-ask-iris="processes" data-ask-iris-screen="Dashboard"
+                aria-label="Ask IRIS about processes" title="Ask IRIS about processes">&#129302;</button>
+            </div>
 
-            <article class="stat-card stat-card--interactive dash-kpi" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
-              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"/></svg></span>
-              <div class="dash-kpi__body">
-                <h3 class="stat-card__label">Web Applications</h3>
-                <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
-              </div>
-              <span class="stat-card__link">View details &rarr;</span>
-            </article>
+            <div class="dash-kpi-slot">
+              <article class="stat-card stat-card--interactive dash-kpi" data-card="web-apps" role="button" tabindex="0" aria-label="View Web Applications">
+                <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"/></svg></span>
+                <div class="dash-kpi__body">
+                  <h3 class="stat-card__label">Web Applications</h3>
+                  <p class="stat-card__value" id="stat-web-apps">&mdash;</p>
+                  <div class="stat-card__micro-bar" id="stat-web-apps-viz"></div>
+                </div>
+                <span class="stat-card__link">View details &rarr;</span>
+              </article>
+              <button class="ask-iris-card-button" type="button" data-ask-iris="web-apps" data-ask-iris-screen="Dashboard"
+                aria-label="Ask IRIS about web applications" title="Ask IRIS about web applications">&#129302;</button>
+            </div>
 
-            <article class="stat-card stat-card--interactive dash-kpi" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
-              <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M8.5 15l2.2 2.2 4.8-4.7"/></svg></span>
-              <div class="dash-kpi__body">
-                <h3 class="stat-card__label">Tasks</h3>
-                <p class="stat-card__value" id="stat-tasks">&mdash;</p>
-                <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
-              </div>
-              <span class="stat-card__link">View details &rarr;</span>
-            </article>
+            <div class="dash-kpi-slot">
+              <article class="stat-card stat-card--interactive dash-kpi" data-card="tasks" role="button" tabindex="0" aria-label="View Tasks">
+                <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M8.5 15l2.2 2.2 4.8-4.7"/></svg></span>
+                <div class="dash-kpi__body">
+                  <h3 class="stat-card__label">Tasks</h3>
+                  <p class="stat-card__value" id="stat-tasks">&mdash;</p>
+                  <div class="stat-card__micro-bar" id="stat-tasks-viz"></div>
+                </div>
+                <span class="stat-card__link">View details &rarr;</span>
+              </article>
+              <button class="ask-iris-card-button" type="button" data-ask-iris="tasks" data-ask-iris-screen="Dashboard"
+                aria-label="Ask IRIS about tasks" title="Ask IRIS about tasks">&#129302;</button>
+            </div>
 
             <article class="stat-card dash-kpi" data-card="alerts" id="stat-alerts-card" title="IRIS&rsquo;s own alert counters (GET /v2/monitor/dashboard/main &rarr; Alerts). IRIS&rsquo;s REST API reports counts, not the alert log.">
               <span class="dash-kpi__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.8l7.5 3v5.7c0 4.6-3.2 8.3-7.5 9.7-4.3-1.4-7.5-5.1-7.5-9.7V5.8z"/><path d="M12 8v4.5M12 15.8h.01"/></svg></span>
@@ -402,6 +418,8 @@
             <section class="info-card dash-panel dash-panel--alerts" id="dashboard-issues-panel" aria-labelledby="dashboard-issues-title">
               <header class="dash-panel__head">
                 <h3 class="info-card__title" id="dashboard-issues-title"><span class="dash-panel__icon" aria-hidden="true">&#9888;</span>Issues &amp; Recommendations</h3>
+                <button class="ask-iris-card-button" type="button" data-ask-iris="issues" data-ask-iris-screen="Dashboard"
+                  aria-label="Ask IRIS about detected issues" title="Ask IRIS about detected issues">&#129302;</button>
                 <button class="dash-panel__link" type="button" id="dashboard-open-issue-resolver-button" title="Detected in live IRIS data by the Command Center&rsquo;s issue check (GET /api/iris/issues). Opens the Issue Resolver.">Issue Resolver &rarr;</button>
               </header>
               <div class="dash-issues__summary" id="dashboard-issues-summary">
@@ -935,12 +953,12 @@
               <h2 class="view__title" id="processes-title">Processes</h2>
               <p class="view__subtitle">Running processes and jobs on the connected IRIS instance.</p>
             </div>
-            <div class="processes__header-actions">
+            <div class="view__header-actions">
               <button class="btn btn--primary" type="button" id="processes-refresh-button">
                 <span class="btn__icon" aria-hidden="true">&#8635;</span>
                 Refresh
               </button>
-              <button class="btn ask-iris-button" type="button" id="processes-ask-button">
+              <button class="btn ask-iris-button" type="button" id="processes-ask-button" data-ask-iris="processes">
                 <span class="btn__icon" aria-hidden="true">&#129302;</span>
                 Ask IRIS
               </button>
@@ -1037,50 +1055,6 @@
             </button>
             <dl class="info-list" id="processes-drawer-fields"></dl>
           </aside>
-
-          <!-- Ask IRIS (js/ask-iris.js): read-only answers from the Copilot's
-               deterministic provider over live process data. -->
-          <div class="ns-drawer-backdrop" id="ask-iris-backdrop" hidden></div>
-          <aside class="ns-drawer ns-drawer--side ask-iris" id="ask-iris-drawer" hidden aria-labelledby="ask-iris-title">
-            <div class="ns-drawer__header">
-              <div class="explain-screen__heading">
-                <span class="explain-screen__badge" aria-hidden="true">&#129302;</span>
-                <div>
-                  <h3 class="ns-drawer__title" id="ask-iris-title">Ask IRIS &middot; Processes</h3>
-                  <p class="explain-screen__context">Deterministic, evidence-based answers from live IRIS process data. Read-only.</p>
-                </div>
-              </div>
-              <button class="ns-drawer__close" type="button" id="ask-iris-close" aria-label="Close Ask IRIS">&times;</button>
-            </div>
-
-            <dl class="ask-iris__context">
-              <div><dt>Instance</dt><dd id="ask-iris-instance">&mdash;</dd></div>
-              <div><dt>Screen</dt><dd>Processes</dd></div>
-              <div><dt>Last read</dt><dd id="ask-iris-read-at">Not read yet</dd></div>
-            </dl>
-
-            <section class="explain-card" aria-labelledby="ask-iris-prompts-title">
-              <h4 class="explain-card__title" id="ask-iris-prompts-title">Try these questions</h4>
-              <div class="ask-iris__prompts" id="ask-iris-prompts"></div>
-            </section>
-
-            <form class="ask-iris__form" id="ask-iris-form">
-              <label class="visually-hidden" for="ask-iris-input">Ask about the current processes</label>
-              <input class="chat__input" type="text" id="ask-iris-input" maxlength="500" autocomplete="off"
-                placeholder="Ask something about the current processes&hellip;" />
-              <button class="btn btn--primary" type="submit" id="ask-iris-send">Send</button>
-            </form>
-
-            <div class="loading-state" id="ask-iris-loading" hidden>
-              <span class="spinner" aria-hidden="true"></span>
-              <span id="ask-iris-loading-text">Reading live process data&hellip;</span>
-            </div>
-            <div class="banner banner--error" id="ask-iris-error" hidden role="alert">
-              <span class="banner__icon" aria-hidden="true">&#9888;</span>
-              <span id="ask-iris-error-text"></span>
-            </div>
-            <div class="ask-iris__result" id="ask-iris-result" aria-live="polite"></div>
-          </aside>
         </section>
 
         <section class="view" id="view-databases" data-view="databases" aria-labelledby="databases-title" hidden>
@@ -1090,10 +1064,16 @@
               <h2 class="view__title" id="databases-title">Databases</h2>
               <p class="view__subtitle">Configured databases on the connected IRIS instance.</p>
             </div>
-            <button class="btn btn--primary" type="button" id="databases-refresh-button">
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Refresh
-            </button>
+            <div class="view__header-actions">
+              <button class="btn btn--primary" type="button" id="databases-refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+              <button class="btn ask-iris-button" type="button" id="databases-ask-button" data-ask-iris="databases">
+                <span class="btn__icon" aria-hidden="true">&#129302;</span>
+                Ask IRIS
+              </button>
+            </div>
           </div>
 
           <div class="banner banner--error" id="databases-error-banner" hidden role="alert">
@@ -1380,10 +1360,16 @@
               <h2 class="view__title" id="web-apps-title">Web Apps</h2>
               <p class="view__subtitle">Configured web applications on the connected IRIS instance.</p>
             </div>
-            <button class="btn btn--primary" type="button" id="web-apps-refresh-button">
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Refresh
-            </button>
+            <div class="view__header-actions">
+              <button class="btn btn--primary" type="button" id="web-apps-refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+              <button class="btn ask-iris-button" type="button" id="web-apps-ask-button" data-ask-iris="web-apps">
+                <span class="btn__icon" aria-hidden="true">&#129302;</span>
+                Ask IRIS
+              </button>
+            </div>
           </div>
 
           <div class="banner banner--error" id="web-apps-error-banner" hidden role="alert">
@@ -1716,10 +1702,16 @@
               <h2 class="view__title" id="tasks-title">Tasks</h2>
               <p class="view__subtitle">Scheduled tasks on the connected IRIS instance.</p>
             </div>
-            <button class="btn btn--primary" type="button" id="tasks-refresh-button">
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Refresh
-            </button>
+            <div class="view__header-actions">
+              <button class="btn btn--primary" type="button" id="tasks-refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+              <button class="btn ask-iris-button" type="button" id="tasks-ask-button" data-ask-iris="tasks">
+                <span class="btn__icon" aria-hidden="true">&#129302;</span>
+                Ask IRIS
+              </button>
+            </div>
           </div>
 
           <div class="banner banner--error" id="tasks-error-banner" hidden role="alert">
@@ -3981,6 +3973,51 @@
           </div>
           <div class="explain-screen__body" id="explain-screen-body"></div>
           <p class="explain-screen__footer">This explanation is built from the current Command Center view.</p>
+        </aside>
+
+        <!-- Ask IRIS (js/ask-iris.js): one panel for every context (Processes,
+             Databases, Web Apps, Tasks, Issues); read-only answers from the
+             Copilot's deterministic provider over live IRIS data. -->
+        <div class="ns-drawer-backdrop" id="ask-iris-backdrop" hidden></div>
+        <aside class="ns-drawer ns-drawer--side ask-iris" id="ask-iris-drawer" hidden aria-labelledby="ask-iris-title">
+          <div class="ns-drawer__header">
+            <div class="explain-screen__heading">
+              <span class="explain-screen__badge" aria-hidden="true">&#129302;</span>
+              <div>
+                <h3 class="ns-drawer__title" id="ask-iris-title">Ask IRIS &middot; Processes</h3>
+                <p class="explain-screen__context">Deterministic, evidence-based answers from live IRIS data. Read-only.</p>
+              </div>
+            </div>
+            <button class="ns-drawer__close" type="button" id="ask-iris-close" aria-label="Close Ask IRIS">&times;</button>
+          </div>
+
+          <dl class="ask-iris__context">
+            <div><dt>Instance</dt><dd id="ask-iris-instance">&mdash;</dd></div>
+            <div><dt>Screen</dt><dd id="ask-iris-screen">&mdash;</dd></div>
+            <div><dt>Last read</dt><dd id="ask-iris-read-at">Not read yet</dd></div>
+          </dl>
+
+          <section class="explain-card" aria-labelledby="ask-iris-prompts-title">
+            <h4 class="explain-card__title" id="ask-iris-prompts-title">Try these questions</h4>
+            <div class="ask-iris__prompts" id="ask-iris-prompts"></div>
+          </section>
+
+          <form class="ask-iris__form" id="ask-iris-form">
+            <label class="visually-hidden" for="ask-iris-input">Your question</label>
+            <input class="chat__input" type="text" id="ask-iris-input" maxlength="500" autocomplete="off"
+              placeholder="Ask a question&hellip;" />
+            <button class="btn btn--primary" type="submit" id="ask-iris-send">Send</button>
+          </form>
+
+          <div class="loading-state" id="ask-iris-loading" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="ask-iris-loading-text">Reading live IRIS data&hellip;</span>
+          </div>
+          <div class="banner banner--error" id="ask-iris-error" hidden role="alert">
+            <span class="banner__icon" aria-hidden="true">&#9888;</span>
+            <span id="ask-iris-error-text"></span>
+          </div>
+          <div class="ask-iris__result" id="ask-iris-result" aria-live="polite"></div>
         </aside>
 
         <div class="ns-drawer-backdrop" id="demo-activity-backdrop" hidden></div>
