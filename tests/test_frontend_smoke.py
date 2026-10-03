@@ -2665,6 +2665,26 @@ def test_health_center_shows_each_checks_evidence_based_outcome() -> None:
           f"health-center.js reads only its existing routes (found {calls})")
 
 
+def test_ask_iris_on_processes_is_read_only_and_reuses_the_copilot() -> None:
+    print("Checking Ask IRIS on Processes: one panel, the existing Copilot ask, nothing that changes IRIS...")
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND_DIR / "js" / "ask-iris.js").read_text(encoding="utf-8")
+    code = re.sub(r"//[^\n]*", "", js)
+    for element_id in ("processes-ask-button", "processes-drawer-ask-button", "ask-iris-drawer", "ask-iris-form"):
+        check(f'id="{element_id}"' in html, f"index.html has #{element_id}")
+    check('class="ns-drawer ns-drawer--side ask-iris"' in html,
+          "Ask IRIS reuses the .ns-drawer side panel (modal behaviour from detail-workspace.js)")
+    calls = sorted(set(re.findall(r"IrisApi\.(\w+)\(", code)))
+    check(calls == ["askCopilot"], f"ask-iris.js only asks the existing Copilot (found {calls})")
+    check("selectedInstanceId()" in code, "questions go to the selected instance")
+    for word in ("planCopilotOperation", "authorizeCopilotPlan", "executeCopilotPlan", "method:", "fetch("):
+        check(word not in code, f"ask-iris.js has no {word!r}: no plan, authorization or execution")
+    check("proposed_action" not in code, "a Copilot proposal is never shown or offered")
+    check("navigateTo(button.dataset.view)" in code, "next steps only switch pages with navigateTo()")
+    check("initAskIris()" in (FRONTEND_DIR / "js" / "app.js").read_text(encoding="utf-8"),
+          "app.js initializes Ask IRIS")
+
+
 def main() -> None:
     tests = [
         test_expected_files_exist_and_are_non_empty,
@@ -2732,6 +2752,7 @@ def main() -> None:
         test_dashboard_needs_attention_reuses_loaded_data_and_only_links,
         test_security_overview_is_read_only_inventory_and_findings,
         test_health_center_shows_each_checks_evidence_based_outcome,
+        test_ask_iris_on_processes_is_read_only_and_reuses_the_copilot,
     ]
     for test in tests:
         print(f"\n{test.__name__}")

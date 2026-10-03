@@ -27,6 +27,7 @@ _TEXT_LIMIT = 160
 _EXPLANATION_LIMIT = 320
 _CONTEXT_KEYS = {
     "info", "databases", "databases_total", "processes", "processes_total",
+    "processes_by_state", "processes_by_namespace", "processes_top_cpu", "process_focus",
     "web_apps", "web_apps_total", "tasks", "tasks_total",
     "issues", "issues_total", "issue_checks_unavailable", "unavailable",
 }
@@ -375,3 +376,75 @@ async def test_failed_issue_read_does_not_hide_other_context(list_issues: AsyncM
     assert context.processes
     assert context.web_apps
     assert context.tasks
+
+
+@pytest.mark.asyncio
+async def test_process_summaries_cover_every_process_from_the_one_read() -> None:
+    client = AsyncMock()
+    responses = _iris_responses()
+    processes = [
+        {**_process(pid), "State": state, "Nspace": namespace, "CPUTime": cpu}
+        for pid, (state, namespace, cpu) in enumerate(
+            [("RUNW", "%SYS", 5), ("EVTW", "", 900), ("RUNW", "USER", 40)] * 5, start=100
+        )
+    ]
+    responses["/v2/processes"] = _body(processes)
+
+    async def get(path: str, params=None):
+        return responses[path]
+
+    client.get.side_effect = get
+    context = await CopilotContextService(client).get_context(focus_pid=114)
+
+    assert context.processes_total == 15
+    assert len(context.processes) == _LIMIT  # the list stays bounded
+    assert context.processes_by_state == {"RUNW": 10, "EVTW": 5}
+    assert context.processes_by_namespace == {"%SYS": 5, "(none)": 5, "USER": 5}
+    assert [p.cpu_time for p in context.processes_top_cpu] == [900, 900, 900, 900, 900]
+    assert context.process_focus is not None and context.process_focus.pid == 114
+    assert context.process_focus.elapsed_time == "00:00:01"
+    assert "192.0.2.1" not in str(context.model_dump())  # no IP address
+    paths = [call.args[0] for call in client.get.await_args_list]
+    assert paths.count("/v2/processes") == 1
+
+
+@pytest.mark.asyncio
+async def test_unavailable_processes_leave_summaries_empty() -> None:
+    client = AsyncMock()
+    responses = _iris_responses()
+
+    async def get(path: str, params=None):
+        if path == "/v2/processes":
+            raise IRISConnectionError("connection refused")
+        return responses[path]
+
+    client.get.side_effect = get
+    context = await CopilotContextService(client).get_context(focus_pid=1)
+
+    assert context.processes_by_state == {}
+    assert context.processes_by_namespace == {}
+    assert context.processes_top_cpu == []
+    assert context.process_focus is None
+
+
+def test_ask_about_a_pid_reads_it_from_the_same_process_list(
+    client: TestClient, mock_iris_client: AsyncMock
+) -> None:
+    responses = _iris_responses(item_count=3)
+
+    async def get(path: str, params=None):
+        return responses[path]
+
+    mock_iris_client.get.side_effect = get
+
+    with patch.object(OperationExecutor, "execute", new_callable=AsyncMock) as execute:
+        found = client.post("/api/iris/copilot/ask", json={"message": "Explain PID 2"}).json()
+        missing = client.post("/api/iris/copilot/ask", json={"message": "Explain PID 77"}).json()
+
+    assert found["intent"] == "read_only_query"
+    assert found["answer"] == "PID 2 is in state Running, running Routine in USER."
+    assert missing["answer"] == "PID 77 was not found in the current process data (3 processes reported)."
+    assert found["proposed_action"] is None and found["requires_confirmation"] is False
+    mock_iris_client.post.assert_not_awaited()
+    mock_iris_client.put.assert_not_awaited()
+    execute.assert_not_awaited()

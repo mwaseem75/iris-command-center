@@ -935,10 +935,16 @@
               <h2 class="view__title" id="processes-title">Processes</h2>
               <p class="view__subtitle">Running processes and jobs on the connected IRIS instance.</p>
             </div>
-            <button class="btn btn--primary" type="button" id="processes-refresh-button">
-              <span class="btn__icon" aria-hidden="true">&#8635;</span>
-              Refresh
-            </button>
+            <div class="processes__header-actions">
+              <button class="btn btn--primary" type="button" id="processes-refresh-button">
+                <span class="btn__icon" aria-hidden="true">&#8635;</span>
+                Refresh
+              </button>
+              <button class="btn ask-iris-button" type="button" id="processes-ask-button">
+                <span class="btn__icon" aria-hidden="true">&#129302;</span>
+                Ask IRIS
+              </button>
+            </div>
           </div>
 
           <div class="banner banner--error" id="processes-error-banner" hidden role="alert">
@@ -1025,7 +1031,55 @@
               <button class="ns-drawer__close" type="button" id="processes-drawer-close" aria-label="Close process details">&times;</button>
             </div>
             <p class="ns-hint">Every field IRIS reported for this process in the last refresh. Read-only &mdash; no process actions are available here.</p>
+            <button class="btn ask-iris-button" type="button" id="processes-drawer-ask-button">
+              <span class="btn__icon" aria-hidden="true">&#129302;</span>
+              Ask IRIS about this process
+            </button>
             <dl class="info-list" id="processes-drawer-fields"></dl>
+          </aside>
+
+          <!-- Ask IRIS (js/ask-iris.js): read-only answers from the Copilot's
+               deterministic provider over live process data. -->
+          <div class="ns-drawer-backdrop" id="ask-iris-backdrop" hidden></div>
+          <aside class="ns-drawer ns-drawer--side ask-iris" id="ask-iris-drawer" hidden aria-labelledby="ask-iris-title">
+            <div class="ns-drawer__header">
+              <div class="explain-screen__heading">
+                <span class="explain-screen__badge" aria-hidden="true">&#129302;</span>
+                <div>
+                  <h3 class="ns-drawer__title" id="ask-iris-title">Ask IRIS &middot; Processes</h3>
+                  <p class="explain-screen__context">Deterministic, evidence-based answers from live IRIS process data. Read-only.</p>
+                </div>
+              </div>
+              <button class="ns-drawer__close" type="button" id="ask-iris-close" aria-label="Close Ask IRIS">&times;</button>
+            </div>
+
+            <dl class="ask-iris__context">
+              <div><dt>Instance</dt><dd id="ask-iris-instance">&mdash;</dd></div>
+              <div><dt>Screen</dt><dd>Processes</dd></div>
+              <div><dt>Last read</dt><dd id="ask-iris-read-at">Not read yet</dd></div>
+            </dl>
+
+            <section class="explain-card" aria-labelledby="ask-iris-prompts-title">
+              <h4 class="explain-card__title" id="ask-iris-prompts-title">Try these questions</h4>
+              <div class="ask-iris__prompts" id="ask-iris-prompts"></div>
+            </section>
+
+            <form class="ask-iris__form" id="ask-iris-form">
+              <label class="visually-hidden" for="ask-iris-input">Ask about the current processes</label>
+              <input class="chat__input" type="text" id="ask-iris-input" maxlength="500" autocomplete="off"
+                placeholder="Ask something about the current processes&hellip;" />
+              <button class="btn btn--primary" type="submit" id="ask-iris-send">Send</button>
+            </form>
+
+            <div class="loading-state" id="ask-iris-loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <span id="ask-iris-loading-text">Reading live process data&hellip;</span>
+            </div>
+            <div class="banner banner--error" id="ask-iris-error" hidden role="alert">
+              <span class="banner__icon" aria-hidden="true">&#9888;</span>
+              <span id="ask-iris-error-text"></span>
+            </div>
+            <div class="ask-iris__result" id="ask-iris-result" aria-live="polite"></div>
           </aside>
         </section>
 

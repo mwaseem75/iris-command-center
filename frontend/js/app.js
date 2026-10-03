@@ -16,6 +16,7 @@ import { loadDashboard, initDashboardControls, onDashboardShown } from "./dashbo
 import { loadSystemInfo, initSystemControls } from "./system.js";
 import { loadNamespaces, initNamespacesControls } from "./namespaces.js";
 import { loadProcesses, initProcessesControls } from "./processes.js";
+import { initAskIris } from "./ask-iris.js";
 import { loadDatabases, initDatabasesControls } from "./databases.js";
 import { loadWebApps, initWebAppsControls, resolveWebAppIssue } from "./web-apps.js";
 import { loadTasks, initTasksControls } from "./tasks.js";
@@ -173,6 +174,7 @@ function init() {
   initSystemControls();
   initNamespacesControls();
   initProcessesControls();
+  initAskIris();
   initDatabasesControls({ onOpenTrace: openTrace });
   initWebAppsControls();
   initTasksControls();

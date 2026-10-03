@@ -8562,3 +8562,127 @@ body:not([data-instance-scope="other"]) [data-primary-only-note] {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   column-gap: 24px;
 }
+
+/* --- Ask IRIS (js/ask-iris.js): the Screen Insights side panel layout --- */
+
+.processes__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ask-iris-button {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+#processes-drawer-ask-button {
+  margin-bottom: 14px;
+}
+
+.ask-iris {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ask-iris__context {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.ask-iris__context dt,
+.ask-iris__meta dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.ask-iris__context dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ask-iris__prompts,
+.ask-iris__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ask-iris__form {
+  display: flex;
+  gap: 8px;
+}
+
+/* A row, not the stacked `.ns-drawer form` wizard layout. */
+.ns-drawer .ask-iris__form {
+  flex-direction: row;
+}
+
+.ask-iris__result {
+  display: grid;
+  gap: 14px;
+}
+
+.ask-iris__answer {
+  border-left: 3px solid var(--color-accent);
+}
+
+.ask-iris__question {
+  margin: 0 0 6px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.ask-iris__answer-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ask-iris__observations {
+  margin: 0;
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.ask-iris__meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 12px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 12.5px;
+}
+
+.ask-iris__meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ask-iris__step {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.ask-iris__step-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .ask-iris__context {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

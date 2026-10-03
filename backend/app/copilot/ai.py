@@ -8,7 +8,7 @@ planning, authorization, confirmation and execution.
 import re
 from typing import Protocol
 
-from app.copilot.intents import CopilotIntent, is_task_detail_question
+from app.copilot.intents import CopilotIntent, is_task_detail_question, process_pid_in
 from app.models.copilot import CopilotAIOutput, CopilotAIRequest, CopilotOperationalContext
 
 
@@ -61,6 +61,11 @@ class DeterministicCopilotProvider:
                 requires_confirmation=proposed_action is not None,
             )
 
+        if request.intent is CopilotIntent.READ_ONLY_QUERY and _PROCESS_WORD.search(request.message):
+            answer, process_observations = _process_answer(request.message, context)
+            observations.extend(process_observations)
+            return CopilotAIOutput(answer=answer, observations=observations[:8])
+
         if request.intent is CopilotIntent.READ_ONLY_QUERY and _TASK_WORD.search(request.message):
             observations.extend(
                 _task_detail_observations(context)
@@ -77,6 +82,95 @@ class DeterministicCopilotProvider:
 
 
 _TASK_WORD = re.compile(r"\btasks?\b", re.IGNORECASE)
+_PROCESS_WORD = re.compile(r"\bprocess(?:es)?\b|\bpid\b", re.IGNORECASE)
+_CPU_WORD = re.compile(r"\bcpu\b|\btop\b|\bbusiest\b|\bheaviest\b", re.IGNORECASE)
+_NAMESPACE_WORD = re.compile(r"\bnamespaces?\b", re.IGNORECASE)
+_STATE_WORD = re.compile(r"\bstates?\b", re.IGNORECASE)
+_CPU_NOTE = "cumulative CPU time as reported by IRIS, not current CPU usage"
+
+
+def _process_answer(message: str, context: CopilotOperationalContext) -> tuple[str, list[str]]:
+    """Read-only answers from the process list in the context. States are
+    IRIS's own codes and are reported as they are, not judged."""
+    total = context.processes_total
+    if total is None:
+        return "Process information could not be read, so process activity could not be assessed.", []
+    pid = process_pid_in(message)
+    if pid is not None:
+        return _pid_answer(pid, context)
+    if total == 0:
+        return "IRIS reports no processes.", []
+    noun = "process" if total == 1 else "processes"
+    by_namespace = context.processes_by_namespace
+    if _CPU_WORD.search(message):
+        top = context.processes_top_cpu
+        return (
+            f"The top {len(top)} of {total} {noun} by {_CPU_NOTE}.",
+            [
+                f"PID {p.pid}: {p.cpu_time} ms, {p.routine or 'no routine'} "
+                f"({p.namespace or '(none)'}, {p.state or 'state unknown'})"
+                for p in top
+            ],
+        )
+    if _NAMESPACE_WORD.search(message):
+        return (
+            f"IRIS reports {total} {noun} across {len(by_namespace)} namespaces. "
+            "Processes without a namespace, such as system daemons, are listed as (none).",
+            _count_lines("Namespace", by_namespace),
+        )
+    if _STATE_WORD.search(message):
+        return (
+            f"IRIS reports {total} {noun} in {len(context.processes_by_state)} states. "
+            "States are IRIS's own process state codes, shown as reported.",
+            _count_lines("State", context.processes_by_state),
+        )
+    observations = [
+        "By state: " + _joined_counts(context.processes_by_state) + ".",
+        "By namespace: " + _joined_counts(by_namespace) + ".",
+    ]
+    if context.processes_top_cpu:
+        top = context.processes_top_cpu[0]
+        observations.append(
+            f"Highest cumulative CPU time: PID {top.pid} ({top.routine or 'no routine'}), "
+            f"{top.cpu_time} ms."
+        )
+    return f"IRIS reports {total} {noun} across {len(by_namespace)} namespaces.", observations
+
+
+def _pid_answer(pid: int, context: CopilotOperationalContext) -> tuple[str, list[str]]:
+    process = context.process_focus
+    if process is None or process.pid != pid:
+        return (
+            f"PID {pid} was not found in the current process data "
+            f"({context.processes_total} processes reported).",
+            [],
+        )
+    return (
+        f"PID {pid} is in state {process.state or 'unknown'}, running "
+        f"{process.routine or 'no routine'} in {process.namespace or 'no namespace'}.",
+        [
+            f"Namespace: {process.namespace or '(none)'}",
+            f"Routine: {process.routine or '(none)'}",
+            f"State: {process.state or 'unknown'}",
+            f"Username: {process.username or '(none)'}",
+            f"CPU time: {process.cpu_time} ms ({_CPU_NOTE})",
+            f"Commands: {process.commands}",
+            f"Globals: {process.globals}",
+            f"Elapsed time: {process.elapsed_time or 'not reported'}",
+        ],
+    )
+
+
+def _count_lines(label: str, counts: dict[str, int]) -> list[str]:
+    lines = [f"{label} {key}: {count}" for key, count in counts.items()]
+    if len(lines) <= 8:
+        return lines
+    rest = list(counts.values())[7:]
+    return lines[:7] + [f"{len(rest)} more, with {sum(rest)} processes"]
+
+
+def _joined_counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{key} {count}" for key, count in counts.items())
 
 
 def _task_answer(context: CopilotOperationalContext) -> str:

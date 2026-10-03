@@ -34,6 +34,7 @@ _READ_ONLY_PATTERNS = (
     r"\bstatus\b",
     r"\bversion\b",
     r"\bprocess(?:es)?\b",
+    r"\bpid\b",
     r"\bdatabases?\b",
     r"\bstorage\b",
     r"\bweb\s*apps?\b",
@@ -68,6 +69,15 @@ def classify_intent(message: str) -> CopilotIntent:
     if _matches_any(text, _READ_ONLY_PATTERNS):
         return CopilotIntent.READ_ONLY_QUERY
     return CopilotIntent.UNKNOWN
+
+
+_PID_PATTERN = re.compile(r"\bpid\s*#?\s*(\d{1,10})\b", re.IGNORECASE)
+
+
+def process_pid_in(message: str) -> int | None:
+    """The PID a question asks about ("Explain PID 1234"), if any."""
+    match = _PID_PATTERN.search(message)
+    return int(match.group(1)) if match else None
 
 
 _TASK_DETAIL_PATTERN = re.compile(

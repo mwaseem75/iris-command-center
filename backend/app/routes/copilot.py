@@ -8,7 +8,12 @@ from app.copilot.ai import CopilotAIProvider, create_copilot_provider
 from app.copilot.authorization import CopilotAuthorizationService
 from app.copilot.capabilities import describe_capabilities
 from app.copilot.execution import CopilotExecutionService
-from app.copilot.intents import CopilotIntent, classify_intent, is_task_detail_question
+from app.copilot.intents import (
+    CopilotIntent,
+    classify_intent,
+    is_task_detail_question,
+    process_pid_in,
+)
 from app.copilot.planner import CatalogOperation, CopilotPlanningService, catalog_operation_for
 from app.copilot.reasoning import CopilotReasoningService
 from app.dependencies import get_caller_privileges, get_iris_client, get_read_client
@@ -82,7 +87,8 @@ async def ask_copilot(
         return await reasoning.reason(body.message, intent, None)
     # Task details cost one IRIS call per task; read them only when asked for.
     context = await CopilotContextService(client).get_context(
-        task_details=is_task_detail_question(body.message)
+        task_details=is_task_detail_question(body.message),
+        focus_pid=process_pid_in(body.message),
     )
     return await reasoning.reason(body.message, intent, context)
 

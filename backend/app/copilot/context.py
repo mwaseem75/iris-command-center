@@ -1,6 +1,7 @@
 """Gather bounded, read-only operational context from IRIS."""
 
 import asyncio
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -37,6 +38,7 @@ from app.routes.iris import (
 from app.routes.issues import IssuesResponse, list_issues
 
 _MAX_ITEMS_PER_SOURCE = 10
+_MAX_TOP_PROCESSES = 5
 _MAX_TEXT_LENGTH = 160
 _MAX_EXPLANATION_LENGTH = 320
 _T = TypeVar("_T")
@@ -52,10 +54,14 @@ class CopilotContextService:
     def __init__(self, client: IRISClient):
         self._client = client
 
-    async def get_context(self, *, task_details: bool = True) -> CopilotOperationalContext:
+    async def get_context(
+        self, *, task_details: bool = True, focus_pid: int | None = None
+    ) -> CopilotOperationalContext:
         """`task_details` reads GET /v2/task for each task kept in the context
         (schedule, run-as). Without it those fields stay None and no detail
-        call is made; state, errors and last/next run are still included."""
+        call is made; state, errors and last/next run are still included.
+        `focus_pid` adds that process (if IRIS reported it) as `process_focus`;
+        it comes from the same process list, with no extra call."""
         unavailable: list[str] = []
 
         async def read_source(
@@ -91,12 +97,23 @@ class CopilotContextService:
             await self._task_details(shown_tasks) if task_details else [None] * len(shown_tasks)
         )
 
+        processes = processes if isinstance(processes, list) else None
         return CopilotOperationalContext(
             info=self._info(info) if isinstance(info, InfoResult) else None,
             databases=self._databases(databases) if isinstance(databases, list) else [],
             databases_total=len(databases) if isinstance(databases, list) else None,
-            processes=self._processes(processes) if isinstance(processes, list) else [],
-            processes_total=len(processes) if isinstance(processes, list) else None,
+            processes=self._processes(processes) if processes is not None else [],
+            processes_total=len(processes) if processes is not None else None,
+            processes_by_state=self._counts(processes, lambda item: item.State or "Unknown"),
+            processes_by_namespace=self._counts(processes, lambda item: item.Nspace or "(none)"),
+            processes_top_cpu=[
+                self._process(item)
+                for item in sorted(processes or [], key=lambda item: item.CPUTime, reverse=True)
+                [:_MAX_TOP_PROCESSES]
+            ],
+            process_focus=next(
+                (self._process(item) for item in processes or [] if item.Pid == focus_pid), None
+            ),
             web_apps=self._web_apps(web_apps) if isinstance(web_apps, list) else [],
             web_apps_total=len(web_apps) if isinstance(web_apps, list) else None,
             tasks=self._tasks(tasks, details) if isinstance(tasks, list) else [],
@@ -131,18 +148,30 @@ class CopilotContextService:
         ]
 
     @staticmethod
-    def _processes(processes: list[ProcessEntry]) -> list[CopilotProcessContext]:
-        return [
-            CopilotProcessContext(
-                pid=item.Pid,
-                username=_bounded_text(item.Username),
-                namespace=_bounded_text(item.Nspace),
-                routine=_bounded_text(item.Routine),
-                state=_bounded_text(item.State),
-                cpu_time=item.CPUTime,
-            )
-            for item in processes[:_MAX_ITEMS_PER_SOURCE]
-        ]
+    def _process(item: ProcessEntry) -> CopilotProcessContext:
+        return CopilotProcessContext(
+            pid=item.Pid,
+            username=_bounded_text(item.Username),
+            namespace=_bounded_text(item.Nspace),
+            routine=_bounded_text(item.Routine),
+            state=_bounded_text(item.State),
+            cpu_time=item.CPUTime,
+            commands=item.Commands,
+            globals=item.Globals,
+            elapsed_time=_bounded_text(item.ElapsedTime),
+        )
+
+    @classmethod
+    def _processes(cls, processes: list[ProcessEntry]) -> list[CopilotProcessContext]:
+        return [cls._process(item) for item in processes[:_MAX_ITEMS_PER_SOURCE]]
+
+    @staticmethod
+    def _counts(
+        processes: list[ProcessEntry] | None, key: Callable[[ProcessEntry], str]
+    ) -> dict[str, int]:
+        """Processes per key, most first; empty if the list couldn't be read."""
+        counts = Counter(_bounded_text(key(item)) for item in processes or [])
+        return dict(counts.most_common())
 
     @staticmethod
     def _web_apps(web_apps: list[WebAppEntry]) -> list[CopilotWebAppContext]:

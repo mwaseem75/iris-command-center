@@ -2,11 +2,13 @@
 // State bar, search/filters, a table and a detail drawer.
 //
 // There are no process actions (suspend/resume/terminate); the Can* flags
-// are just shown. The drawer shows all 21 ProcessEntry fields
-// (DRAWER_FIELDS), the table a subset. All counts come from the one
-// response.
+// are just shown. "Ask IRIS about this process" opens the read-only Ask IRIS
+// panel (ask-iris.js) for the process in the drawer. The drawer shows all
+// 21 ProcessEntry fields (DRAWER_FIELDS), the table a subset. All counts
+// come from the one response.
 
 import { IrisApi, ApiError } from "./api.js";
+import { openAskIris } from "./ask-iris.js";
 import { selectedInstanceId } from "./instance-context.js";
 import { navigateTo } from "./nav.js";
 import { countBy, renderStackedBar, topCategories } from "./viz.js";
@@ -49,6 +51,7 @@ const dom = {
   drawerStateBadge: document.getElementById("processes-drawer-state-badge"),
   drawerFields: document.getElementById("processes-drawer-fields"),
   drawerClose: document.getElementById("processes-drawer-close"),
+  drawerAskButton: document.getElementById("processes-drawer-ask-button"),
 };
 
 // [label, ProcessEntry field, value kind], in model order. The field name
@@ -501,6 +504,11 @@ export function initProcessesControls() {
   });
 
   dom.drawerClose.addEventListener("click", closeDrawer);
+  dom.drawerAskButton.addEventListener("click", () => {
+    const pid = currentDrawerPid;
+    closeDrawer();
+    openAskIris(pid);
+  });
   dom.drawerBackdrop.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !dom.drawer.hidden) closeDrawer();

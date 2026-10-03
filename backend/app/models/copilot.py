@@ -34,7 +34,10 @@ class CopilotProcessContext(BaseModel):
     namespace: str | None = None
     routine: str | None = None
     state: str | None = None
-    cpu_time: int | None = None
+    cpu_time: int | None = None  # cumulative, in ms, as IRIS reports it
+    commands: int | None = None
+    globals: int | None = None
+    elapsed_time: str | None = None
 
 
 class CopilotWebAppContext(BaseModel):
@@ -97,6 +100,12 @@ class CopilotOperationalContext(BaseModel):
     databases_total: int | None = None
     processes: list[CopilotProcessContext]
     processes_total: int | None = None
+    # Summaries over every process from the same /v2/processes read.
+    processes_by_state: dict[str, int] = {}
+    processes_by_namespace: dict[str, int] = {}
+    processes_top_cpu: list[CopilotProcessContext] = []
+    # The process a question names by PID, if IRIS reported it.
+    process_focus: CopilotProcessContext | None = None
     web_apps: list[CopilotWebAppContext]
     web_apps_total: int | None = None
     tasks: list[CopilotTaskContext]

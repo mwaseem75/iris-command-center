@@ -13,6 +13,7 @@ from app.models.copilot import (
     CopilotDatabaseContext,
     CopilotIssueContext,
     CopilotOperationalContext,
+    CopilotProcessContext,
 )
 from app.routes.copilot import get_copilot_ai_provider
 
@@ -205,5 +206,119 @@ async def test_deterministic_issue_investigation_when_issues_unavailable() -> No
     assert "could not be read" in output.answer
     assert output.observations == ["Context unavailable for: issues."]
     assert "not retrieve Issue Resolver findings" not in output.answer
+    assert output.proposed_action is None
+    assert output.requires_confirmation is False
+
+
+# --- process questions (read-only, from the process context) ---
+
+def _process_request(message: str, *, available: bool = True, focus: bool = True) -> CopilotAIRequest:
+    top = [
+        CopilotProcessContext(pid=2468, namespace="%SYS", routine="%SYS.Job", state="HANG", cpu_time=34980),
+        CopilotProcessContext(pid=3456, namespace="USER", routine="MyApp.Service", state="RUNW", cpu_time=1200),
+    ]
+    focus_process = CopilotProcessContext(
+        pid=2468, username="operator", namespace="%SYS", routine="%SYS.Job", state="HANG",
+        cpu_time=34980, commands=10, globals=4, elapsed_time="30:44:28",
+    )
+    return CopilotAIRequest(
+        message=message,
+        intent=classify_intent(message),
+        context=CopilotOperationalContext(
+            databases=[],
+            processes=top if available else [],
+            processes_total=42 if available else None,
+            processes_by_state={"RUNW": 12, "EVTW": 12, "HANG": 2} if available else {},
+            processes_by_namespace={"%SYS": 24, "(none)": 12, "USER": 6} if available else {},
+            processes_top_cpu=top if available else [],
+            process_focus=focus_process if available and focus else None,
+            web_apps=[],
+            tasks=[],
+            unavailable=[] if available else ["processes"],
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_state_summary_reports_states_as_iris_gives_them() -> None:
+    output = await DeterministicCopilotProvider().generate(_process_request("Show processes by state"))
+
+    assert output.answer.startswith("IRIS reports 42 processes in 3 states.")
+    assert output.observations == ["State RUNW: 12", "State EVTW: 12", "State HANG: 2"]
+    text = (output.answer + " ".join(output.observations)).lower()
+    for judgement in ("hung", "stuck", "problem", "unhealthy"):
+        assert judgement not in text
+
+
+@pytest.mark.asyncio
+async def test_process_namespace_summary() -> None:
+    output = await DeterministicCopilotProvider().generate(_process_request("Show processes by namespace"))
+
+    assert output.answer.startswith("IRIS reports 42 processes across 3 namespaces")
+    assert output.observations == ["Namespace %SYS: 24", "Namespace (none): 12", "Namespace USER: 6"]
+
+
+@pytest.mark.asyncio
+async def test_top_processes_by_cumulative_cpu_time_never_claim_a_rate() -> None:
+    output = await DeterministicCopilotProvider().generate(
+        _process_request("Which processes have the highest cumulative CPU time?")
+    )
+
+    assert "cumulative CPU time as reported by IRIS, not current CPU usage" in output.answer
+    assert output.observations[0].startswith("PID 2468: 34980 ms")
+    assert output.observations[1].startswith("PID 3456: 1200 ms")
+    assert "utilization" not in output.answer.lower() and "%" not in output.answer
+
+
+@pytest.mark.asyncio
+async def test_process_summary_combines_states_namespaces_and_top_cpu() -> None:
+    output = await DeterministicCopilotProvider().generate(_process_request("Summarize process activity"))
+
+    assert output.answer == "IRIS reports 42 processes across 3 namespaces."
+    assert output.observations == [
+        "By state: RUNW 12, EVTW 12, HANG 2.",
+        "By namespace: %SYS 24, (none) 12, USER 6.",
+        "Highest cumulative CPU time: PID 2468 (%SYS.Job), 34980 ms.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pid_question_returns_that_processes_fields() -> None:
+    request = _process_request("Explain PID 2468")
+    output = await DeterministicCopilotProvider().generate(request)
+
+    assert request.intent is CopilotIntent.READ_ONLY_QUERY
+    assert output.answer == "PID 2468 is in state HANG, running %SYS.Job in %SYS."
+    assert "Elapsed time: 30:44:28" in output.observations
+    assert "Username: operator" in output.observations
+    assert any(line.startswith("CPU time: 34980 ms (cumulative") for line in output.observations)
+
+
+@pytest.mark.asyncio
+async def test_missing_pid_is_reported_as_not_found() -> None:
+    output = await DeterministicCopilotProvider().generate(_process_request("Explain PID 99999", focus=False))
+
+    assert output.answer == "PID 99999 was not found in the current process data (42 processes reported)."
+    assert output.observations == []
+
+
+@pytest.mark.asyncio
+async def test_unavailable_process_data_is_not_assessed() -> None:
+    for message in ("Summarize process activity", "Explain PID 2468"):
+        output = await DeterministicCopilotProvider().generate(_process_request(message, available=False))
+
+        assert output.answer == (
+            "Process information could not be read, so process activity could not be assessed."
+        )
+        assert output.observations == ["Context unavailable for: processes."]
+        assert output.proposed_action is None
+
+
+@pytest.mark.asyncio
+async def test_process_change_requests_stay_proposals_free() -> None:
+    request = _process_request("Stop process 2468")
+    output = await DeterministicCopilotProvider().generate(request)
+
+    assert request.intent is CopilotIntent.RESOLUTION_REQUEST
     assert output.proposed_action is None
     assert output.requires_confirmation is False
