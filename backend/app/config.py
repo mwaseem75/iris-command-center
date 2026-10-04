@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     # successful startup. ---
     auto_run_demo_activity: bool = False
 
+    # --- Optional: the Docker-managed second instance (docker-compose.yml's
+    # iris-2), registered at startup as IRIS-2 when IRIS2_BASE_URL and
+    # IRIS2_PASSWORD are set. Its password is stored in the IRIS Wallet. ---
+    iris2_base_url: str | None = None
+    iris2_username: str = "_SYSTEM"
+    iris2_password: SecretStr | None = None
+    iris2_namespace: str = "USER"
+
 
 @lru_cache
 def get_settings() -> Settings:

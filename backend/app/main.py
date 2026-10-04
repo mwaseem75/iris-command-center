@@ -8,6 +8,8 @@ Optional features switched on by settings:
 - ENABLE_KNOWLEDGE_SEARCH: create/reindex CommandCenter.Knowledge at startup.
 - AUTO_RUN_DEMO_ACTIVITY: run the Demo Activity rehearsal once in the
   background (a marker in USER stops it from repeating).
+- IRIS2_BASE_URL + IRIS2_PASSWORD: register the Docker-managed iris-2 as
+  IRIS-2 in the background (app/instances/docker_instance.py).
 
 Nothing here talks to IRIS until a route or one of these features needs it.
 """
@@ -41,6 +43,7 @@ from app.routes.health_center import router as health_center_router
 from app.routes.iris import router as iris_router
 from app.instances.clients import InstanceClientPool
 from app.instances.credentials import WalletCredentialStore
+from app.instances import docker_instance
 from app.instances.registry import InstanceRegistry, IRISInstanceWriter, primary_from_settings
 from app.resolution import custom_rules
 from app.routes.issue_rules import router as issue_rules_router
@@ -96,6 +99,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.instance_clients = InstanceClientPool(
         app.state.iris_client, settings, app.state.credential_store, instance_registry
     )
+    # Runs in the background and waits for iris-2 on its own; a failure only
+    # logs a warning. Stopped before the credential store is closed.
+    docker_instance_registration: docker_instance.StartupDockerInstance | None = None
+    if docker_instance.is_configured(settings):
+        docker_instance_registration = docker_instance.StartupDockerInstance(
+            instance_registry, app.state.credential_store, settings
+        )
+        docker_instance_registration.start()
 
     knowledge_store: IRISKnowledgeStore | None = None
     if settings.enable_knowledge_search:
@@ -120,6 +131,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if demo_activity is not None:
             await demo_activity.stop()
+        if docker_instance_registration is not None:
+            await docker_instance_registration.stop()
         await app.state.instance_clients.aclose()
         await app.state.iris_client.aclose()
         app.state.python_diagnostics.close()

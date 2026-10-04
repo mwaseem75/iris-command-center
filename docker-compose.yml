@@ -7,8 +7,8 @@
 #   backend   FastAPI Command Center API — starts once IRIS is healthy and
 #             reaches it over the Compose network (iris:52773 / iris:1972).
 #   iris-2    A second, independent IRIS 2026.2 instance with durable %SYS
-#             (iris-2-data volume), on host ports 52774 / 1974. Not registered
-#             in the Command Center automatically.
+#             (iris-2-data volume), on host ports 52774 / 1974. The backend
+#             registers it automatically as the Docker-managed IRIS-2.
 #
 # The web console is served by IRIS itself: on every start IRIS installs the
 # iris-command-center IPM package (module.xml + frontend/, mounted read-only),
@@ -82,17 +82,28 @@ services:
       # Run the Demo Activity once on the first successful start (a marker in
       # USER stops it from running again).
       AUTO_RUN_DEMO_ACTIVITY: "true"
+      # iris-2, registered automatically as the Docker-managed IRIS-2 (in the
+      # background: the backend doesn't wait for it, and if it is down or the
+      # login fails only a warning is logged). Its password is stored in the
+      # Primary's IRIS Wallet, never in ^CommandCenterInstance.
+      IRIS2_BASE_URL: http://iris-2:52773
+      IRIS2_USERNAME: _SYSTEM
+      IRIS2_PASSWORD: ${IRIS2_PASSWORD:-}
+      IRIS2_NAMESPACE: USER
 
   # ---------------------------------------------------------------------------
-  # iris-2: a second, independent IRIS instance (same image) that can be
-  # registered in the Command Center as an additional instance. Nothing
-  # registers it automatically.
+  # iris-2: a second, independent IRIS instance (same image), registered in
+  # the Command Center automatically by the backend (see IRIS2_* above).
   #
   # Durable %SYS: ISC_DATA_DIRECTORY keeps its whole data directory
   # (configuration, users, databases) on the iris-2-data volume, so it
   # survives container re-creation. Host ports: 52774 (web) / 1974
   # (superserver). Its password comes from IRIS2_PASSWORD in `.env`, passed as
   # a Compose secret (a file, not an environment variable of the container).
+  # Compose does NOT recreate iris-2 when only IRIS2_PASSWORD changes (the
+  # secret's value isn't part of its configuration), so iris-2 would keep the
+  # old password while the backend logs in with the new one. After changing
+  # IRIS2_PASSWORD, run `docker compose up -d --force-recreate iris-2 backend`.
   # ---------------------------------------------------------------------------
 
   # One-shot: a new named volume mounted where the image has no directory is

@@ -183,6 +183,10 @@ class InstanceRegistry:
             raise InstancePersistenceError("The instance could not be saved to IRIS.")
         self._instances[instance.id] = instance
 
+    def find_by_url(self, base_url: str) -> InstanceDefinition | None:
+        key = _url_key(base_url)
+        return next((i for i in self._instances.values() if _url_key(i.base_url) == key), None)
+
     def url_in_use(self, base_url: str, ignore: str | None = None) -> bool:
         key = _url_key(base_url)
         return any(_url_key(i.base_url) == key for i in self._instances.values() if i.id != ignore)

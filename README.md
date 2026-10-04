@@ -401,7 +401,7 @@ Check the services:
 docker compose ps
 ```
 
-The stack starts the Primary IRIS (`iris`), the backend, and a second, independent IRIS instance (`iris-2`, same image, durable `%SYS` on the `iris-2-data` volume, host ports `52774` / `1974`). `iris-2` is not registered automatically: add it on the **Instances** screen with the URL `http://iris-2:52773`, user `_SYSTEM` and your `IRIS2_PASSWORD`. It is then shown as **Docker-managed**: it can be checked and (de)activated, but not edited or deleted (Command Center recognises it by its host name, `iris-2`).
+The stack starts the Primary IRIS (`iris`), the backend, and a second, independent IRIS instance (`iris-2`, same image, durable `%SYS` on the `iris-2-data` volume, host ports `52774` / `1974`). The backend registers `iris-2` automatically as **IRIS-2** (`http://iris-2:52773`, user `_SYSTEM`, your `IRIS2_PASSWORD`), in the background once `iris-2` answers; its password is stored in the Primary's IRIS Wallet. Restarts reuse the same registration (no duplicates) and re-store the password if the Wallet lost it. If `iris-2` is down or the login fails, the backend logs a warning and the Primary works as usual; after changing `IRIS2_PASSWORD`, run `docker compose up -d --force-recreate iris-2 backend` (Compose doesn't recreate `iris-2` for a changed secret by itself). IRIS-2 is shown as **Docker-managed**: it can be checked and (de)activated, but not edited or deleted (Command Center recognises it by its host name, `iris-2`).
 
 ### 4. Open Command Center
 
