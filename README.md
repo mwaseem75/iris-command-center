@@ -564,7 +564,7 @@ The top of the Security page summarizes the selected instance before you open a 
 The overview is read-only and uses existing routes (`GET /api/iris/security/services`, `/security/x509/overview`, `/security/wallet/overview` and `/security/audit/enabled`); the OAuth 2.0 summary reuses the page's existing OAuth read.
 
 <!-- Screenshot placeholder: replace with the Security Overview screenshot. -->
-<img width="1278" height="384" alt="image" src="https://github.com/user-attachments/assets/1d967732-2f85-4e75-9fbd-f2da146d47c3" />
+<img width="1278" alt="image" src="https://github.com/user-attachments/assets/1d967732-2f85-4e75-9fbd-f2da146d47c3" />
 
 Sensitive information is protected. The application deliberately withholds or filters values such as:
 - Passwords
